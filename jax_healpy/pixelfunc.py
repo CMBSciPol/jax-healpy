@@ -66,6 +66,7 @@ Map data manipulation
 - :func:`get_interp_val` computes a bilinear interpolation of the map
   at given angular coordinates, using 4 nearest neighbours
 """
+
 from functools import partial
 
 import jax.numpy as jnp
