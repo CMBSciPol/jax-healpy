@@ -1,8 +1,16 @@
-from functools import partial
+from functools import partial, wraps
+from typing import Callable, ParamSpec, TypeVar
 
 import jax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
+
+try:
+    from s2fft.recursions.price_mcewen import generate_precomputes_jax
+    from s2fft.sampling.reindex import flm_2d_to_hp_fast, flm_hp_to_2d_fast
+    from s2fft.transforms import spherical
+except ImportError:
+    pass
 
 from jax_healpy import npix2nside
 
@@ -10,6 +18,25 @@ __all__ = [
     'alm2map',
     'map2alm',
 ]
+
+Param = ParamSpec('Param')
+ReturnType = TypeVar('ReturnType')
+
+
+def requires_s2fft(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnType]:
+    try:
+        import s2fft  # noqa
+
+        return func
+    except ImportError:
+        pass
+
+    @wraps(func)
+    def deferred_func(*args: Param.args, **kwargs: Param.kwargs) -> ReturnType:
+        msg = "Missing optional library 's2fft', part of the 'recommended' dependency group."
+        raise ImportError(msg)
+
+    return deferred_func
 
 
 @partial(
@@ -27,6 +54,7 @@ __all__ = [
         'healpy_ordering',
     ],
 )
+@requires_s2fft
 def alm2map(
     alms: ArrayLike,
     nside: int,
@@ -94,14 +122,6 @@ def alm2map(
     alm2map. With such an input, the accuracy of map2alm->alm2map should be quite good, depending on your choices
     of lmax, mmax and nside (for some typical values, see e.g., section 5.1 of https://arxiv.org/pdf/1010.2084).
     """
-    try:
-        from s2fft.recursions.price_mcewen import generate_precomputes_jax
-        from s2fft.sampling.reindex import flm_hp_to_2d_fast
-        from s2fft.transforms import spherical
-    except ImportError as e:
-        msg = "Missing optional dependency 's2fft', part of the 'spht' dependency group."
-        raise ImportError(msg) from e
-
     if mmax is not None:
         raise NotImplementedError('Specifying mmax is not implemented.')
     if pixwin:
@@ -118,7 +138,17 @@ def alm2map(
         raise ValueError('Input alms have too many dimensions.')
     if alms.ndim == expected_ndim + 1 + pol:
         return jax.vmap(alm2map, in_axes=(0,) + 10 * (None,))(
-            alms, nside, lmax, mmax, pixwin, fwhm, sigma, pol, inplace, False, healpy_ordering
+            alms,
+            nside,
+            lmax,
+            mmax,
+            pixwin,
+            fwhm,
+            sigma,
+            pol,
+            inplace,
+            False,
+            healpy_ordering,
         )
     if alms.ndim > expected_ndim:
         # only happens if pol=True
@@ -166,6 +196,7 @@ def alm2map(
         'healpy_ordering',
     ],
 )
+@requires_s2fft
 def map2alm(
     maps,
     lmax=None,
@@ -250,14 +281,6 @@ def map2alm(
     value, so that the input maps are not modified. Each map have its own,
     independent mask.
     """
-    try:
-        from s2fft.recursions.price_mcewen import generate_precomputes_jax
-        from s2fft.sampling.reindex import flm_2d_to_hp_fast
-        from s2fft.transforms import spherical
-    except ImportError as e:
-        msg = "Missing optional dependency 's2fft', part of the 'spht' dependency group."
-        raise ImportError(msg) from e
-
     if mmax is not None:
         raise NotImplementedError('Specifying mmax is not implemented.')
     if iter != 0:
