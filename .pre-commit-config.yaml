@@ -1,10 +1,4 @@
 repos:
-- repo: https://github.com/asottile/pyupgrade
-  rev: "v3.3.1"
-  hooks:
-  - id: pyupgrade
-    args: ["--py38-plus"]
-
 - repo: https://github.com/hadialqattan/pycln
   rev: "v2.4.0"
   hooks:
@@ -12,22 +6,11 @@ repos:
     args:
     - --all
 
-- repo: https://github.com/PyCQA/isort
-  rev: '5.12.0'
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.8.0
   hooks:
-  - id: isort
-    args:
-    - --profile=black
-    - --filter-files
-    - --line-length=120
-
-- repo: https://github.com/psf/black-pre-commit-mirror
-  rev: '23.9.1'
-  hooks:
-  - id: black
-    args:
-    - --skip-string-normalization
-    - --line-length=120
+    - id: ruff
+    - id: ruff-format
 
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: 'v5.0.0'
@@ -35,21 +18,7 @@ repos:
   - id: trailing-whitespace
   - id: end-of-file-fixer
   - id: check-yaml
-  - id: double-quote-string-fixer
   - id: check-merge-conflict
-  - id: debug-statements
-
-- repo: https://github.com/pycqa/flake8
-  rev: '6.0.0'
-  hooks:
-  - id: flake8
-    name: flake 8 (src)
-    args:
-    - --max-line-length=120
-    # E203 whitespace before ':' (black incompatibility)
-    # E731 do not assign a lambda expression, use a def
-    - --extend-ignore=E203,E731
-    files: ^jax_healpy/
 
 - repo: https://github.com/PyCQA/bandit
   rev: '1.8.0'
