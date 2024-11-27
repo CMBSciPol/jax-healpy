@@ -5,8 +5,8 @@ import pytest
 
 s2fft = pytest.importorskip('s2fft')
 
-from s2fft.sampling.s2_samples import flm_2d_to_hp
-from s2fft.utils import signal_generator
+from s2fft.sampling.s2_samples import flm_2d_to_hp  # noqa: E402
+from s2fft.utils import signal_generator  # noqa: E402
 
 
 @pytest.fixture

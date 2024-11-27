@@ -106,7 +106,7 @@ def _get_func(library: LibraryType, func_name: str, *args: Any):
 
     func = getattr(module, func_name)
     if library == 'healpy':
-        func_ = lambda: func(*args)
+        func_ = lambda: func(*args)  # noqa: E731
     else:
         if func_name in {'pix2ang', 'vec2ang'}:
 
@@ -148,12 +148,10 @@ def run(
             processor_type = 'cpu'
         else:
             processor_type = 'gpu'
-        import jax_healpy as module
     elif library == 'healpy':
         version = hp.__version__
         processor = _get_cpu_name()
         processor_type = 'cpu'
-        import healpy as module
     else:
         raise ValueError(f'Invalid library {library}')
 

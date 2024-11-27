@@ -66,6 +66,7 @@ Map data manipulation
 - :func:`get_interp_val` computes a bilinear interpolation of the map
   at given angular coordinates, using 4 nearest neighbours
 """
+
 from functools import partial
 
 import jax.numpy as jnp
@@ -128,7 +129,7 @@ def check_theta_valid(theta: ArrayLike) -> None:
 def check_nside(nside: int, nest: bool = False) -> None:
     """Raises exception is nside is not valid"""
     if not np.all(isnsideok(nside, nest=nest)):
-        raise ValueError('%s is not a valid nside parameter (must be a power of 2, less than 2**30)' % str(nside))
+        raise ValueError(f'{nside} is not a valid nside parameter (must be a power of 2, less than 2**30)')
 
 
 def isnsideok(nside: int, nest: bool = False) -> bool:
