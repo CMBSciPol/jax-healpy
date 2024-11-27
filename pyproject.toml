@@ -47,7 +47,7 @@ dev = [
     'typer',
     'PyYAML',
 ]
-spht = [
+recommended = [
     's2fft',
 ]
 
