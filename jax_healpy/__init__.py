@@ -19,6 +19,7 @@ from .pixelfunc import (
     pix2vec,
     vec2ang,
     vec2pix,
+    get_interp_weights,
 )
 from .sphtfunc import alm2map, map2alm
 
@@ -30,7 +31,7 @@ __all__ = [
     'vec2pix',
     'ang2vec',
     'vec2ang',
-    # 'get_interp_weights',
+    'get_interp_weights',
     # 'get_interp_val',
     # 'get_all_neighbours',
     # 'max_pixrad',
