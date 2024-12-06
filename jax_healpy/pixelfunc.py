@@ -1035,7 +1035,7 @@ def _xy2fpix(nside: int, ix: Array, iy: Array) -> Array:
 
 
 @partial(jit, static_argnames=['nside', 'nest'])
-def pix2xyf(nside: int, ipix: ArrayLike, nest: bool = False):
+def pix2xyf(nside: int, ipix: ArrayLike, nest: bool = False) -> tuple[Array, Array, Array]:
     """pix2xyf : nside,ipix,nest=False -> x,y,face (default RING)
 
     Contrary to healpy, nside must be an int. It cannot be a list, array, tuple, etc.
@@ -1371,7 +1371,7 @@ def vec2ang(vectors: ArrayLike, lonlat: bool = False) -> tuple[Array, Array]:
 
 
 @partial(jit, static_argnames=['nside'])
-def ring2nest(nside: int, ipix: ArrayLike):
+def ring2nest(nside: int, ipix: ArrayLike) -> Array:
     """Convert pixel number from RING ordering to NESTED ordering.
 
     Contrary to healpy, nside must be an int. It cannot be a list, array, tuple, etc.
@@ -1412,7 +1412,7 @@ def ring2nest(nside: int, ipix: ArrayLike):
 
 
 @partial(jit, static_argnames=['nside'])
-def nest2ring(nside: int, ipix: ArrayLike):
+def nest2ring(nside: int, ipix: ArrayLike) -> Array:
     """Convert pixel number from NESTED ordering to RING ordering.
 
     Contrary to healpy, nside must be an int. It cannot be a list, array, tuple, etc.
