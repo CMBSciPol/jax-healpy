@@ -71,12 +71,14 @@ from functools import partial
 
 import jax.numpy as jnp
 import numpy as np
-from jax import jit, vmap
+from jax import jit, lax, vmap
 from jaxtyping import Array, ArrayLike
 
 __all__ = [
     'pix2ang',
     'ang2pix',
+    'pix2xyf',
+    'xyf2pix',
     'pix2vec',
     'vec2pix',
     'ang2vec',
@@ -85,8 +87,8 @@ __all__ = [
     # 'get_interp_val',
     # 'get_all_neighbours',
     # 'max_pixrad',
-    # 'nest2ring',
-    # 'ring2nest',
+    'nest2ring',
+    'ring2nest',
     # 'reorder',
     # 'ud_grade',
     'UNSEEN',
@@ -895,6 +897,296 @@ def _pix2ang_nest(nside: ArrayLike, ipix: ArrayLike) -> tuple[Array, Array]:
 
 
 @partial(jit, static_argnames=['nside', 'nest'])
+def xyf2pix(nside: int, x: ArrayLike, y: ArrayLike, face: ArrayLike, nest: bool = False) -> Array:
+    """xyf2pix : nside,x,y,face,nest=False -> ipix (default:RING)
+
+    Contrary to healpy, nside must be an int. It cannot be a list, array, tuple, etc.
+
+    Parameters
+    ----------
+    nside : int
+        The healpix nside parameter, must be a power of 2
+    x, y : int, scalars or array-like
+        Pixel indices within face
+    face : int, scalars or array-like
+        Face number
+    nest : bool, optional
+        if True, assume NESTED pixel ordering, otherwise, RING pixel ordering
+
+    Returns
+    -------
+    pix : int or array of int
+        The healpix pixel numbers. Scalar if all input are scalar, array otherwise.
+        Usual numpy broadcasting rules apply.
+
+    See Also
+    --------
+    pix2xyf
+
+    Examples
+    --------
+    >>> import healpy as hp
+    >>> hp.xyf2pix(16, 8, 8, 4)
+    1440
+
+    >>> print(hp.xyf2pix(16, [8, 8, 8, 15, 0], [8, 8, 7, 15, 0], [4, 0, 5, 0, 8]))
+    [1440  427 1520    0 3068]
+    """
+    check_nside(nside, nest=nest)
+    x = jnp.asarray(x)
+    y = jnp.asarray(y)
+    face = jnp.asarray(face)
+    if nest:
+        return _xyf2pix_nest(nside, x, y, face)
+    else:
+        return _xyf2pix_ring(nside, x, y, face)
+
+
+@partial(jit, static_argnames=['nside'])
+def _xyf2pix_nest(nside: int, ix: Array, iy: Array, fnum: Array) -> Array:
+    """Convert (x, y, face) to pixel number in NESTED ordering"""
+    fpix = _xy2fpix(nside, ix, iy)
+    nested_pixel = fnum * nside**2 + fpix
+    return nested_pixel
+
+
+# ring index of south corner for each face (0 = North pole)
+_JRLL = jnp.array([2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4])
+
+# longitude index of south corner for each face (0 = longitude zero)
+_JPLL = jnp.array([1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7])
+
+
+@partial(jit, static_argnames=['nside'])
+def _xyf2pix_ring(nside: int, ix: Array, iy: Array, face_num: Array) -> Array:
+    """Convert (x, y, face) to a pixel number in RING ordering"""
+    # ring index of the pixel center
+    jr = (_JRLL[face_num] * nside) - ix - iy - 1
+
+    ringpix = _npix_on_ring(nside, jr)
+    startpix = _start_pixel_ring(nside, jr)
+    kshift = 1 - _ring_shifted(nside, jr)
+
+    # pixel number in the ring
+    jp = (_JPLL[face_num] * ringpix // 4 + ix - iy + 1 + kshift) // 2
+    jp = jnp.where(jp < 1, jp + 4 * nside, jp)
+
+    return startpix - 1 + jp
+
+
+def _start_pixel_ring(nside: int, i_ring: ArrayLike) -> Array:
+    """Get the first pixel number of a ring"""
+    # work in northern hemisphere
+    i_north = _northern_ring(nside, i_ring)
+    ringpix = _npix_on_ring(nside, i_ring)
+    ncap = 2 * nside * (nside - 1)
+    npix = nside2npix(nside)
+    startpix = jnp.where(
+        i_north < nside,
+        2 * i_north * (i_north - 1),  # north polar cap
+        ncap + (i_north - nside) * 4 * nside,  # north equatorial belt
+    )
+    # flip results if in southern hemisphere
+    startpix = jnp.where(i_ring != i_north, npix - startpix - ringpix, startpix)
+    return startpix
+
+
+def _npix_on_ring(nside: int, i_ring: ArrayLike) -> Array:
+    """Get the number of pixels on a ring"""
+    i_north = _northern_ring(nside, i_ring)
+    ringpix = jnp.where(
+        i_north < nside,
+        4 * i_north,  # rings in the polar cap have 4*i pixels
+        4 * nside,  # rings in the equatorial region have 4*nside pixels
+    )
+    return ringpix
+
+
+def _ring_shifted(nside: int, i_ring: ArrayLike) -> Array:
+    """Check if a ring is shifted"""
+    i_north = _northern_ring(nside, i_ring)
+    shifted = jnp.where(
+        i_north < nside,
+        True,
+        (i_north - nside) & 1 == 0,
+    )
+    return shifted
+
+
+def _northern_ring(nside: int, i_ring: ArrayLike) -> Array:
+    i_north = jnp.where(i_ring > 2 * nside, 4 * nside - i_ring, i_ring)
+    return i_north
+
+
+@partial(jit, static_argnames=['nside'])
+def _xy2fpix(nside: int, ix: Array, iy: Array) -> Array:
+    """Convert (x, y) coordinates to a pixel index inside a face"""
+    # fpix = (ix & 0b1) << 0 | (iy & 0b1) << 1 | (ix & 0b10) << 1 | (iy & 0b10) << 2 | ...
+
+    def combine_bits(shift, _):
+        even_bits = (ix & (1 << shift)) << shift
+        odd_bits = (iy & (1 << shift)) << (shift + 1)
+        return shift + 1, (even_bits, odd_bits)
+
+    length = nside.bit_length()
+    _, (even_bits, odd_bits) = lax.scan(combine_bits, 0, None, length=length)
+    fpix = jnp.bitwise_or.reduce(even_bits) | jnp.bitwise_or.reduce(odd_bits)
+    return fpix
+
+
+@partial(jit, static_argnames=['nside', 'nest'])
+def pix2xyf(nside: int, ipix: ArrayLike, nest: bool = False):
+    """pix2xyf : nside,ipix,nest=False -> x,y,face (default RING)
+
+    Contrary to healpy, nside must be an int. It cannot be a list, array, tuple, etc.
+
+    Parameters
+    ----------
+    nside : int
+      The healpix nside parameter, must be a power of 2
+    ipix : int or array-like
+      Pixel indices
+    nest : bool, optional
+      if True, assume NESTED pixel ordering, otherwise, RING pixel ordering
+
+    Returns
+    -------
+    x, y : int, scalars or array-like
+      Pixel indices within face
+    face : int, scalars or array-like
+      Face number
+
+    See Also
+    --------
+    xyf2pix
+
+    Examples
+    --------
+    >>> import healpy as hp
+    >>> hp.pix2xyf(16, 1440)
+    (8, 8, 4)
+
+    >>> hp.pix2xyf(16, [1440,  427, 1520,    0, 3068])
+    (array([ 8,  8,  8, 15,  0]), array([ 8,  8,  7, 15,  0]), array([4, 0, 5, 0, 8]))
+
+    >>> hp.pix2xyf([1, 2, 4, 8], 11)
+    (array([0, 1, 3, 7]), array([0, 0, 2, 6]), array([11,  3,  3,  3]))
+    """
+    check_nside(nside, nest=nest)
+    ipix = jnp.asarray(ipix)
+    if nest:
+        return _pix2xyf_nest(nside, ipix)
+    else:
+        return _pix2xyf_ring(nside, ipix)
+
+
+@partial(jit, static_argnames=['nside'])
+def _pix2xyf_nest(nside: int, pix: Array) -> tuple[Array, Array, Array]:
+    """Convert a pixel number in NESTED ordering to (x, y, face)"""
+    fnum, fpix = jnp.divmod(pix, nside**2)
+    # fpix is guaranteed to be less than nside**2
+    ix, iy = _fpix2xy(nside, fpix)
+    return ix, iy, fnum
+
+
+@partial(jit, static_argnames=['nside'])
+def _fpix2xy(nside: int, pix: Array) -> tuple[Array, Array]:
+    """Convert a pixel index inside a face into (x, y) coordinates.
+
+    Pixel indices inside the face must be less than nside**2.
+    """
+    # x = (pix & 0b1) >> 0 | (pix & 0b100) >> 1 | (pix & 0b10000) >> 2 | ...
+    # y = (pix & 0b10) >> 1 | (pix & 0b1000) >> 2 | (pix & 0b100000) >> 3 | ...
+
+    def extract_bits(shift, _):
+        even_bits = (pix & (1 << (2 * shift))) >> shift
+        odd_bits = (pix & (1 << (2 * shift + 1))) >> (shift + 1)
+        return shift + 1, (even_bits, odd_bits)
+
+    # we need to perform the scan over the bits of the pixel number
+    length = (nside**2).bit_length()
+    _, (even_bits, odd_bits) = lax.scan(extract_bits, 0, None, length=length)
+    x = jnp.bitwise_or.reduce(even_bits)
+    y = jnp.bitwise_or.reduce(odd_bits)
+
+    return x, y
+
+
+@partial(jit, static_argnames=['nside'])
+def _pix2xyf_ring(nside: int, pix: Array) -> tuple[Array, Array, Array]:
+    """Convert a pixel number in RING ordering to (x, y, face)"""
+    ncap = 2 * nside * (nside - 1)
+    npix = nside2npix(nside)
+    nl2 = 2 * nside  # number of pixels in a latitude circle
+
+    iring = _pix2i_ring(nside, pix)
+    iphi = _pix2iphi_ring(nside, iring, pix)
+    nr = _npix_on_ring(nside, iring) // 4
+    kshift = 1 - _ring_shifted(nside, iring)
+
+    ire = iring - nside + 1
+    irm = nl2 + 2 - ire
+    ifm = (iphi - ire // 2 + nside - 1) // nside
+    ifp = (iphi - irm // 2 + nside - 1) // nside
+
+    face_num = jnp.where(
+        pix < ncap,
+        (iphi - 1) // nr,  # north polar cap
+        jnp.where(
+            pix < (npix - ncap),
+            jnp.where(ifp == ifm, ifp | 4, jnp.where(ifp < ifm, ifp, ifm + 8)),
+            8 + (iphi - 1) // nr,  # south polar cap
+        ),
+    )
+
+    iring_for_irt = jnp.where(
+        jnp.logical_or(pix < ncap, pix < (npix - ncap)),
+        iring,  # north polar cap and equatorial region
+        4 * nside - iring,  # south polar cap
+    )  # ring number counted from North pole or South pole
+
+    irt = iring_for_irt - (_JRLL[face_num] * nside) + 1
+    ipt = 2 * iphi - _JPLL[face_num] * nr - kshift - 1
+    ipt -= jnp.where(ipt >= nl2, 8 * nside, 0)
+
+    ix = (ipt - irt) // 2
+    iy = (-ipt - irt) // 2
+
+    return ix, iy, face_num
+
+
+def _pix2iphi_ring(nside: int, iring: Array, pixels: Array) -> Array:
+    npixel = nside2npix(nside)
+    ncap = 2 * nside * (nside - 1)
+    iphi = jnp.where(
+        pixels < ncap,
+        _pix2iphi_north_cap_ring(nside, iring, pixels),
+        jnp.where(
+            pixels < npixel - ncap,
+            _pix2iphi_equatorial_region_ring(nside, iring, pixels),
+            _pix2iphi_south_cap_ring(nside, iring, pixels),
+        ),
+    )
+    return iphi
+
+
+def _pix2iphi_north_cap_ring(nside: int, iring: Array, pixels: Array) -> Array:
+    iphi = pixels + 1 - 2 * iring * (iring - 1)
+    return iphi
+
+
+def _pix2iphi_equatorial_region_ring(nside: int, iring: Array, pixels: Array) -> Array:
+    iphi = pixels + 2 * nside * (nside + 1) - 4 * nside * iring + 1
+    return iphi
+
+
+def _pix2iphi_south_cap_ring(nside: int, iring: Array, pixels: Array) -> Array:
+    npixel = nside2npix(nside)
+    iphi = 4 * iring + 1 - (npixel - pixels - 2 * iring * (iring - 1))
+    return iphi
+
+
+@partial(jit, static_argnames=['nside', 'nest'])
 def vec2pix(nside: int, x: ArrayLike, y: ArrayLike, z: ArrayLike, nest: bool = False) -> Array:
     """vec2pix : nside,x,y,z,nest=False -> ipix (default:RING)
 
@@ -1076,3 +1368,85 @@ def vec2ang(vectors: ArrayLike, lonlat: bool = False) -> tuple[Array, Array]:
     if lonlat:
         return _thetaphi2lonlat(theta, phi)
     return theta, phi
+
+
+@partial(jit, static_argnames=['nside'])
+def ring2nest(nside: int, ipix: ArrayLike):
+    """Convert pixel number from RING ordering to NESTED ordering.
+
+    Contrary to healpy, nside must be an int. It cannot be a list, array, tuple, etc.
+
+    Parameters
+    ----------
+    nside : int
+      the healpix nside parameter
+    ipix : int, scalar or array-like
+      the pixel number in RING scheme
+
+    Returns
+    -------
+    ipix : int, scalar or array-like
+      the pixel number in NESTED scheme
+
+    See Also
+    --------
+    nest2ring, reorder
+
+    Examples
+    --------
+    >>> import healpy as hp
+    >>> hp.ring2nest(16, 1504)
+    1130
+
+    >>> print(hp.ring2nest(2, np.arange(10)))
+    [ 3  7 11 15  2  1  6  5 10  9]
+
+    >>> print(hp.ring2nest([1, 2, 4, 8], 11))
+    [ 11  13  61 253]
+    """
+    check_nside(nside, nest=True)
+    ipix = jnp.asarray(ipix)
+    xyf = _pix2xyf_ring(nside, ipix)
+    ipix_nest = _xyf2pix_nest(nside, *xyf)
+    return ipix_nest
+
+
+@partial(jit, static_argnames=['nside'])
+def nest2ring(nside: int, ipix: ArrayLike):
+    """Convert pixel number from NESTED ordering to RING ordering.
+
+    Contrary to healpy, nside must be an int. It cannot be a list, array, tuple, etc.
+
+    Parameters
+    ----------
+    nside : int
+      the healpix nside parameter
+    ipix : int, scalar or array-like
+      the pixel number in NESTED scheme
+
+    Returns
+    -------
+    ipix : int, scalar or array-like
+      the pixel number in RING scheme
+
+    See Also
+    --------
+    ring2nest, reorder
+
+    Examples
+    --------
+    >>> import healpy as hp
+    >>> hp.nest2ring(16, 1130)
+    1504
+
+    >>> print(hp.nest2ring(2, np.arange(10)))
+    [13  5  4  0 15  7  6  1 17  9]
+
+    >>> print(hp.nest2ring([1, 2, 4, 8], 11))
+    [ 11   2  12 211]
+    """
+    check_nside(nside, nest=True)
+    ipix = jnp.asarray(ipix)
+    xyf = _pix2xyf_nest(nside, ipix)
+    ipix_ring = _xyf2pix_ring(nside, *xyf)
+    return ipix_ring
