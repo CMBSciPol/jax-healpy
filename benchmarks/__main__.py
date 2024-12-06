@@ -20,7 +20,7 @@ from jaxtyping import ArrayLike
 from matplotlib.ticker import ScalarFormatter
 
 BENCH_PATH = Path(__file__).parent / 'results'
-BENCHMARKED_FUNCS = ['ang2vec', 'vec2ang', 'ang2pix', 'pix2ang', 'vec2pix', 'pix2vec']
+BENCHMARKED_FUNCS = ['ang2vec', 'vec2ang', 'ang2pix', 'pix2ang', 'vec2pix', 'pix2vec', 'ring2nest', 'nest2ring']
 CHART_PATH_NAME = 'chart-{style}-n{n}.png'
 
 LibraryType = Literal['healpy', 'jax-healpy']
@@ -86,6 +86,10 @@ def _get_args(
             args = (nside, vec[0], vec[1], vec[2])
 
     elif func_name in {'pix2ang', 'pix2vec'}:
+        pixels = rng.uniform(0, hp.nside2npix(nside), size=n).astype(int)
+        args = (nside, pixels)
+
+    elif func_name in {'ring2nest', 'nest2ring'}:
         pixels = rng.uniform(0, hp.nside2npix(nside), size=n).astype(int)
         args = (nside, pixels)
 
