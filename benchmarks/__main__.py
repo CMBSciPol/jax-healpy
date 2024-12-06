@@ -23,7 +23,9 @@ BENCH_PATH = Path(__file__).parent / 'results'
 BENCHMARKED_FUNCS = ['ang2vec', 'vec2ang', 'ang2pix', 'pix2ang', 'vec2pix', 'pix2vec', 'ring2nest', 'nest2ring']
 CHART_PATH_NAME = 'chart-{style}-n{n}.png'
 
+# TODO: use those when typer supports Literals
 LibraryType = Literal['healpy', 'jax-healpy']
+PrecisionType = Literal['32', '64']
 
 app = typer.Typer()
 
@@ -40,11 +42,11 @@ class BenchmarkResult:
 
 
 def bench_it(
-    library,
-    func_name,
+    library: str,
+    func_name: str,
     nside: int,
     n: int,
-    precision: Literal['32', '64'],
+    precision: str,
     rng: np.random.Generator,
 ) -> float:
     if precision == '32':
@@ -61,7 +63,7 @@ def bench_it(
 
 
 def _get_args(
-    library: LibraryType,
+    library: str,
     func_name: str,
     nside: int,
     n: int,
@@ -102,7 +104,7 @@ def _get_args(
     return args
 
 
-def _get_func(library: LibraryType, func_name: str, *args: Any):
+def _get_func(library: str, func_name: str, *args: Any):
     if library == 'jax-healpy':
         import jax_healpy as module
     else:
@@ -138,10 +140,10 @@ def time_it(func: Callable[[], None]) -> float:
 
 @app.command()
 def run(
-    library: LibraryType,
+    library: str,
     nside: int = 512,
     n: int = 10_000_000,
-    precision: Literal['32', '64'] = '64',
+    precision: str = '64',
 ) -> None:
     if library == 'jax-healpy':
         version = f'jax({jax.__version__})'
