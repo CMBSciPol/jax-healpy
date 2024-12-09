@@ -20,7 +20,18 @@ from jaxtyping import ArrayLike
 from matplotlib.ticker import ScalarFormatter
 
 BENCH_PATH = Path(__file__).parent / 'results'
-BENCHMARKED_FUNCS = ['ang2vec', 'vec2ang', 'ang2pix', 'pix2ang', 'vec2pix', 'pix2vec', 'ring2nest', 'nest2ring']
+BENCHMARKED_FUNCS = [
+    'ang2vec',
+    'vec2ang',
+    'ang2pix',
+    'pix2ang',
+    'vec2pix',
+    'pix2vec',
+    'ring2nest',
+    'nest2ring',
+    'pix2xyf',
+    'xyf2pix',
+]
 CHART_PATH_NAME = 'chart-{style}-n{n}.png'
 
 # TODO: use those when typer supports Literals
@@ -87,13 +98,15 @@ def _get_args(
         else:
             args = (nside, vec[0], vec[1], vec[2])
 
-    elif func_name in {'pix2ang', 'pix2vec'}:
+    elif func_name in {'pix2ang', 'pix2vec', 'pix2xyf', 'ring2nest', 'nest2ring'}:
         pixels = rng.uniform(0, hp.nside2npix(nside), size=n).astype(int)
         args = (nside, pixels)
 
-    elif func_name in {'ring2nest', 'nest2ring'}:
-        pixels = rng.uniform(0, hp.nside2npix(nside), size=n).astype(int)
-        args = (nside, pixels)
+    elif func_name == 'xyf2pix':
+        x = rng.uniform(0, nside, size=n).astype(int)
+        y = rng.uniform(0, nside, size=n).astype(int)
+        f = rng.uniform(0, 12, size=n).astype(int)
+        args = (nside, x, y, f)
 
     else:
         raise NotImplementedError
@@ -120,6 +133,14 @@ def _get_func(library: str, func_name: str, *args: Any):
                 theta, phi = func(*args)
                 theta.block_until_ready()
                 phi.block_until_ready()
+
+        elif func_name == 'pix2xyf':
+
+            def func_() -> None:
+                x, y, f = func(*args)
+                x.block_until_ready()
+                y.block_until_ready()
+                f.block_until_ready()
 
         else:
 
