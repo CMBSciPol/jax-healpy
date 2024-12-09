@@ -1394,8 +1394,6 @@ def ring2nest(nside: int, ipix: ArrayLike) -> Array:
 
     Contrary to healpy, nside must be an int. It cannot be a list, array, tuple, etc.
 
-    If the input uses 32-bit integers, and nside is <= 8192, the output will be an array of int32 as well.
-
     Parameters
     ----------
     nside : int
@@ -1426,14 +1424,11 @@ def ring2nest(nside: int, ipix: ArrayLike) -> Array:
     """
     check_nside(nside, nest=True)
     ipix = jnp.asarray(ipix)
-    dtype_in = ipix.dtype
-    # cast to int32/int64 depending on nside
-    ipix = ipix.astype(_pixel_dtype_for(nside))
-    # now convert to nested ordering
+    # promote to int64 only if nside requires it
+    ipix = ipix.astype(jnp.promote_types(ipix.dtype, _pixel_dtype_for(nside)))
     xyf = _pix2xyf_ring(nside, ipix)
     ipix_nest = _xyf2pix_nest(nside, *xyf)
-    # use the same dtype as the input, if nside allows it
-    return ipix_nest.astype(jnp.promote_types(dtype_in, ipix_nest.dtype))
+    return ipix_nest
 
 
 @partial(jit, static_argnames=['nside'])
@@ -1441,8 +1436,6 @@ def nest2ring(nside: int, ipix: ArrayLike) -> Array:
     """Convert pixel number from NESTED ordering to RING ordering.
 
     Contrary to healpy, nside must be an int. It cannot be a list, array, tuple, etc.
-
-    If the input uses 32-bit integers, and nside is <= 8192, the output will be an array of int32 as well.
 
     Parameters
     ----------
@@ -1474,11 +1467,8 @@ def nest2ring(nside: int, ipix: ArrayLike) -> Array:
     """
     check_nside(nside, nest=True)
     ipix = jnp.asarray(ipix)
-    dtype_in = ipix.dtype
-    # cast to int32/int64 depending on nside
-    ipix = ipix.astype(_pixel_dtype_for(nside))
-    # now convert to ring ordering
+    # promote to int64 only if nside requires it
+    ipix = ipix.astype(jnp.promote_types(ipix.dtype, _pixel_dtype_for(nside)))
     xyf = _pix2xyf_nest(nside, ipix)
     ipix_ring = _xyf2pix_ring(nside, *xyf)
-    # use the same dtype as the input, if nside allows it
-    return ipix_ring.astype(jnp.promote_types(dtype_in, ipix_ring.dtype))
+    return ipix_ring
