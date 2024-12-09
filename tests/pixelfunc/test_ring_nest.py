@@ -5,6 +5,7 @@ import pytest
 from numpy.testing import assert_array_equal
 
 import jax_healpy as hp
+from jax_healpy.pixelfunc import MAX_NSIDE
 
 
 @pytest.mark.parametrize(
@@ -16,6 +17,7 @@ import jax_healpy as hp
         (4, 1, 2, 9),
         (4, 0, 3, 10),
         (4, 3, 0, 5),
+        (MAX_NSIDE, MAX_NSIDE - 1, MAX_NSIDE - 1, MAX_NSIDE**2 - 1),
     ],
 )
 def test_xy_to_fpix(nside, x, y, expected_fpix):
@@ -32,6 +34,7 @@ def test_xy_to_fpix(nside, x, y, expected_fpix):
         (4, 9, 1, 2),
         (4, 10, 0, 3),
         (4, 5, 3, 0),
+        (MAX_NSIDE, MAX_NSIDE**2 - 1, MAX_NSIDE - 1, MAX_NSIDE - 1),
     ],
 )
 def test_fpix_to_xy(nside, fpix, expected_x, expected_y):

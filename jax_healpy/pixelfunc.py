@@ -71,7 +71,7 @@ from functools import partial
 
 import jax.numpy as jnp
 import numpy as np
-from jax import jit, lax, vmap
+from jax import jit, vmap
 from jaxtyping import Array, ArrayLike
 
 __all__ = [
@@ -950,6 +950,27 @@ def _xyf2pix_nest(nside: int, ix: Array, iy: Array, fnum: Array) -> Array:
     return nested_pixel
 
 
+@partial(jit, static_argnames=['nside'])
+def _xy2fpix(nside: int, ix: Array, iy: Array) -> Array:
+    """Convert (x, y) coordinates to a pixel index inside a face"""
+    # fpix = (ix & 0b1) << 0 | (iy & 0b1) << 1 | (ix & 0b10) << 1 | (iy & 0b10) << 2 | ...
+
+    def combine_bits(i, val):
+        val |= (ix & (1 << i)) << i
+        val |= (iy & (1 << i)) << (i + 1)
+        return val
+
+    # ix and iy are always less than nside, so there is no need to extract more bits than this
+    length = (nside - 1).bit_length()
+
+    # we use a native for loop because it seems faster than lax.fori_loop in this case
+    fpix = jnp.zeros_like(ix)
+    # fpix = lax.fori_loop(0, length, combine_bits, fpix, unroll=True)
+    for i in range(length):
+        fpix = combine_bits(i, fpix)
+    return fpix
+
+
 # ring index of south corner for each face (0 = North pole)
 _JRLL = jnp.array([2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4])
 
@@ -1018,22 +1039,6 @@ def _northern_ring(nside: int, i_ring: ArrayLike) -> Array:
     return i_north
 
 
-@partial(jit, static_argnames=['nside'])
-def _xy2fpix(nside: int, ix: Array, iy: Array) -> Array:
-    """Convert (x, y) coordinates to a pixel index inside a face"""
-    # fpix = (ix & 0b1) << 0 | (iy & 0b1) << 1 | (ix & 0b10) << 1 | (iy & 0b10) << 2 | ...
-
-    def combine_bits(i, val):
-        val |= (ix & (1 << i)) << i
-        val |= (iy & (1 << i)) << (i + 1)
-        return val
-
-    # ix and iy must be less than nside
-    length = nside.bit_length()
-    fpix = lax.fori_loop(0, length, combine_bits, jnp.zeros_like(ix))
-    return fpix
-
-
 @partial(jit, static_argnames=['nside', 'nest'])
 def pix2xyf(nside: int, ipix: ArrayLike, nest: bool = False) -> tuple[Array, Array, Array]:
     """pix2xyf : nside,ipix,nest=False -> x,y,face (default RING)
@@ -1084,7 +1089,6 @@ def pix2xyf(nside: int, ipix: ArrayLike, nest: bool = False) -> tuple[Array, Arr
 def _pix2xyf_nest(nside: int, pix: Array) -> tuple[Array, Array, Array]:
     """Convert a pixel number in NESTED ordering to (x, y, face)"""
     fnum, fpix = jnp.divmod(pix, nside**2)
-    # fpix is guaranteed to be less than nside**2
     ix, iy = _fpix2xy(nside, fpix)
     return ix, iy, fnum
 
@@ -1104,9 +1108,17 @@ def _fpix2xy(nside: int, pix: Array) -> tuple[Array, Array]:
         y |= (pix & (1 << (2 * i + 1))) >> (i + 1)
         return x, y
 
-    # we need to perform the scan over the bits of the pixel number
-    length = (nside**2).bit_length()
-    x, y = lax.fori_loop(0, length, extract_bits, (jnp.zeros_like(pix), jnp.zeros_like(pix)))
+    # imagine that nside = 2 ** ord (nside must be a power of 2 in nested ordering)
+    # the maximum value of pix is nside**2 - 1, which fits on 2 * ord bits
+    # because we extract 2 bits at a time, we need to loop ord times
+    # and ord is the bit length of nside - 1
+    length = (nside - 1).bit_length()
+
+    # we use a native for loop because it seems faster than lax.fori_loop in this case
+    x, y = jnp.zeros_like(pix), jnp.zeros_like(pix)
+    # x, y = lax.fori_loop(0, length, extract_bits, (x, y), unroll=True)
+    for i in range(length):
+        x, y = extract_bits(i, (x, y))
     return x, y
 
 
