@@ -134,6 +134,14 @@ def check_nside(nside: int, nest: bool = False) -> None:
         raise ValueError(f'{nside} is not a valid nside parameter (must be a power of 2, less than 2**30)')
 
 
+def _pixel_dtype_for(nside: int) -> jnp.dtype:
+    """Returns the appropriate dtype for a pixel number given nside"""
+    # for nside = 13378, npix = 2_147_650_608 which would overflow int32
+    if nside <= 13377:
+        return jnp.int32
+    return jnp.int64
+
+
 def isnsideok(nside: int, nest: bool = False) -> bool:
     """Returns :const:`True` if nside is a valid nside parameter, :const:`False` otherwise.
 
@@ -1129,7 +1137,7 @@ def _pix2xyf_ring(nside: int, pix: Array) -> tuple[Array, Array, Array]:
     npix = nside2npix(nside)
     nl2 = 2 * nside  # number of pixels in a latitude circle
 
-    iring = _pix2i_ring(nside, pix)
+    iring = _pix2i_ring(nside, pix).astype(_pixel_dtype_for(nside))
     iphi = _pix2iphi_ring(nside, iring, pix)
     nr = _npix_on_ring(nside, iring) // 4
     kshift = 1 - _ring_shifted(nside, iring)
@@ -1386,6 +1394,8 @@ def ring2nest(nside: int, ipix: ArrayLike) -> Array:
 
     Contrary to healpy, nside must be an int. It cannot be a list, array, tuple, etc.
 
+    If the input uses 32-bit integers, and nside is <= 8192, the output will be an array of int32 as well.
+
     Parameters
     ----------
     nside : int
@@ -1416,9 +1426,14 @@ def ring2nest(nside: int, ipix: ArrayLike) -> Array:
     """
     check_nside(nside, nest=True)
     ipix = jnp.asarray(ipix)
+    dtype_in = ipix.dtype
+    # cast to int32/int64 depending on nside
+    ipix = ipix.astype(_pixel_dtype_for(nside))
+    # now convert to nested ordering
     xyf = _pix2xyf_ring(nside, ipix)
     ipix_nest = _xyf2pix_nest(nside, *xyf)
-    return ipix_nest
+    # use the same dtype as the input, if nside allows it
+    return ipix_nest.astype(jnp.promote_types(dtype_in, ipix_nest.dtype))
 
 
 @partial(jit, static_argnames=['nside'])
@@ -1426,6 +1441,8 @@ def nest2ring(nside: int, ipix: ArrayLike) -> Array:
     """Convert pixel number from NESTED ordering to RING ordering.
 
     Contrary to healpy, nside must be an int. It cannot be a list, array, tuple, etc.
+
+    If the input uses 32-bit integers, and nside is <= 8192, the output will be an array of int32 as well.
 
     Parameters
     ----------
@@ -1457,6 +1474,11 @@ def nest2ring(nside: int, ipix: ArrayLike) -> Array:
     """
     check_nside(nside, nest=True)
     ipix = jnp.asarray(ipix)
+    dtype_in = ipix.dtype
+    # cast to int32/int64 depending on nside
+    ipix = ipix.astype(_pixel_dtype_for(nside))
+    # now convert to ring ordering
     xyf = _pix2xyf_nest(nside, ipix)
     ipix_ring = _xyf2pix_ring(nside, *xyf)
-    return ipix_ring
+    # use the same dtype as the input, if nside allows it
+    return ipix_ring.astype(jnp.promote_types(dtype_in, ipix_ring.dtype))

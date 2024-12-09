@@ -125,3 +125,16 @@ def test_ring2nest(nside: int, ipix_ring: int, expected_ipix_nest: int):
 )
 def test_nest2ring(nside: int, ipix_nest: int, expected_ipix_ring: int):
     assert_array_equal(hp.nest2ring(nside, ipix_nest), expected_ipix_ring)
+
+
+@pytest.mark.parametrize('func_name', ['ring2nest', 'nest2ring'])
+def test_ring_nest_dtypes(func_name: str):
+    small_nside = 512
+    large_nside = 16384
+    pix32 = jnp.zeros(10, dtype=jnp.int32)
+    pix64 = jnp.zeros(10, dtype=jnp.int64)
+    func = getattr(hp, func_name)
+    assert func(small_nside, pix32).dtype == jnp.int32  # input is int32, so should be output
+    assert func(small_nside, pix64).dtype == jnp.int64  # input is int64, so should be output
+    assert func(large_nside, pix32).dtype == jnp.int64  # nside is large so output is int64
+    assert func(large_nside, pix64).dtype == jnp.int64  # nside is large so output is int64
