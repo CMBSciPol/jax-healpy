@@ -1137,6 +1137,7 @@ def _pix2xyf_ring(nside: int, pix: Array) -> tuple[Array, Array, Array]:
     npix = nside2npix(nside)
     nl2 = 2 * nside  # number of pixels in a latitude circle
 
+    # TODO(simon): remove this cast when https://github.com/CMBSciPol/jax-healpy/issues/4 is fixed
     iring = _pix2i_ring(nside, pix).astype(_pixel_dtype_for(nside))
     iphi = _pix2iphi_ring(nside, iring, pix)
     nr = _npix_on_ring(nside, iring) // 4
