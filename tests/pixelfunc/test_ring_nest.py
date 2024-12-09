@@ -138,3 +138,14 @@ def test_ring_nest_dtypes(func_name: str):
     assert func(small_nside, pix64).dtype == jnp.int64  # input is int64, so should be output
     assert func(large_nside, pix32).dtype == jnp.int64  # nside is large so output is int64
     assert func(large_nside, pix64).dtype == jnp.int64  # nside is large so output is int64
+
+
+@pytest.mark.parametrize(
+    'order', list(range(29)) + [pytest.param(30, marks=pytest.mark.xfail(reason='overflow somewhere?'))]
+)
+def test_roundtrip_max_pixel(order):
+    nside = hp.order2nside(order)
+    npix = hp.nside2npix(nside)
+    max_pix = npix - 1
+    assert hp.ring2nest(nside, hp.nest2ring(nside, max_pix)) == max_pix
+    assert hp.nest2ring(nside, hp.ring2nest(nside, max_pix)) == max_pix
