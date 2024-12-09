@@ -20,10 +20,23 @@ from jaxtyping import ArrayLike
 from matplotlib.ticker import ScalarFormatter
 
 BENCH_PATH = Path(__file__).parent / 'results'
-BENCHMARKED_FUNCS = ['ang2vec', 'vec2ang', 'ang2pix', 'pix2ang', 'vec2pix', 'pix2vec']
+BENCHMARKED_FUNCS = [
+    'ang2vec',
+    'vec2ang',
+    'ang2pix',
+    'pix2ang',
+    'vec2pix',
+    'pix2vec',
+    'ring2nest',
+    'nest2ring',
+    'pix2xyf',
+    'xyf2pix',
+]
 CHART_PATH_NAME = 'chart-{style}-n{n}.png'
 
+# TODO: use those when typer supports Literals
 LibraryType = Literal['healpy', 'jax-healpy']
+PrecisionType = Literal['32', '64']
 
 app = typer.Typer()
 
@@ -40,11 +53,11 @@ class BenchmarkResult:
 
 
 def bench_it(
-    library,
-    func_name,
+    library: str,
+    func_name: str,
     nside: int,
     n: int,
-    precision: Literal['32', '64'],
+    precision: str,
     rng: np.random.Generator,
 ) -> float:
     if precision == '32':
@@ -61,7 +74,7 @@ def bench_it(
 
 
 def _get_args(
-    library: LibraryType,
+    library: str,
     func_name: str,
     nside: int,
     n: int,
@@ -85,9 +98,15 @@ def _get_args(
         else:
             args = (nside, vec[0], vec[1], vec[2])
 
-    elif func_name in {'pix2ang', 'pix2vec'}:
+    elif func_name in {'pix2ang', 'pix2vec', 'pix2xyf', 'ring2nest', 'nest2ring'}:
         pixels = rng.uniform(0, hp.nside2npix(nside), size=n).astype(int)
         args = (nside, pixels)
+
+    elif func_name == 'xyf2pix':
+        x = rng.uniform(0, nside, size=n).astype(int)
+        y = rng.uniform(0, nside, size=n).astype(int)
+        f = rng.uniform(0, 12, size=n).astype(int)
+        args = (nside, x, y, f)
 
     else:
         raise NotImplementedError
@@ -98,7 +117,7 @@ def _get_args(
     return args
 
 
-def _get_func(library: LibraryType, func_name: str, *args: Any):
+def _get_func(library: str, func_name: str, *args: Any):
     if library == 'jax-healpy':
         import jax_healpy as module
     else:
@@ -114,6 +133,14 @@ def _get_func(library: LibraryType, func_name: str, *args: Any):
                 theta, phi = func(*args)
                 theta.block_until_ready()
                 phi.block_until_ready()
+
+        elif func_name == 'pix2xyf':
+
+            def func_() -> None:
+                x, y, f = func(*args)
+                x.block_until_ready()
+                y.block_until_ready()
+                f.block_until_ready()
 
         else:
 
@@ -134,10 +161,10 @@ def time_it(func: Callable[[], None]) -> float:
 
 @app.command()
 def run(
-    library: LibraryType,
+    library: str,
     nside: int = 512,
     n: int = 10_000_000,
-    precision: Literal['32', '64'] = '64',
+    precision: str = '64',
 ) -> None:
     if library == 'jax-healpy':
         version = f'jax({jax.__version__})'
