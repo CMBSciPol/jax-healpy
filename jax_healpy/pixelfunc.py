@@ -1023,14 +1023,14 @@ def _xy2fpix(nside: int, ix: Array, iy: Array) -> Array:
     """Convert (x, y) coordinates to a pixel index inside a face"""
     # fpix = (ix & 0b1) << 0 | (iy & 0b1) << 1 | (ix & 0b10) << 1 | (iy & 0b10) << 2 | ...
 
-    def combine_bits(shift, _):
-        even_bits = (ix & (1 << shift)) << shift
-        odd_bits = (iy & (1 << shift)) << (shift + 1)
-        return shift + 1, (even_bits, odd_bits)
+    def combine_bits(i, val):
+        val |= (ix & (1 << i)) << i
+        val |= (iy & (1 << i)) << (i + 1)
+        return val
 
+    # ix and iy must be less than nside
     length = nside.bit_length()
-    _, (even_bits, odd_bits) = lax.scan(combine_bits, 0, None, length=length)
-    fpix = jnp.bitwise_or.reduce(even_bits) | jnp.bitwise_or.reduce(odd_bits)
+    fpix = lax.fori_loop(0, length, combine_bits, jnp.zeros_like(ix))
     return fpix
 
 
@@ -1098,17 +1098,15 @@ def _fpix2xy(nside: int, pix: Array) -> tuple[Array, Array]:
     # x = (pix & 0b1) >> 0 | (pix & 0b100) >> 1 | (pix & 0b10000) >> 2 | ...
     # y = (pix & 0b10) >> 1 | (pix & 0b1000) >> 2 | (pix & 0b100000) >> 3 | ...
 
-    def extract_bits(shift, _):
-        even_bits = (pix & (1 << (2 * shift))) >> shift
-        odd_bits = (pix & (1 << (2 * shift + 1))) >> (shift + 1)
-        return shift + 1, (even_bits, odd_bits)
+    def extract_bits(i, carry):
+        x, y = carry
+        x |= (pix & (1 << (2 * i))) >> i
+        y |= (pix & (1 << (2 * i + 1))) >> (i + 1)
+        return x, y
 
     # we need to perform the scan over the bits of the pixel number
     length = (nside**2).bit_length()
-    _, (even_bits, odd_bits) = lax.scan(extract_bits, 0, None, length=length)
-    x = jnp.bitwise_or.reduce(even_bits)
-    y = jnp.bitwise_or.reduce(odd_bits)
-
+    x, y = lax.fori_loop(0, length, extract_bits, (jnp.zeros_like(pix), jnp.zeros_like(pix)))
     return x, y
 
 

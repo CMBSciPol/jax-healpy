@@ -7,6 +7,39 @@ from numpy.testing import assert_array_equal
 import jax_healpy as hp
 
 
+@pytest.mark.parametrize(
+    'nside, x, y, expected_fpix',
+    [
+        (1, 0, 0, 0),
+        (2, 0, 0, 0),
+        (2, 1, 1, 3),
+        (4, 1, 2, 9),
+        (4, 0, 3, 10),
+        (4, 3, 0, 5),
+    ],
+)
+def test_xy_to_fpix(nside, x, y, expected_fpix):
+    fpix = hp.pixelfunc._xy2fpix(nside, x, y)
+    assert_array_equal(fpix, expected_fpix)
+
+
+@pytest.mark.parametrize(
+    'nside, fpix, expected_x, expected_y',
+    [
+        (1, 0, 0, 0),
+        (2, 0, 0, 0),
+        (2, 3, 1, 1),
+        (4, 9, 1, 2),
+        (4, 10, 0, 3),
+        (4, 5, 3, 0),
+    ],
+)
+def test_fpix_to_xy(nside, fpix, expected_x, expected_y):
+    x, y = hp.pixelfunc._fpix2xy(nside, fpix)
+    assert_array_equal(x, expected_x)
+    assert_array_equal(y, expected_y)
+
+
 @pytest.mark.parametrize('order', range(30))
 @pytest.mark.parametrize('nest', [True, False])
 def test_pix_to_xyf_to_pix(order: int, nest: bool) -> None:
