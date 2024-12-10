@@ -71,7 +71,7 @@ from functools import partial
 
 import jax.numpy as jnp
 import numpy as np
-from jax import jit, vmap
+from jax import jit, lax, vmap
 from jaxtyping import Array, ArrayLike
 
 __all__ = [
@@ -1473,17 +1473,21 @@ def nest2ring(nside: int, ipix: ArrayLike) -> Array:
     return ipix_ring
 
 
-@partial(jit, static_argnames=['inp', 'out', 'r2n', 'n2r'])
+@partial(jit, static_argnames=['inp', 'out', 'r2n', 'n2r', 'process_by_chunks'])
 def reorder(
     map_in: ArrayLike,
     inp: str | None = None,
     out: str | None = None,
     r2n: bool = False,
     n2r: bool = False,
+    process_by_chunks: bool = False,
 ) -> Array:
     """Reorder a healpix map from RING/NESTED ordering to NESTED/RING.
 
     Masked arrays are not yet supported.
+
+    By default, the maps are processed in one go, but if memory is an issue,
+    use the ``process_by_chunks`` option (which reproduces healpy behaviour).
 
     Parameters
     ----------
@@ -1565,9 +1569,25 @@ def reorder(
         return map_in
 
     # Perform the conversion, which is just a reordering of the pixels
-    ipix = jnp.arange(npix, dtype=_pixel_dtype_for(nside))
-    if inp == 'RING':
-        ipix_reordered = nest2ring(nside, ipix)
-    else:
-        ipix_reordered = ring2nest(nside, ipix)
-    return map_in[..., ipix_reordered]
+    def _reorder(ipix):
+        if inp == 'RING':
+            ipix_reordered = nest2ring(nside, ipix)
+        else:
+            ipix_reordered = ring2nest(nside, ipix)
+        return map_in[..., ipix_reordered]
+
+    if not process_by_chunks:
+        ipix_full = jnp.arange(npix, dtype=_pixel_dtype_for(nside))
+        return _reorder(ipix_full)
+
+    # To reduce memory requirements, process the map in chunks
+    chunk_size = npix // 24 if nside > 128 else npix
+    n_chunks = npix // chunk_size
+
+    def body(i, map_out):
+        # interval bounds must be static, so we shift the values afterwards
+        ipix_chunk = jnp.arange(chunk_size, dtype=_pixel_dtype_for(nside)) + i * chunk_size
+        return map_out.at[..., ipix_chunk].set(_reorder(ipix_chunk))
+
+    map_out = lax.fori_loop(0, n_chunks, body, jnp.empty_like(map_in))
+    return map_out
