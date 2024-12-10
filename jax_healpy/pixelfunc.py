@@ -1547,7 +1547,8 @@ def reorder(
         raise ValueError('Input map can not be a scalar')
     npix = map_in.shape[-1]
     nside = npix2nside(npix)
-    # TODO: unnecessary check? npix2nside already fails on bad number of pixels
+    # npix2nside already fails on bad number of pixels
+    # but in nested ordering we must also ensure that nside is power of 2
     check_nside(nside, nest=True)
 
     # Check input parameters
