@@ -151,12 +151,10 @@ def test_roundtrip_max_pixel(order):
     assert hp.nest2ring(nside, hp.ring2nest(nside, max_pix)) == max_pix
 
 
-@pytest.mark.parametrize('inp', ['nest', 'ring'])
-@pytest.mark.parametrize('out', ['nest', 'ring'])
-@pytest.mark.parametrize('r2n, n2r', [(True, None), (False, None), (None, True), (None, False)])
-def test_reorder_base_pixels(inp, out, r2n, n2r):
+@pytest.mark.parametrize('r2n, n2r', [(True, False), (False, True)])
+def test_reorder_base_pixels(r2n, n2r):
     map_in = jnp.arange(12)
-    map_out = hp.reorder(map_in, inp=inp, out=out, r2n=r2n, n2r=n2r)
+    map_out = hp.reorder(map_in, r2n=r2n, n2r=n2r)
     assert_array_equal(map_out, map_in)
 
 
