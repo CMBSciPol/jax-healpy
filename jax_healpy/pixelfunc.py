@@ -89,7 +89,7 @@ __all__ = [
     # 'max_pixrad',
     'nest2ring',
     'ring2nest',
-    # 'reorder',
+    'reorder',
     # 'ud_grade',
     'UNSEEN',
     # 'mask_good',
@@ -1473,3 +1473,107 @@ def nest2ring(nside: int, ipix: ArrayLike) -> Array:
     xyf = _pix2xyf_nest(nside, ipix)
     ipix_ring = _xyf2pix_ring(nside, *xyf)
     return ipix_ring
+
+
+@partial(jit, static_argnames=['inp', 'out', 'r2n', 'n2r'])
+def reorder(
+    map_in: ArrayLike,
+    inp: str | None = None,
+    out: str | None = None,
+    r2n: bool = False,
+    n2r: bool = False,
+) -> Array:
+    """Reorder a healpix map from RING/NESTED ordering to NESTED/RING.
+
+    Masked arrays are not yet supported.
+
+    Parameters
+    ----------
+    map_in : array-like
+      the input map to reorder, accepts masked arrays
+    inp, out : ``'RING'`` or ``'NESTED'``
+      define the input and output ordering
+    r2n : bool
+      if True, reorder from RING to NESTED
+    n2r : bool
+      if True, reorder from NESTED to RING
+
+    Returns
+    -------
+    map_out : array-like
+      the reordered map, as masked array if the input was a
+      masked array
+
+    Notes
+    -----
+    if ``r2n`` or ``n2r`` is defined, override ``inp`` and ``out``.
+
+    See Also
+    --------
+    nest2ring, ring2nest
+
+    Examples
+    --------
+    >>> import healpy as hp
+    >>> hp.reorder(np.arange(48), r2n = True)
+    array([13,  5,  4,  0, 15,  7,  6,  1, 17,  9,  8,  2, 19, 11, 10,  3, 28,
+           20, 27, 12, 30, 22, 21, 14, 32, 24, 23, 16, 34, 26, 25, 18, 44, 37,
+           36, 29, 45, 39, 38, 31, 46, 41, 40, 33, 47, 43, 42, 35])
+    >>> hp.reorder(np.arange(12), n2r = True)
+    array([ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11])
+    >>> hp.reorder(hp.ma(np.arange(12.)), n2r = True)
+    masked_array(data = [  0.   1.   2.   3.   4.   5.   6.   7.   8.   9.  10.  11.],
+                 mask = False,
+           fill_value = -1.6375e+30)
+    <BLANKLINE>
+    >>> m = [np.arange(12.), np.arange(12.), np.arange(12.)]
+    >>> m[0][2] = hp.UNSEEN
+    >>> m[1][2] = hp.UNSEEN
+    >>> m[2][2] = hp.UNSEEN
+    >>> m = hp.ma(m)
+    >>> hp.reorder(m, n2r = True)
+    masked_array(data =
+     [[0.0 1.0 -- 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0]
+     [0.0 1.0 -- 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0]
+     [0.0 1.0 -- 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0]],
+                 mask =
+     [[False False  True False False False False False False False False False]
+     [False False  True False False False False False False False False False]
+     [False False  True False False False False False False False False False]],
+           fill_value = -1.6375e+30)
+    <BLANKLINE>
+    """
+    # Check input map(s)
+    # typ = maptype(map_in)
+    # if typ == 0:
+    #     npix = len(map_in)
+    # else:
+    #     npix = len(map_in[0])
+    map_in = jnp.asarray(map_in)
+    if map_in.ndim == 0:
+        raise ValueError('Input map can not be a scalar')
+    npix = map_in.shape[0]
+    nside = npix2nside(npix)
+    # TODO: unnecessary check? npix2nside already fails on bad number of pixels
+    check_nside(nside, nest=True)
+
+    # Check input parameters
+    if r2n and n2r:
+        raise ValueError('r2n and n2r cannot be used simultaneously')
+    if r2n:
+        inp, out = 'RING', 'NEST'
+    if n2r:
+        inp, out = 'NEST', 'RING'
+    inp, out = str(inp).upper()[:4], str(out).upper()[:4]
+    if not {inp, out}.issubset({'RING', 'NEST'}):
+        raise ValueError('inp and out must be either RING or NEST')
+    if inp == out:
+        return map_in
+
+    # Perform the conversion, which is just a reordering of the pixels
+    ipix = jnp.arange(npix)
+    if inp == 'RING':
+        ipix_reordered = nest2ring(nside, ipix)
+    else:
+        ipix_reordered = ring2nest(nside, ipix)
+    return map_in[ipix_reordered]
