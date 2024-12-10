@@ -31,6 +31,7 @@ BENCHMARKED_FUNCS = [
     'nest2ring',
     'pix2xyf',
     'xyf2pix',
+    'reorder',
 ]
 CHART_PATH_NAME = 'chart-{style}-n{n}.png'
 
@@ -108,6 +109,11 @@ def _get_args(
         f = rng.uniform(0, 12, size=n).astype(int)
         args = (nside, x, y, f)
 
+    elif func_name == 'reorder':
+        npix = hp.nside2npix(nside)
+        map_in = rng.uniform(size=npix)
+        args = (map_in,)
+
     else:
         raise NotImplementedError
 
@@ -125,7 +131,10 @@ def _get_func(library: str, func_name: str, *args: Any):
 
     func = getattr(module, func_name)
     if library == 'healpy':
-        func_ = lambda: func(*args)  # noqa: E731
+        if func_name == 'reorder':
+            func_ = lambda: func(*args, r2n=True)  # noqa: E731
+        else:
+            func_ = lambda: func(*args)  # noqa: E731
     else:
         if func_name in {'pix2ang', 'vec2ang'}:
 
@@ -141,6 +150,11 @@ def _get_func(library: str, func_name: str, *args: Any):
                 x.block_until_ready()
                 y.block_until_ready()
                 f.block_until_ready()
+
+        elif func_name == 'reorder':
+
+            def func_() -> None:
+                func(*args, r2n=True).block_until_ready()
 
         else:
 
