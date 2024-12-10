@@ -172,3 +172,18 @@ def test_n2r():
     assert_array_equal(map_out, [ 3,  7, 11, 15,  2,  1,  6,  5, 10,  9, 14, 13, 19,  0, 23,  4, 27,
                                   8, 31, 12, 17, 22, 21, 26, 25, 30, 29, 18, 16, 35, 20, 39, 24, 43,
                                  28, 47, 34, 33, 38, 37, 42, 41, 46, 45, 32, 36, 40, 44])  # fmt: skip
+
+
+@pytest.mark.parametrize('r2n, n2r', [(True, False), (False, True)])
+@pytest.mark.parametrize('shape', [(12,), (3, 12), (2, 3, 12)])
+def test_reorder_shape(shape: tuple[int], r2n: bool, n2r: bool):
+    map_out = hp.reorder(jnp.zeros(shape), r2n=r2n, n2r=n2r)
+    assert map_out.shape == shape
+
+
+@pytest.mark.parametrize('order', range(8))
+@pytest.mark.parametrize('batch', [(), (1,)])
+def test_reorder_roundtrip(order: int, batch: tuple[int]):
+    npix = hp.order2npix(order)
+    map_in = jr.uniform(jr.key(1143), batch + (npix,))
+    assert_array_equal(hp.reorder(hp.reorder(map_in, r2n=True), n2r=True), map_in)

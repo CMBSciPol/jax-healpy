@@ -1542,15 +1542,10 @@ def reorder(
     <BLANKLINE>
     """
     # Check input map(s)
-    # typ = maptype(map_in)
-    # if typ == 0:
-    #     npix = len(map_in)
-    # else:
-    #     npix = len(map_in[0])
     map_in = jnp.asarray(map_in)
     if map_in.ndim == 0:
         raise ValueError('Input map can not be a scalar')
-    npix = map_in.shape[0]
+    npix = map_in.shape[-1]
     nside = npix2nside(npix)
     # TODO: unnecessary check? npix2nside already fails on bad number of pixels
     check_nside(nside, nest=True)
@@ -1574,4 +1569,4 @@ def reorder(
         ipix_reordered = nest2ring(nside, ipix)
     else:
         ipix_reordered = ring2nest(nside, ipix)
-    return map_in[ipix_reordered]
+    return map_in[..., ipix_reordered]
