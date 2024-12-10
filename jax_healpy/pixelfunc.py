@@ -137,9 +137,7 @@ def check_nside(nside: int, nest: bool = False) -> None:
 def _pixel_dtype_for(nside: int) -> jnp.dtype:
     """Returns the appropriate dtype for a pixel number given nside"""
     # for nside = 13378, npix = 2_147_650_608 which would overflow int32
-    if nside <= 13377:
-        return jnp.int32
-    return jnp.int64
+    return jnp.int32 if nside <= 13377 else jnp.int64
 
 
 def isnsideok(nside: int, nest: bool = False) -> bool:
@@ -1571,7 +1569,7 @@ def reorder(
         return map_in
 
     # Perform the conversion, which is just a reordering of the pixels
-    ipix = jnp.arange(npix)
+    ipix = jnp.arange(npix, dtype=_pixel_dtype_for(nside))
     if inp == 'RING':
         ipix_reordered = nest2ring(nside, ipix)
     else:
