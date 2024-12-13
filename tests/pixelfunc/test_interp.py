@@ -10,8 +10,8 @@ import jax_healpy as hp
     [
         (1, 0, None, False, [0, 1, 4, 5], [1.0, 0.0, 0.0, 0.0]),  # phi not specified, theta assumed to be pixel
         (1, 0, None, True, [0, 1, 4, 5], [1.0, 0.0, 0.0, 0.0]),  # lonlat should do nothing because phi is None
-        (1, 0, 0, False, [1, 2, 3, 0], [0.25, 0.25, 0.25, 0.25]),
-        (1, 0, 90, True, [1, 2, 3, 0], [0.25, 0.25, 0.25, 0.25]),
+        (1, 0, 0, False, [1, 2, 3, 0], [0.25, 0.25, 0.25, 0.25]),  # North pole (co-latitude 0, longitude 0)
+        (1, 0, 90, True, [1, 2, 3, 0], [0.25, 0.25, 0.25, 0.25]),  # North pole (longitude 0°, latitude 90°)
         (
             1,
             [0, np.pi / 2 + 1e-15],

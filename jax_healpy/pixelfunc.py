@@ -1678,11 +1678,18 @@ def get_interp_weights(
     pixels, weights = _interp_weights_ring(nside, theta, phi)
     if nest:
         pixels = ring2nest(nside, pixels)
-    theta_not_valid = (theta < 0) | (theta > np.pi + 1e-5)
+    theta_valid = _intervalclose(theta, 0, np.pi)
     return (
-        jnp.where(theta_not_valid, -1, pixels),
-        jnp.where(theta_not_valid, np.nan, weights),
+        jnp.where(theta_valid, pixels, -1),
+        jnp.where(theta_valid, weights, np.nan),
     )
+
+
+def _intervalclose(a, lower, upper, atol=1e-5, rtol=1e-8):
+    """Check if ``a`` is in the interval [``lower``, ``upper``] with a tolerance."""
+    lo_bound = lower - jnp.maximum(atol, rtol * jnp.abs(lower))
+    up_bound = upper + jnp.minimum(atol, rtol * jnp.abs(upper))
+    return (lo_bound < a) & (a < up_bound)
 
 
 def _interp_weights_ring(nside: int, theta: Array, phi: Array) -> tuple[Array, Array]:
