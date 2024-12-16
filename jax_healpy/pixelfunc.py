@@ -82,7 +82,6 @@ Map data manipulation
 - :func:`get_interp_val` computes a bilinear interpolation of the map
   at given angular coordinates, using 4 nearest neighbours
 """
-
 from functools import partial
 
 import jax
@@ -110,7 +109,7 @@ __all__ = [
     'ud_grade',
     'UNSEEN',
     # 'mask_good',
-    # 'mask_bad',
+    'mask_bad',
     # 'ma',
     # 'fit_dipole',
     # 'remove_dipole',
