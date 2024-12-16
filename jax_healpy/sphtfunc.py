@@ -2195,12 +2195,15 @@ def map2alm_spin(
         spin=spin,
     )
 
+
     if healpy_ordering:
         if spin != 0:
             flm = [flm_2d_to_hp_fast(f, target_L) for f in flm]
         else:
             flm = flm_2d_to_hp_fast(flm, target_L)
 
+    if pol:
+          return flm, flm_E, flm_B
     return flm
 
 
