@@ -66,7 +66,6 @@ Map data manipulation
 - :func:`get_interp_val` computes a bilinear interpolation of the map
   at given angular coordinates, using 4 nearest neighbours
 """
-
 from functools import partial
 
 import jax.numpy as jnp
@@ -87,13 +86,13 @@ __all__ = [
     # 'get_interp_val',
     # 'get_all_neighbours',
     # 'max_pixrad',
-    'nest2ring',
-    'ring2nest',
-    'reorder',
+    # 'nest2ring',
+    # 'ring2nest',
+    # 'reorder',
     # 'ud_grade',
     'UNSEEN',
     # 'mask_good',
-    # 'mask_bad',
+    'mask_bad',
     # 'ma',
     # 'fit_dipole',
     # 'remove_dipole',
@@ -111,7 +110,7 @@ __all__ = [
     'isnpixok',
     # 'get_map_size',
     # 'get_min_valid_nside',
-    # 'get_nside',
+    'get_nside',
     'maptype',
     # 'ma_to_array',
 ]
@@ -1583,3 +1582,203 @@ def reorder(
 
     map_out = lax.fori_loop(0, n_chunks, body, jnp.empty_like(map_in))
     return map_out
+
+
+
+
+
+@partial(jit, static_argnames=['nside_out', 'pess', 'order_in', 'order_out', 'power', 'dtype'])
+def ud_grade(
+    map_in,
+    nside_out,
+    pess=False,
+    order_in="RING",
+    order_out=None,
+    power=None,
+    dtype=None,
+):
+    """Upgrade or degrade resolution of a map (or list of maps).
+
+    in degrading the resolution, ud_grade sets the value of the superpixel
+    as the mean of the children pixels. Note that ud_grade can create artifacts
+    in the power spectra and should be avoided unless the specific application
+    can tolerate that.
+
+    Parameters
+    ----------
+    map_in : array-like or sequence of array-like
+      the input map(s) (if a sequence of maps, all must have same size)
+    nside_out : int
+      the desired nside of the output map(s)
+    pess : bool
+      if ``True``, in degrading, reject pixels which contains
+      a bad sub_pixel. Otherwise, estimate average with good pixels
+    order_in, order_out : str
+      pixel ordering of input and output ('RING' or 'NESTED')
+    power : float
+      if non-zero, divide the result by (nside_in/nside_out)**power
+      Examples:
+      power=-2 keeps the sum of the map invariant (useful for hitmaps),
+      power=2 divides the mean by another factor of (nside_in/nside_out)**2
+      (useful for variance maps)
+    dtype : type
+      the type of the output map
+
+    Returns
+    -------
+    map_out : array-like or sequence of array-like
+      the upgraded or degraded map(s)
+
+    Examples
+    --------
+    >>> import healpy as hp
+    >>> hp.ud_grade(np.arange(48.), 1)
+    array([  5.5 ,   7.25,   9.  ,  10.75,  21.75,  21.75,  23.75,  25.75,
+            36.5 ,  38.25,  40.  ,  41.75])
+    """
+
+    check_nside(nside_out, nest=order_in != "RING")
+    typ = maptype(map_in)
+    
+    if typ < 0:
+        raise TypeError("Invalid map")
+    if typ == 0:
+        m_in = jnp.expand_dims(map_in, axis=0)
+    else:
+        m_in = map_in
+
+    if order_out is None:
+        order_out = order_in
+    
+    def _ud_grade_map(m):
+        if str(order_in).upper()[0:4] == "RING":
+            m = reorder(m, r2n=True)
+        mout = _ud_grade_core(m, nside_out, pess=pess, power=power, dtype=dtype)
+        if str(order_out).upper()[0:4] == "RING":
+            mout = reorder(mout, n2r=True)
+        return mout
+
+    mapout = jax.vmap(_ud_grade_map)(m_in)
+   
+    if typ == 0:
+        return mapout[0]
+    else:
+        return jnp.array(mapout) 
+
+
+@partial(jit, static_argnames=['nside_out', 'pess', 'power', 'dtype'])
+def _ud_grade_core(
+    m: ArrayLike, 
+    nside_out: int, 
+    pess: bool = False, 
+    power: float = None, 
+    dtype: type = None): #TODO: get the static term for dtype 
+    """Internal routine used by ud_grade. It assumes that the map is NESTED
+    and single (not a list of maps)
+    """
+    nside_in = get_nside(m)
+    if dtype:
+        type_out = dtype
+    else:
+        type_out = m.dtype
+    check_nside(nside_out, nest=True)
+    npix_in = nside2npix(nside_in)
+    npix_out = nside2npix(nside_out)
+
+    print("Nsides", nside_in, nside_out)
+
+    if power:
+        power = jnp.astype(power, dtype=jnp.float32)
+        ratio = (jnp.astype(nside_out, dtype=jnp.float32) / jnp.astype(nside_in, dtype=jnp.float32)) ** power
+    else:
+        ratio = 1
+
+    if nside_out > nside_in:
+        rat2 = npix_out // npix_in
+        fact = jnp.ones(rat2, dtype=type_out) * ratio
+        map_out = jnp.outer(m, fact).reshape(npix_out)
+    elif nside_out < nside_in:
+        rat2 = npix_in // npix_out
+        mr = m.reshape(npix_out, rat2)
+        goods = ~(mask_bad(mr) | (~jnp.isfinite(mr)))
+        map_out = jnp.sum(mr * goods, axis=1).astype(type_out)
+        nhit = goods.sum(axis=1)
+        if pess:
+            badout = jnp.where(nhit != rat2)
+        else:
+            badout = jnp.where(nhit == 0)
+        if power:
+            nhit = nhit / ratio
+        map_out[nhit != 0] = map_out[nhit != 0] / nhit[nhit != 0]
+        try:
+            map_out[badout] = UNSEEN
+        except OverflowError:
+            pass
+    else:
+        map_out = m
+    return map_out.astype(type_out)
+
+@partial(jit)
+def get_nside(m):
+    """Return the nside of the given map.
+
+    Parameters
+    ----------
+    m : sequence
+      the map to get the nside from.
+
+    Returns
+    -------
+    nside : int
+      the healpix nside parameter of the map (or sequence of maps)
+
+    Notes
+    -----
+    If the input is a sequence of maps, all of them must have same size.
+    If the input is not a valid map (not a sequence, unvalid number of pixels),
+    a TypeError exception is raised.
+    """
+    typ = maptype(m)
+    if typ == 0:
+        return npix2nside(m.size)
+    else:
+        return npix2nside(m[0].size)
+
+@partial(jit, static_argnames=['badval', 'rtol', 'atol'])
+def mask_bad(m, badval=UNSEEN, rtol=1.0e-5, atol=1.0e-8):
+    """Returns a bool array with ``True`` where m is close to badval.
+
+    Parameters
+    ----------
+    m : a map (may be a sequence of maps)
+    badval : float, optional
+        The value of the pixel considered as bad (:const:`UNSEEN` by default)
+    rtol : float, optional
+        The relative tolerance
+    atol : float, optional
+        The absolute tolerance
+
+    Returns
+    -------
+    mask
+      a bool array with the same shape as the input map, ``True`` where input map is
+      close to badval, and ``False`` elsewhere.
+
+    See Also
+    --------
+    mask_good, ma
+
+    Examples
+    --------
+    >>> import healpy as hp
+    >>> import numpy as np
+    >>> m = np.arange(12.)
+    >>> m[3] = hp.UNSEEN
+    >>> hp.mask_bad(m)
+    array([False, False, False,  True, False, False, False, False, False,
+           False, False, False], dtype=bool)
+    """
+    m = jnp.asarray(m)
+    atol = jnp.absolute(atol)
+    rtol = jnp.absolute(rtol)
+    return jnp.absolute(m - badval) <= atol + rtol * jnp.absolute(badval)
