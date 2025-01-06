@@ -1145,9 +1145,6 @@ def alm2cl(
     if nspec is None:
       nspec = (n_stokes*(n_stokes+1)) // 2 
 
-    
-      
-
     get_cl = lambda _alms1, _alms2: (jnp.sum((_alms1.real*_alms2.real + _alms1.imag*_alms2.imag)[...,:], axis=-1)/(2*jnp.arange(lmax+1) +1))[...,:lmax_out+1]
 
     auto_cl = get_cl(
@@ -1164,8 +1161,17 @@ def alm2cl(
         ),
       shift=-1, 
       axis=0)
+    cross_cl_revert = jnp.roll(
+      get_cl(
+        alms, 
+        jnp.roll(alms2, 1, axis=0)
+        ),
+      shift=1, 
+      axis=0)[::-1]
+    #TODO: For cross-cl include (TE + ET)/2, (TB + BT)/2, (EB + BE)/2?
+    #TODO: TO RECHECK!!!
     
-    return jnp.vstack([auto_cl, cross_cl]).at[:nspec].get()
+    return jnp.vstack([auto_cl, (cross_cl+cross_cl_revert)/2]).at[:nspec].get()
 
   
 @partial(
