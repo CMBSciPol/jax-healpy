@@ -1583,3 +1583,226 @@ def reorder(
 
     map_out = lax.fori_loop(0, n_chunks, body, jnp.empty_like(map_in))
     return map_out
+
+
+@partial(jit, static_argnames=['nside', 'nest', 'lonlat'])
+def get_interp_weights(
+    nside: int, theta: ArrayLike, phi: ArrayLike | None = None, nest: bool = False, lonlat: bool = False
+) -> tuple[Array, Array]:
+    """Return the 4 closest pixels on the two rings above and below the
+    location and corresponding weights.
+    Weights are provided for bilinear interpolation along latitude and longitude
+
+    Unlike healpy.get_interp_weights, specifying a theta not in the range [0, π] does
+    not raise an error, but returns -1 for the pixels and np.nan for the weights.
+
+    Parameters
+    ----------
+    nside : int
+        the healpix nside
+    theta, phi : float, scalar or array-like
+        if phi is not given, theta is interpreted as pixel number,
+        otherwise theta[rad],phi[rad] are angular coordinates
+    nest : bool
+        if ``True``, NESTED ordering, otherwise RING ordering.
+    lonlat : bool
+        If True, input angles are assumed to be longitude and latitude in degree,
+        otherwise, they are co-latitude and longitude in radians.
+
+    Returns
+    -------
+    res : tuple of length 2
+        contains pixel numbers in res[0] and weights in res[1].
+        Usual numpy broadcasting rules apply.
+
+    See Also
+    --------
+    get_interp_val, get_all_neighbours
+
+    Examples
+    --------
+    Note that some of the test inputs below that are on pixel boundaries
+    such as theta=pi/2, phi=pi/2, have a tiny value of 1e-15 added to them
+    to make them reproducible on i386 machines using x87 floating point
+    instruction set (see https://github.com/healpy/healpy/issues/528).
+
+    >>> import healpy as hp
+    >>> pix, weights = hp.get_interp_weights(1, 0)
+    >>> print(pix)
+    [0 1 4 5]
+    >>> weights
+    array([ 1.,  0.,  0.,  0.])
+
+    >>> pix, weights = hp.get_interp_weights(1, 0, 0)
+    >>> print(pix)
+    [1 2 3 0]
+    >>> weights
+    array([ 0.25,  0.25,  0.25,  0.25])
+
+    >>> pix, weights = hp.get_interp_weights(1, 0, 90, lonlat=True)
+    >>> print(pix)
+    [1 2 3 0]
+    >>> weights
+    array([ 0.25,  0.25,  0.25,  0.25])
+
+    >>> pix, weights = hp.get_interp_weights(1, [0, np.pi/2 + 1e-15], 0)
+    >>> print(pix)
+    [[ 1  4]
+     [ 2  5]
+     [ 3 11]
+     [ 0  8]]
+    >>> np.testing.assert_allclose(
+    ...     weights,
+    ...     np.array([[ 0.25,  1.  ],
+    ...               [ 0.25,  0.  ],
+    ...               [ 0.25,  0.  ],
+    ...               [ 0.25,  0.  ]]), rtol=0, atol=1e-14)
+    """
+    # TODO: for NESTED ordering, we need pix2ang_nest
+    if nest:
+        raise NotImplementedError
+    check_nside(nside, nest=nest)
+    if phi is None:
+        theta, phi = pix2ang(nside, theta, nest=nest)
+    elif lonlat:
+        theta, phi = _lonlat2thetaphi(theta, phi)
+    theta, phi = jnp.asarray(theta), jnp.asarray(phi)
+    pixels, weights = _interp_weights_ring(nside, theta, phi)
+    if nest:
+        pixels = ring2nest(nside, pixels)
+    theta_valid = _intervalclose(theta, 0, np.pi)
+    return (
+        jnp.where(theta_valid, pixels, -1),
+        jnp.where(theta_valid, weights, np.nan),
+    )
+
+
+def _intervalclose(a, lower, upper, atol=1e-5, rtol=1e-8):
+    """Check if ``a`` is in the interval [``lower``, ``upper``] with a tolerance."""
+    lo_bound = lower - jnp.maximum(atol, rtol * jnp.abs(lower))
+    up_bound = upper + jnp.minimum(atol, rtol * jnp.abs(upper))
+    return (lo_bound < a) & (a < up_bound)
+
+
+def _interp_weights_ring(nside: int, theta: Array, phi: Array) -> tuple[Array, Array]:
+    # The interpolation is done between 4 neighboring pixels
+    pix = jnp.empty((4,) + theta.shape, dtype=int)
+    wgt = jnp.empty((4,) + theta.shape)
+    # Can not do this check inside jitted code
+    # TODO: use chex.chexify?
+    # check_theta_valid(theta)
+    # Between which two rings are we pointing?
+    #   double z = cos (ptg.theta);
+    #   I ir1 = ring_above(z);
+    #   I ir2 = ir1+1;
+    iring_up = _ring_above(nside, jnp.cos(theta))
+    iring_lo = iring_up + 1
+    below_first = iring_up > 0
+    above_last = iring_lo < 4 * nside
+    # Ring above the pointing
+    sp_up = _start_pixel_ring(nside, iring_up)
+    theta_up = _pix2theta_ring(nside, iring_up, sp_up)
+    jleft_up, jright_up, w_up = _left_right_weight_ring(nside, iring_up, phi)
+    #   if (ir1>0)
+    #     {
+    #     pix[0] = sp+i1; pix[1] = sp+i2;
+    #     wgt[0] = 1-w1; wgt[1] = w1;
+    #     }
+    pix = pix.at[0].set(jnp.where(below_first, sp_up + jleft_up, -1))
+    pix = pix.at[1].set(jnp.where(below_first, sp_up + jright_up, -1))
+    wgt = wgt.at[0].set(jnp.where(below_first, 1 - w_up, 0))
+    wgt = wgt.at[1].set(jnp.where(below_first, w_up, 0))
+    # Ring below the pointing
+    sp_lo = _start_pixel_ring(nside, iring_lo)
+    theta_lo = _pix2theta_ring(nside, iring_lo, sp_up)
+    jleft_lo, jright_lo, w_lo = _left_right_weight_ring(nside, iring_lo, phi)
+    #   if (ir2<(4*nside_))
+    #     {
+    #     pix[2] = sp+i1; pix[3] = sp+i2;
+    #     wgt[2] = 1-w1; wgt[3] = w1;
+    #     }
+    pix = pix.at[2].set(jnp.where(above_last, sp_lo + jleft_lo, -1))
+    pix = pix.at[3].set(jnp.where(above_last, sp_lo + jright_lo, -1))
+    wgt = wgt.at[2].set(jnp.where(above_last, 1 - w_lo, 0))
+    wgt = wgt.at[3].set(jnp.where(above_last, w_lo, 0))
+    # Pointing above the first ring
+    #   if (ir1==0)
+    #     {
+    #     double wtheta = ptg.theta/theta2;
+    #     wgt[2] *= wtheta; wgt[3] *= wtheta;
+    #     double fac = (1-wtheta)*0.25;
+    #     wgt[0] = fac; wgt[1] = fac; wgt[2] += fac; wgt[3] +=fac;
+    #     pix[0] = (pix[2]+2)&3;
+    #     pix[1] = (pix[3]+2)&3;
+    #     }
+    wtheta = theta / theta_lo
+    above_first = ~below_first
+    wgt = wgt.at[2:4].multiply(jnp.where(above_first, wtheta, 1))
+    wgt = wgt.at[0:2].set(jnp.where(above_first, (1 - wtheta) * 0.25, wgt[0:2]))
+    wgt = wgt.at[2:4].add(jnp.where(above_first, (1 - wtheta) * 0.25, 0))
+    pix = pix.at[0].set(jnp.where(above_first, (pix[2] + 2) & 3, pix[0]))
+    pix = pix.at[1].set(jnp.where(above_first, (pix[3] + 2) & 3, pix[1]))
+    # Pointing below the last ring
+    #   else if (ir2==4*nside_)
+    #     {
+    #     double wtheta = (ptg.theta-theta1)/(pi-theta1);
+    #     wgt[0] *= (1-wtheta); wgt[1] *= (1-wtheta);
+    #     double fac = wtheta*0.25;
+    #     wgt[0] += fac; wgt[1] += fac; wgt[2] = fac; wgt[3] =fac;
+    #     pix[2] = ((pix[0]+2)&3)+npix_-4;
+    #     pix[3] = ((pix[1]+2)&3)+npix_-4;
+    #     }
+    wtheta = (theta - theta_up) / (np.pi - theta_up)
+    below_last = ~above_last
+    wgt = wgt.at[0:2].multiply(jnp.where(below_last, 1 - wtheta, 1))
+    wgt = wgt.at[0:2].add(jnp.where(below_last, wtheta * 0.25, 0))
+    wgt = wgt.at[2:4].set(jnp.where(below_last, wtheta * 0.25, wgt[2:4]))
+    npix = nside2npix(nside)
+    pix = pix.at[2].set(jnp.where(below_last, (pix[0] + 2) & 3 + npix - 4, pix[2]))
+    pix = pix.at[3].set(jnp.where(below_last, (pix[1] + 2) & 3 + npix - 4, pix[3]))
+    # Pointing between two rings
+    #   else
+    #     {
+    #     double wtheta = (ptg.theta-theta1)/(theta2-theta1);
+    #     wgt[0] *= (1-wtheta); wgt[1] *= (1-wtheta);
+    #     wgt[2] *= wtheta; wgt[3] *= wtheta;
+    #     }
+    between = below_first & above_last
+    wtheta = (theta - theta_up) / (theta_lo - theta_up)
+    wgt = wgt.at[0:2].multiply(jnp.where(between, 1 - wtheta, 1))
+    wgt = wgt.at[2:4].multiply(jnp.where(between, wtheta, 1))
+    return pix, wgt
+
+
+def _ring_above(nside: int, z: ArrayLike) -> Array:
+    """Get the index of the closest ring above a given z coordinate"""
+    az = jnp.abs(z)
+    ring_index = jnp.where(
+        az <= 2 / 3,
+        jnp.floor(nside * (2 - 1.5 * z)),
+        jnp.where(
+            z > 0,
+            iring := jnp.floor(nside * jnp.sqrt(3 * (1 - az))).astype(int),
+            4 * nside - iring - 1,
+        ),
+    ).astype(int)
+    return ring_index
+
+
+def _left_right_weight_ring(nside: int, iring: ArrayLike, phi: ArrayLike) -> tuple[Array, Array, Array]:
+    #     get_ring_info2 (ir, sp, nr, theta, shift);
+    #     dphi = twopi/nr;
+    #     tmp = (ptg.phi/dphi - .5*shift);
+    #     i1 = (tmp<0) ? I(tmp)-1 : I(tmp);
+    #     w1 = (ptg.phi-(i1+.5*shift)*dphi)/dphi;
+    #     i2 = i1+1;
+    #     if (i1<0) i1 +=nr;
+    #     if (i2>=nr) i2 -=nr;
+    nr = _npix_on_ring(nside, iring)
+    shifted = _ring_shifted(nside, iring)
+    dphi = 2 * np.pi / nr  # delta phi between centers of neighboring pixels
+    shift = 0.5 * shifted  # shift of first pixel center in dphi units
+    jleft = jnp.floor(phi / dphi - shift).astype(int) % nr
+    jright = (jleft + 1) % nr
+    w = (jnp.asarray(phi) - (jleft + shift) * dphi) / dphi
+    return jleft, jright, w
