@@ -1547,3 +1547,568 @@ def synfast(
     if alm:
         return jnp.asarray(maps), jnp.asarray(alms)
     return jnp.asarray(maps)
+
+
+@partial(
+    jax.jit,
+    static_argnames=[
+        'mmax',
+        'inplace',
+        'healpy_ordering',
+        'lmax'
+    ],
+)
+def almxfl(
+  alm: ArrayLike, 
+  fl: ArrayLike, 
+  mmax: int = None, 
+  inplace: bool = False, 
+  healpy_ordering: bool = False,
+  lmax: int = None
+  ):
+    """Multiply alm by a function of l. The function is assumed
+    to be zero where not defined.
+
+    Parameters
+    ----------
+    alm: array
+      The alm to multiply
+    fl: array
+      The function (at l=0..fl.size-1) by which alm must be multiplied.
+    mmax: None or int, optional
+      The maximum m defining the alm layout. Default: lmax.
+    inplace: bool, optional
+      If True, modify the given alm, otherwise make a copy before multiplying.
+    healpy_ordering: bool, optional
+      By default, we follow the s2fft ordering for the alms. To use healpy
+      ordering, set it to True.
+    lmax: int, optional
+      If healpy_ordering is True, then lmax is needed
+
+    Returns
+    -------
+    alm: array
+      The modified alm, either a new array or a reference to input alm,
+      if inplace is True.
+    """
+
+    if inplace:
+        raise NotImplementedError('Specifying inplace is not implemented.')
+
+    if healpy_ordering:
+        if lmax is None:
+          raise ValueError('lmax is needed when healpy_ordering is True')
+
+        # Identifying the m indices of a set of alms according to Healpy convention
+        all_m_idx = jax.vmap(lambda m_idx: m_idx * (2 * lmax + 1 - m_idx) // 2)(jnp.arange(lmax + 1))
+
+        def func_scan(carry, ell):
+          """
+          For a given ell, returns the alms convolved with the covariance matrix fl for all m
+          """
+          _alm_carry = carry
+          mask_m = jnp.where(jnp.arange(lmax + 1) <= ell, fl[...,ell], 1)
+          _alm_carry = _alm_carry.at[all_m_idx + ell].set(_alm_carry[all_m_idx + ell] * mask_m)
+          return _alm_carry, ell
+
+        alms_output, _ = jax.lax.scan(func_scan, alm, jnp.arange(lmax + 1))
+        return alms_output
+    
+    return jnp.einsum('...lm, ...l -> ...lm', alm, fl)
+
+
+@partial(
+    jax.jit,
+    static_argnames=[
+        'lmax',
+        'mmax',
+        'lmax_out',
+        'nspec',
+        'healpy_ordering'
+    ],
+)
+def alm2cl(
+  alms: ArrayLike, 
+  alms2: ArrayLike = None, 
+  lmax: int = None, 
+  mmax: int = None, 
+  lmax_out: int = None, 
+  nspec: int = None,
+  healpy_ordering: bool = False,
+):
+    """Computes (cross-)spectra from alm(s). If alm2 is given, cross-spectra between
+    alm and alm2 are computed. If alm (and alm2 if provided) contains n alm,
+    then n(n+1)/2 auto and cross-spectra are returned.
+
+    Parameters
+    ----------
+    alm: complex, array or sequence of arrays
+      The alm from which to compute the power spectrum. If n>=2 arrays are given,
+      computes both auto- and cross-spectra.
+    alms2: complex, array or sequence of 3 arrays, optional
+      If provided, computes cross-spectra between alm and alm2.
+      Default: alm2=alm, so auto-spectra are computed.
+    lmax: None or int, optional
+      The maximum l of the input alm. Default: computed from size of alm
+      and mmax_in
+    mmax: None or int, optional
+      The maximum m of the input alm. Default: assume mmax_in = lmax_in
+    lmax_out: None or int, optional
+      The maximum l of the returned spectra. By default: the lmax of the given
+      alm(s).
+    healpy_ordering: bool, optional
+      By default, we follow the s2fft ordering for the alms. To use healpy
+      ordering, set it to True.
+
+    Returns
+    -------
+    cl: array or tuple of n(n+1)/2 arrays
+      the spectrum <*alm* x *alm2*> if *alm* (and *alm2*) is one alm, or
+      the auto- and cross-spectra <*alm*[i] x *alm2*[j]> if alm (and alm2)
+      contains more than one spectra.
+      If more than one spectrum is returned, they are ordered by diagonal.
+      For example, if *alm* is almT, almE, almB, then the returned spectra are:
+      TT, EE, BB, TE, EB, TB.
+    """
+
+    if lmax is None and healpy_ordering:
+      raise ValueError('lmax must be provided with alm2cl if using healpy_ordering')
+
+    alms = jnp.asarray(alms)
+    if healpy_ordering: 
+      alms = flm_hp_to_2d_fast(alms, lmax + 1)
+    if alms2 is None:
+      alms2 = alms
+    else: 
+      if healpy_ordering: 
+        alms2 = flm_hp_to_2d_fast(alms2, lmax + 1)
+      alms2 = jnp.asarray(alms2)
+
+      if alms.shape != alms2.shape:
+        raise ValueError('alm and alm2 must have the same shape')
+
+    if not healpy_ordering:
+      if alms.ndim == 2:
+        n_stokes = 1
+      elif alms.ndim == 3:
+        n_stokes = alms.shape[0]
+      else:
+        raise ValueError('The input alms have a wrong dimension')
+    else:
+      if alms.ndim == 1:
+        n_stokes = 1
+      elif alms.ndim == 2:
+        n_stokes = alms.shape[0]
+      else:
+        raise ValueError('The input alms have too many dimensions')
+
+    if lmax is None:
+      lmax = alms.shape[-2] - 1       
+    
+    if lmax_out is None:
+      lmax_out = lmax
+    
+    if mmax is None:
+      mmax = lmax
+
+
+
+    if nspec is None:
+      nspec = (n_stokes*(n_stokes+1)) // 2 
+
+    
+      
+
+    get_cl = lambda _alms1, _alms2: (jnp.sum((_alms1.real*_alms2.real + _alms1.imag*_alms2.imag)[...,:], axis=-1)/(2*jnp.arange(lmax+1) +1))[...,:lmax_out+1]
+
+    auto_cl = get_cl(
+      alms, 
+      alms2, 
+      )
+    if n_stokes == 1:
+      return auto_cl
+
+    cross_cl = jnp.roll(
+      get_cl(
+        alms, 
+        jnp.roll(alms2, 1, axis=0)
+        ),
+      shift=-1, 
+      axis=0)
+    
+    return jnp.vstack([auto_cl, cross_cl]).at[:nspec].get()
+
+  
+@partial(
+    jax.jit,
+    static_argnames=[
+        'nspec',
+        'lmax',
+        'mmax',
+        'iter',
+        'alm',
+        'pol',
+        'use_weights',
+        'datapath',
+        'gal_cut',
+        'use_pixel_weights',
+    ],
+)
+def anafast(
+    map1,
+    map2: ArrayLike = None,
+    nspec: int = None,
+    lmax: int = None,
+    mmax: int = None,
+    iter: int = 3,
+    alm: bool = False,
+    pol: bool = True,
+    only_pol: bool = False,
+    use_weights: bool = False,
+    datapath: str = None,
+    gal_cut: float = 0,
+    use_pixel_weights: bool = False,
+    healpy_ordering: bool = False,
+):
+    """Computes the power spectrum of a Healpix map, or the cross-spectrum
+    between two maps if *map2* is given.
+    No removal of monopole or dipole is performed. The input maps must be
+    in ring-ordering.
+    Spherical harmonics transforms in HEALPix are always on the full sky,
+    if the map is masked, those pixels are set to 0. It is recommended to
+    remove monopole from the map before running `anafast` to reduce
+    boundary effects.
+
+    For recommendations about how to set `lmax`, `iter`, and weights, see the
+    `Anafast documentation <https://healpix.sourceforge.io/html/fac_anafast.htm>`_
+
+    Parameters
+    ----------
+    map1: float, array-like shape (Npix,), (2, Npix) or (3, Npix)
+      Either an array representing a map, a sequence of 3 arrays
+      representing I, Q, U maps, or Q, U maps if only_pol is True. 
+      Must be in ring ordering.
+    map2: float, array-like shape (Npix,), (2, Npix) or (3, Npix)
+      Either an array representing a map, a sequence of 3 arrays
+      representing I, Q, U maps, or Q, U maps if only_pol is True. 
+      Must be in ring ordering.
+    nspec: None or int, optional
+      The number of spectra to return. If None, returns all, otherwise
+      returns cls[:nspec]
+    lmax: int, scalar, optional
+      Maximum l of the power spectrum (default: 3*nside-1)
+    mmax: int, scalar, optional
+      Maximum m of the alm (default: lmax)
+    iter: int, scalar, optional
+      Number of iteration (default: 3)
+    alm: bool, scalar, optional
+      If True, returns both cl and alm, otherwise only cl is returned
+    pol: bool, optional
+      If True, assumes input maps are TQU. Output will be TEB cl's and
+      correlations (input must be 1 or 3 maps).
+      If False, maps are assumed to be described by spin 0 spherical harmonics.
+      (input can be any number of maps)
+      If there is only one input map, it has no effect. Default: True.
+    only_pol: bool, optional
+      If True, consider maps are only given only return the polarization spectra (EE, BB, TE, EB, TB).
+    datapath: None or str, optional
+      If given, the directory where to find the weights data.
+      See the docstring of `map2alm` for details on how to set it up
+    gal_cut: float [degrees]
+      pixels at latitude in [-gal_cut;+gal_cut] are not taken into account
+    use_pixel_weights: bool, optional
+      If True, use pixel by pixel weighting, healpy will automatically download the weights, if needed
+      See the map2alm docs for details about weighting
+
+    Returns
+    -------
+    res: array or sequence of arrays
+      If *alm* is False, returns cl or a list of cl's (TT, EE, BB, TE, EB, TB for
+      polarized input map)
+      Otherwise, returns a tuple (cl, alm), where cl is as above and
+      alm is the spherical harmonic transform or a list of almT, almE, almB
+      for polarized input
+    
+    Notes
+    -------
+    The alms will be returned according to s2fft ordering 
+    """
+    if map2 is not None and map1.shape != map2.shape:
+      raise ValueError('map1 and map2 must have the same shape')
+    
+    if lmax is None and healpy_ordering:
+      raise ValueError('lmax must be provided with alm2cl if using healpy_ordering')
+    
+    if datapath is not None:
+      raise NotImplementedError('Specifying datapath is not implemented.')
+    if use_pixel_weights:
+      raise NotImplementedError('Specifying use_pixel_weights is not implemented.')
+
+    if lmax is None:
+      lmax = alms.shape[-2] - 1
+    
+    if mmax is None:
+      mmax = lmax
+
+    if nspec is None:
+      if map1.ndim == 1:
+        n_stokes = 1
+      else:
+        n_stokes = map1.shape[0]
+
+      nspec = n_stokes**2 // 2 + n_stokes // 2 + n_stokes % 2
+
+    if only_pol:
+      map2alm_func = _map2alm_pol
+      if map1.shape[-2] != 2:
+        raise ValueError('Input maps must have 2 Stokes parameters, Q and U.')
+    else:
+      map2alm_func = map2alm
+
+    alm1 = jnp.asarray(
+      map2alm_func(
+        map1, 
+        lmax=lmax, 
+        mmax=mmax, 
+        iter=iter, 
+        pol=pol,
+        use_weights=use_weights, 
+        datapath=datapath, 
+        gal_cut=gal_cut, 
+        use_pixel_weights=use_pixel_weights
+        )
+      )
+
+    if map2 is None:
+      alm2 = alm1
+    else:
+      alm2 = jnp.asarray(
+        map2alm_func(
+          map2, 
+          lmax=lmax, 
+          mmax=mmax, 
+          iter=iter, 
+          pol=pol, 
+          use_weights=use_weights, 
+          datapath=datapath, 
+          gal_cut=gal_cut, 
+          use_pixel_weights=use_pixel_weights
+          )
+        )
+
+    cls_res = alm2cl(
+      alm1, 
+      alm2, 
+      lmax=lmax, 
+      mmax=mmax, 
+      lmax_out=lmax, 
+      nspec=nspec, 
+      healpy_ordering=False
+      )
+
+    if alm:
+      if map2 is not None:
+        return cls_res, alm1, alm2
+      return cls_res, alm1
+    return cls_res
+
+
+@partial(
+    jax.jit,
+    static_argnames=[
+      'lmax',
+      'mmax',
+      'new',
+      'verbose'
+    ],
+)
+def synalm(
+  cls: ArrayLike, 
+  lmax: int = None, 
+  mmax: int = None,
+  seed: int = 0, 
+  new: bool = False, 
+  verbose: bool = True
+  ):
+    """Generate a set of alm given cl.
+    The cl are given as a float array. Corresponding alm are generated.
+    If lmax is None, it is assumed lmax=cl.size-1
+    If mmax is None, it is assumed mmax=lmax.
+
+    Parameters
+    ----------
+    cls: float, array or tuple of arrays
+      Either one cl (1D array) or a tuple of either 4 cl
+      or of n*(n+1)/2 cl.
+      Some of the cl may be None, implying no
+      cross-correlation. See *new* parameter.
+    lmax: int, scalar, optional
+      The lmax (if None or <0, the largest size-1 of cls)
+    mmax: int, scalar, optional
+      The mmax (if None or <0, =lmax)
+    seed: int, scalar, optional
+      The seed for the random number generator
+    new: bool, optional
+      If True, use the new ordering of cl's, ie by diagonal
+      (e.g. TT, EE, BB, TE, EB, TB or TT, EE, BB, TE if 4 cl as input).
+      If False, use the old ordering, ie by row
+      (e.g. TT, TE, TB, EE, EB, BB or TT, TE, EE, BB if 4 cl as input).
+
+    Returns
+    -------
+    alms: array or list of arrays
+      the generated alm if one spectrum is given, or a list of n alms
+      (with n(n+1)/2 the number of input cl, or n=3 if there are 4 input cl).
+
+    Notes
+    -----
+    We don't plan to change the default order anymore, that would break old
+    code in a way difficult to debug.
+    """
+
+    if new==True:
+        # From TT, EE, BB, TE, EB, TB to TT, TE, TB, EE, EB, BB
+        new_order = jnp.array([0, 3, 5, 1, 4, 2])
+
+        cls = cls[new_order]
+    
+    if lmax is None:
+        if cls.ndim == 1:
+          lmax = cls.size - 1
+        else:
+          lmax = cls[0].size - 1
+    
+    if mmax is None:
+        mmax = lmax
+
+    if cls.ndim == 1:
+      n_stokes == 1
+      cls = cls[None,...]
+    elif cls.ndim == 4:
+      n_stokes == 3
+    else:
+      n_stokes == jnp.int16(-.5 + jnp.sqrt(.25 + 2*cls.shape[0]))
+
+    random_keys = jax.random.split(jax.random.PRNGKey(seed), lmax + 1)
+
+    def get_map_alms(ell_seed):
+      ell, seed = ell_seed
+      matrix_triangular = jnp.zeros((n_stokes, n_stokes), dtype=jnp.float64)
+      matrix_triangular = matrix_triangular.at[jnp.tril_indices(n_stokes)].set(cls[...,ell]) 
+
+      cholesky_decomposition = jnp.linalg.cholesky(jnp.maximum(matrix_triangular,matrix_triangular.T))
+
+      mask_m = jnp.where(jnp.arange(mmax*2-1) <= 2*ell+1, 1, 0)
+      random = jax.random.normal(seed, (n_stokes, mmax*2-1), dtype=jnp.complex64) * mask_m
+
+      return jnp.roll(jnp.einsum('sk,km->sm',cholesky_decomposition, random), shift=lmax+ell, axis=1)
+
+    all_alms = jax.vmap(get_map_alms, in_axes=(0, 0))(jnp.arange(lmax + 1), random_keys)
+
+    return all_alms
+
+@partial(
+    jax.jit,
+    static_argnames=[
+      'nside',
+      'lmax',
+      'mmax',
+      'alm',
+      'pol',
+      'pixwin',
+      'fwhm',
+      'sigma',
+      'new',
+      'verbose'
+    ],
+)
+def synfast(
+    cls: ArrayLike,
+    nside: int,
+    lmax: int = None,
+    mmax: int = None,
+    alm: bool = False,
+    pol: bool = True,
+    pixwin: bool = False,
+    fwhm: float = 0.0,
+    sigma: float = None,
+    new: bool = False,
+    verbose: bool = True,
+):
+    """Create a map(s) from cl(s).
+
+    You can choose a random seed using `numpy.random.seed(SEEDVALUE)`
+    before calling `synfast`.
+
+    Parameters
+    ----------
+    cls: array or tuple of array
+      A cl or a list of cl (either 4 or 6, see:func:`synalm`)
+    nside: int, scalar
+      The nside of the output map(s)
+    lmax: int, scalar, optional
+      Maximum l for alm. Default: min of 3*nside-1 or length of the cls - 1
+    mmax: int, scalar, optional
+      Maximum m for alm.
+    alm: bool, scalar, optional
+      If True, return also alm(s). Default: False.
+    pol: bool, optional
+      If True, assumes input cls are TEB and correlation. Output will be TQU maps.
+      (input must be 1, 4 or 6 cl's)
+      If False, fields are assumed to be described by spin 0 spherical harmonics.
+      (input can be any number of cl's)
+      If there is only one input cl, it has no effect. Default: True.
+    pixwin: bool, scalar, optional
+      If True, convolve the alm by the pixel window function. Default: False.
+    fwhm: float, scalar, optional
+      The fwhm of the Gaussian used to smooth the map (applied on alm)
+      [in radians]
+    sigma: float, scalar, optional
+      The sigma of the Gaussian used to smooth the map (applied on alm)
+      [in radians]
+    new: bool, optional
+      If True, use the new ordering of cl's, ie by diagonal
+      (e.g. TT, EE, BB, TE, EB, TB or TT, EE, BB, TE if 4 cl as input).
+      If False, use the old ordering, ie by row
+      (e.g. TT, TE, TB, EE, EB, BB or TT, TE, EE, BB if 4 cl as input).
+
+    Returns
+    -------
+    maps: array or tuple of arrays
+      The output map (possibly list of maps if polarized input).
+      or, if alm is True, a tuple of (map,alm)
+      (alm possibly a list of alm if polarized input)
+
+    Notes
+    -----
+    We don't plan to change the default order anymore, that would break old
+    code in a way difficult to debug.
+    """
+    if jnp.log(nside) / jnp.log(2) % 1 != 0:
+        raise ValueError('nside must be a power of 2')
+
+    if cls.ndim == 1:
+      cls_lmax = cls.size - 1
+    else:
+      cls_lmax = cls[0].size - 1
+    
+    if lmax is None or lmax < 0:
+        lmax = jnp.min(cls_lmax, 3 * nside - 1)
+    
+    alms = synalm(cls, lmax=lmax, mmax=mmax, new=new)
+    
+    maps = alm2map(
+        alms,
+        nside,
+        lmax=lmax,
+        mmax=mmax,
+        pixwin=pixwin,
+        pol=pol,
+        fwhm=fwhm,
+        sigma=sigma,
+        inplace=True,
+    )
+    
+    if alm:
+        return jnp.asarray(maps), jnp.asarray(alms)
+    return jnp.asarray(maps)

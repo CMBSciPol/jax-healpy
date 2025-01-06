@@ -89,7 +89,7 @@ __all__ = [
     # 'nest2ring',
     # 'ring2nest',
     # 'reorder',
-    # 'ud_grade',
+    'ud_grade',
     'UNSEEN',
     # 'mask_good',
     'mask_bad',
