@@ -29,6 +29,4 @@ Execution time measured on the [Jean Zay supercomputer](http://www.idris.fr/jean
 - CPU: Intel(R) Xeon(R) Gold 2648 @ 2.50GHz
 - GPU: NVIDIA Tesla V100-SXM2-16GB
 
-<div align="center">
-<img src="https://raw.githubusercontent.com/CMBSciPol/jax-healpy/main/docs/benchmarks/chart-darkbackground-n10000000.png" alt="Benchmark"></img>
-</div>
+![Benchmark](/docs/benchmarks/chart-darkbackground-n10000000.png)
