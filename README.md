@@ -2,13 +2,33 @@
 
 This project intends to assess the interest of implementing healpy functions using JAX.
 
-*WARNING: BETA STAGE!!!*
+_WARNING: BETA STAGE!!!_
+
+## Installation
+
+First install JAX following the [documentation](https://jax.readthedocs.io/en/latest/installation.html).
+
+Then install the package with:
+
+```bash
+pip install jax-healpy
+```
+
+To use the spherical harmonics functions,
+you will need [s2fft](https://astro-informatics.github.io/s2fft/),
+part of the recommended dependencies:
+
+```bash
+pip install jax-healpy[recommended]
+```
+
+## Benchmarks
+
+Execution time measured on the [Jean Zay supercomputer](http://www.idris.fr/jean-zay/cpu/jean-zay-cpu-hw.html).
+
+- CPU: Intel(R) Xeon(R) Gold 2648 @ 2.50GHz
+- GPU: NVIDIA Tesla V100-SXM2-16GB
+
 <div align="center">
-<img src="https://raw.githubusercontent.com/pchanial/jax-healpy/main/docs/benchmarks/chart-darkbackground-n10000000.png" alt="Benchmark"></img>
+<img src="https://raw.githubusercontent.com/CMBSciPol/jax-healpy/main/docs/benchmarks/chart-darkbackground-n10000000.png" alt="Benchmark"></img>
 </div>
-
-# Installation
-
-    pip install -U "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-    pip install jax-healpy
-    pip install "s2fft @ git+https://github.com/astro-informatics/s2fft@0.0.1"
