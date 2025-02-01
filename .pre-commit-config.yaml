@@ -6,11 +6,11 @@ repos:
     args:
     - --all
 
-- repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.8.0
-  hooks:
-    - id: ruff
-    - id: ruff-format
+# - repo: https://github.com/astral-sh/ruff-pre-commit
+#   rev: v0.8.0
+#   hooks:
+#     - id: ruff
+#     - id: ruff-format
 
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: 'v5.0.0'
