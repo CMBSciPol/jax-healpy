@@ -7,6 +7,7 @@ import pytest
 from s2fft.sampling.s2_samples import flm_2d_to_hp
 from s2fft.sampling.reindex import flm_hp_to_2d_fast
 import jax_healpy as jhp
+import jax.numpy as jnp
 
 # TODO: '_map2alm_pol',
 # '_alm2map_pol',
@@ -77,29 +78,30 @@ def test_map2alm(
 
 # TODO: Wait for s2fft response from the issue https://github.com/astro-informatics/s2fft/issues/269
 # @pytest.mark.parametrize('fast_non_differentiable', [False, True])
-# @pytest.mark.parametrize('healpy_ordering', [False, True])
-# @pytest.mark.parametrize('lmax', [None, 64])
-# def test_map2alm_pol(map1: np.ndarray, lmax: int | None, healpy_ordering: bool, fast_non_differentiable: bool) -> None:
+@pytest.mark.parametrize('healpy_ordering', [False, True])
+@pytest.mark.parametrize('lmax', [None, 64])
+def test_map2alm_pol(map1: np.ndarray, lmax: int | None, healpy_ordering: bool) -> None: #, fast_non_differentiable: bool) -> None:
+    fast_non_differentiable = True
 
-#     nside = hp.npix2nside(map1.shape[1])
-#     actual_flm = jnp.array(jhp.map2alm(map1, lmax=lmax, iter=0, pol=True, healpy_ordering=healpy_ordering, fast_non_differentiable=fast_non_differentiable))
+    nside = hp.npix2nside(map1.shape[1])
+    actual_flm = jnp.array(jhp.map2alm(map1, lmax=lmax, iter=0, pol=True, healpy_ordering=healpy_ordering, fast_non_differentiable=fast_non_differentiable))
 
-#     expected_flm = np.array(hp.map2alm(map1, lmax=lmax, iter=0))
-#     if not healpy_ordering:
-#         L = 3 * nside if lmax is None else lmax + 1
-#         lmax = L - 1
+    expected_flm = np.array(hp.map2alm(map1, lmax=lmax, iter=0))
+    if not healpy_ordering:
+        L = 3 * nside if lmax is None else lmax + 1
+        lmax = L - 1
 
-#         assert expected_flm.shape[0] == 3
-#         assert expected_flm.shape[1] ==  lmax * (2 * lmax + 1 - lmax) // 2 + lmax + 1
+        assert expected_flm.shape[0] == 3
+        assert expected_flm.shape[1] ==  lmax * (2 * lmax + 1 - lmax) // 2 + lmax + 1
 
 
-#         # expected_flm = flm_hp_to_2d(expected_flm, L)
-#         array_flm = jnp.array(expected_flm)
-#         result_flm = jnp.zeros_like(actual_flm)
-#         for i in range(array_flm.shape[0]):
-#             result_flm = result_flm.at[i,...].set(flm_hp_to_2d_fast(array_flm[i], L))
-#         expected_flm = result_flm
-#     np.testing.assert_allclose(actual_flm, expected_flm, atol=1e-8)
+        # expected_flm = flm_hp_to_2d(expected_flm, L)
+        array_flm = jnp.array(expected_flm)
+        result_flm = jnp.zeros_like(actual_flm)
+        for i in range(array_flm.shape[0]):
+            result_flm = result_flm.at[i,...].set(flm_hp_to_2d_fast(array_flm[i], L))
+        expected_flm = result_flm
+    np.testing.assert_allclose(actual_flm, expected_flm, atol=1e-8)
 
 
 @pytest.mark.parametrize('lmax', [None, 7])
@@ -136,41 +138,42 @@ def test_alm2map(
     np.testing.assert_allclose(actual_map, expected_map, atol=1e-12)
 
     # TODO: Wait for s2fft response from the issue https://github.com/astro-informatics/s2fft/issues/269
-    # @pytest.mark.parametrize('lmax', [None, 7])
-    # @pytest.mark.parametrize('healpy_ordering', [False, True])
+    @pytest.mark.parametrize('lmax', [None, 7])
+    @pytest.mark.parametrize('healpy_ordering', [False, True])
     # @pytest.mark.parametrize('fast_non_differentiable', [False, True])
-    # def test_alm2map_TEB(map1: Callable[[...], np.ndarray], lmax: int | None, healpy_ordering: bool, fast_non_differentiable: bool) -> None:
-    #     nside = 4
-    #     if lmax is None:
-    #         L = 3 * nside
-    #     else:
-    #         L = lmax + 1
+    def test_alm2map_TEB(map1: Callable[[...], np.ndarray], lmax: int | None, healpy_ordering: bool)  -> None:#, fast_non_differentiable: bool) -> None:
+        fast_non_differentiable = True
+        nside = 4
+        if lmax is None:
+            L = 3 * nside
+        else:
+            L = lmax + 1
 
-    #     # flm_list = []
-    #     # for i in range(3):
-    #     #     flm_list.append(flm_generator(L=L, spin=0, reality=True, healpy_ordering=healpy_ordering))
+        # flm_list = []
+        # for i in range(3):
+        #     flm_list.append(flm_generator(L=L, spin=0, reality=True, healpy_ordering=healpy_ordering))
 
-    #     alm_hp = hp.map2alm(map1, lmax=L - 1, pol=True, iter=3)
+        alm_hp = hp.map2alm(map1, lmax=L - 1, pol=True, iter=3)
 
-    #     if not healpy_ordering:
-    #         flm_list = []
-    #         for i in range(3):
-    #             flm_list.append(flm_hp_to_2d_fast(alm_hp[i], L))
-    #     else:
-    #         flm_list = alm_hp
+        if not healpy_ordering:
+            flm_list = []
+            for i in range(3):
+                flm_list.append(flm_hp_to_2d_fast(alm_hp[i], L))
+        else:
+            flm_list = alm_hp
 
-    #     flm = jnp.array(flm_list)
-    #     actual_map = jhp.alm2map(flm, nside, lmax=lmax, pol=True, healpy_ordering=healpy_ordering, fast_non_differentiable=fast_non_differentiable).block_until_ready()
+        flm = jnp.array(flm_list)
+        actual_map = jhp.alm2map(flm, nside, lmax=lmax, pol=True, healpy_ordering=healpy_ordering, fast_non_differentiable=fast_non_differentiable).block_until_ready()
 
-    #     if not healpy_ordering:
-    #         flm_list_hp = []
-    #         for i in range(3):
-    #             flm_list_hp.append(flm_2d_to_hp_fast(flm[i], L))
-    #         flm = np.array(flm_list_hp)
+        if not healpy_ordering:
+            flm_list_hp = []
+            for i in range(3):
+                flm_list_hp.append(flm_2d_to_hp_fast(flm[i], L))
+            flm = np.array(flm_list_hp)
 
-    #     expected_map = hp.alm2map(np.array(flm), nside, lmax=lmax, pol=True)
+        expected_map = hp.alm2map(np.array(flm), nside, lmax=lmax, pol=True)
 
-    #     np.testing.assert_allclose(actual_map, expected_map, atol=1e-10)
+        np.testing.assert_allclose(actual_map, expected_map, atol=1e-10)
 
     # @pytest.mark.parametrize('healpy_ordering', [False, True])
     # @pytest.mark.parametrize('fast_non_differentiable', [False, True])

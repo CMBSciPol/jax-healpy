@@ -853,6 +853,7 @@ def _map2alm_pol(
             shape_alms=shape_alms,
             nside=nside,
             sampling='healpix',
+            reality=True,
             precomps=precomps_plus2,
             iter=iter,
             spmd=spmd,
