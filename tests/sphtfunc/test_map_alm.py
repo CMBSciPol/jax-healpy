@@ -8,6 +8,7 @@ import pytest
 from s2fft.sampling.s2_samples import flm_2d_to_hp
 from s2fft.sampling.reindex import flm_hp_to_2d_fast
 import jax_healpy as jhp
+import jax.numpy as jnp
 
 jax.config.update('jax_enable_x64', True)
 
