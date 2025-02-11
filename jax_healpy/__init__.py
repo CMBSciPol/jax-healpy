@@ -26,6 +26,8 @@ from .pixelfunc import (
     xyf2pix,
 )
 from .sphtfunc import alm2map, map2alm
+from .clustering._kmeans import kmeans_sample, KMeans
+from .clustering._clustering import get_clusters, get_cutout_from_mask, from_cutout_to_fullmap
 
 __all__ = [
     'UNSEEN',
@@ -70,6 +72,12 @@ __all__ = [
     # 'ma_to_array',
     'alm2map',
     'map2alm',
+    # Clustering
+    'get_clusters',
+    'get_cutout_from_mask',
+    'from_cutout_to_fullmap',
+    'kmeans_sample',
+    'KMeans',
 ]
 
 _config.update('jax_enable_x64', True)

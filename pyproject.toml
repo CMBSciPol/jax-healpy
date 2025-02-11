@@ -49,6 +49,7 @@ dev = [
     'setuptools_scm',
     'typer',
     'PyYAML',
+    'chex',
 ]
 recommended = [
     's2fft',
