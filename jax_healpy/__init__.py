@@ -25,7 +25,7 @@ from .pixelfunc import (
     vec2pix,
     xyf2pix,
 )
-from .sphtfunc import alm2map, map2alm, alm2cl
+from .sphtfunc import alm2map, map2alm, alm2cl, almxfl
 
 __all__ = [
     'UNSEEN',
@@ -71,6 +71,7 @@ __all__ = [
     'alm2map',
     'map2alm',
     'alm2cl',
+    'almxfl',
 ]
 
 _config.update('jax_enable_x64', True)
