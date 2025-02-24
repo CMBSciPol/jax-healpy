@@ -1,9 +1,12 @@
-import jax_healpy as jhp
-from jax import numpy as jnp
-from ._kmeans import kmeans_sample
-import jax
 from functools import partial
+
+import jax
+from jax import numpy as jnp
 from jaxtyping import Array
+
+import jax_healpy as jhp
+
+from ._kmeans import kmeans_sample
 
 PRNGKey = Array
 

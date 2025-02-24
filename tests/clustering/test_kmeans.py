@@ -1,14 +1,13 @@
-from jaxtyping import Array
-
-
-import pytest
+import chex
 import jax
 import jax.numpy as jnp
-import jax_healpy as jhp
-from numpy.testing import assert_array_equal
 import numpy as np
+import pytest
 from jax.errors import TracerBoolConversionError
-import chex
+from jaxtyping import Array
+from numpy.testing import assert_array_equal
+
+import jax_healpy as jhp
 
 
 @pytest.fixture(scope='module', params=['FULL_MAP', 'GAL020', 'GAL040', 'GAL060'])

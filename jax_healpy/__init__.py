@@ -1,5 +1,7 @@
 from jax import config as _config
 
+from .clustering._clustering import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask
+from .clustering._kmeans import KMeans, kmeans_sample
 from .pixelfunc import (
     UNSEEN,
     ang2pix,
@@ -26,8 +28,6 @@ from .pixelfunc import (
     xyf2pix,
 )
 from .sphtfunc import alm2map, map2alm
-from .clustering._kmeans import kmeans_sample, KMeans
-from .clustering._clustering import get_clusters, get_cutout_from_mask, from_cutout_to_fullmap
 
 __all__ = [
     'UNSEEN',

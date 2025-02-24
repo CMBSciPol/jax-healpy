@@ -34,6 +34,8 @@ license = {file = 'LICENSE'}
 dependencies = [
     'jax',
     'jaxtyping',
+    'typing-extensions; python_version < "3.11"',
+
 ]
 dynamic = ['version']
 
@@ -81,6 +83,7 @@ fallback_version = '0.0.0'
 
 [tool.ruff]
 line-length = 120
+fix = true
 
 [tool.ruff.lint]
 select = [
@@ -92,6 +95,8 @@ select = [
     'UP',
     # flake8-debugger
     'T10',
+    # isort
+    'I',
 ]
 
 [tool.ruff.format]

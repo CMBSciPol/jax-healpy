@@ -1,8 +1,18 @@
-from jax import numpy as jnp, random as jr, lax
-from jax.numpy import deg2rad, rad2deg, pi, sin, cos, arccos, arctan2, sqrt, newaxis
-from typing import NamedTuple, Optional, Self
+import sys
+from typing import NamedTuple, Optional
+
 import numpy as np
+from jax import lax
+from jax import numpy as jnp
+from jax import random as jr
+from jax.numpy import arccos, arctan2, cos, deg2rad, newaxis, pi, rad2deg, sin, sqrt
 from jaxtyping import Array
+
+if sys.version_info < (3, 11):
+    from typing_extensions import Self
+else:
+    from typing import Self
+
 
 PRNGKey = Array
 
