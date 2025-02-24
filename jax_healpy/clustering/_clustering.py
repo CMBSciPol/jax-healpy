@@ -3,7 +3,7 @@ from jax import numpy as jnp
 from ._kmeans import kmeans_sample
 import jax
 from functools import partial
-from jax.numpy import Array
+from jaxtyping import Array
 
 PRNGKey = Array
 
