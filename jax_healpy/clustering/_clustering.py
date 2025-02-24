@@ -6,6 +6,7 @@ from jaxtyping import Array
 
 import jax_healpy as jhp
 
+from ..pixelfunc import UNSEEN
 from ._kmeans import kmeans_sample
 
 PRNGKey = Array
@@ -78,7 +79,7 @@ def from_cutout_to_fullmap(labels: Array, indices: Array, nside: int) -> Array:
         >>> print(jnp.array_equal(reconstructed, full_map))
     """
     npix = 12 * nside**2
-    map_ids = jax.tree.map(lambda x: jnp.full(npix, jhp.UNSEEN), labels)
+    map_ids = jax.tree.map(lambda x: jnp.full(npix, UNSEEN), labels)
     return jax.tree.map(lambda maps, lbl: maps.at[indices].set(lbl), map_ids, labels)
 
 
@@ -88,7 +89,7 @@ def get_clusters(
     n_regions: int,
     key: PRNGKey,
     max_centroids: None = None,
-    unassigned: float = jhp.UNSEEN,
+    unassigned: float = UNSEEN,
 ) -> Array:
     """Cluster pixels of a HEALPix map into regions using KMeans.
 
