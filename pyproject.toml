@@ -38,7 +38,7 @@ dependencies = [
 dynamic = ['version']
 
 [project.optional-dependencies]
-dev = [
+test = [
     'healpy',
     'matplotlib',
     'mypy',
