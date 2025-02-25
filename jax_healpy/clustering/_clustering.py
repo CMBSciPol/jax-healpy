@@ -2,7 +2,7 @@ from functools import partial
 
 import jax
 from jax import numpy as jnp
-from jaxtyping import Array , PRNGKeyArray
+from jaxtyping import Array, PRNGKeyArray
 
 import jax_healpy as jhp
 
