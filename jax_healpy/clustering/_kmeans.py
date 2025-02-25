@@ -6,15 +6,13 @@ from jax import lax
 from jax import numpy as jnp
 from jax import random as jr
 from jax.numpy import arccos, arctan2, cos, deg2rad, newaxis, pi, rad2deg, sin, sqrt
-from jaxtyping import Array
+from jaxtyping import Array , PRNGKeyArray
 
 if sys.version_info < (3, 11):
     from typing_extensions import Self
 else:
     from typing import Self
 
-
-PRNGKey = Array
 
 _TOL_DEF = 1.0e-5
 _MAXITER_DEF = 100
@@ -64,12 +62,12 @@ class KMeans:
         self.tol = tol
         self.maxiter = maxiter
 
-    def sample_initial(self: Self, ra_dec: Array, key: PRNGKey) -> tuple[Array, Array]:
+    def sample_initial(self: Self, ra_dec: Array, key: PRNGKeyArray) -> tuple[Array, Array]:
         """Sample initial data points and centroids.
 
         Args:
             ra_dec (Array): Array of RA and DEC coordinates.
-            key (PRNGKey): JAX random key.
+            key (PPRNGKeyArrayRNGKey): JAX random key.
 
         Returns:
             tuple[Array, Array]: Sampled RA/DEC points and initial centroids.
@@ -239,11 +237,11 @@ def cdist_radec(a1: Array, a2: Array) -> Array:
     return arccos(costheta)
 
 
-def random_sample(key: PRNGKey, ra_dec: Array, nsamples: int) -> Array:
+def random_sample(key: PRNGKeyArray, ra_dec: Array, nsamples: int) -> Array:
     """Randomly sample points from the RA/DEC array.
 
     Args:
-        key (PRNGKey): JAX random key.
+        key (PRNGKeyArray): JAX random key.
         ra_dec (Array): Array of RA and DEC coordinates.
         nsamples (int): Number of samples to draw.
 
@@ -307,7 +305,7 @@ def atbound1(longitude_in: Array, minval: float, maxval: float) -> Array:
 
 
 def kmeans_sample(
-    key: PRNGKey,
+    key: PRNGKeyArray,
     ra_dec: Array,
     ncenters: int,
     max_centroids: Optional[int] = None,
@@ -317,7 +315,7 @@ def kmeans_sample(
     """Perform KMeans clustering on RA/DEC data.
 
     Args:
-        key (PRNGKey): JAX random key.
+        key (PRNGKeyArray): JAX random key.
         ra_dec (Array): Array of RA and DEC coordinates.
         ncenters (int): Number of clusters.
         max_centroids (Optional[int]): Maximum number of centroids.

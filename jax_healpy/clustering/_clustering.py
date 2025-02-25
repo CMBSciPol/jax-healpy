@@ -2,14 +2,12 @@ from functools import partial
 
 import jax
 from jax import numpy as jnp
-from jaxtyping import Array
+from jaxtyping import Array , PRNGKeyArray
 
 import jax_healpy as jhp
 
 from ..pixelfunc import UNSEEN
 from ._kmeans import kmeans_sample
-
-PRNGKey = Array
 
 
 def call_back_check(n_regions: Array, max_centroids: None) -> None:
@@ -87,7 +85,7 @@ def get_clusters(
     mask: Array,
     indices: Array,
     n_regions: int,
-    key: PRNGKey,
+    key: PRNGKeyArray,
     max_centroids: None = None,
     unassigned: float = UNSEEN,
 ) -> Array:
@@ -97,7 +95,7 @@ def get_clusters(
         mask (Array): HEALPix mask.
         indices (Array): Indices of valid pixels.
         n_regions (int): Number of regions to cluster into.
-        key (PRNGKey): JAX random key.
+        key (PRNGKeyArray): JAX random key.
         max_centroids (None, optional): Maximum allowed centroids. Defaults to None.
         unassigned (float, optional): Value for unassigned pixels. Defaults to jhp.UNSEEN.
 
