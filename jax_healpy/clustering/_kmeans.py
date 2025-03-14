@@ -73,9 +73,9 @@ class KMeans:
             tuple[Array, Array]: Sampled RA/DEC points and initial centroids.
         """
         if self.max_centroids is None:
-            nsamples = int(max(2 * np.sqrt(ra_dec.shape[0]), 10 * self.ncenters))
+            nsamples = int(max(2 * np.sqrt(ra_dec.shape[0]), 3 * self.ncenters))
         else:
-            nsamples = int(max(2 * np.sqrt(ra_dec.shape[0]), 10 * self.max_centroids))
+            nsamples = int(max(2 * np.sqrt(ra_dec.shape[0]), 3 * self.max_centroids))
 
         sample_key, center_key = jr.split(key, 2)
         if nsamples > ra_dec.shape[0]:
