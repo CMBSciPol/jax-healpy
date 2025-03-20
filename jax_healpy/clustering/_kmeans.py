@@ -48,6 +48,7 @@ class KMeans:
         max_centroids: Optional[int] = None,
         tol: float = _TOL_DEF,
         maxiter: int = _MAXITER_DEF,
+        initial_sample_size: int= 3,
     ) -> None:
         """Initialize the KMeans instance.
 
@@ -56,11 +57,13 @@ class KMeans:
             max_centroids (Optional[int]): Maximum number of centroids to consider.
             tol (float): Tolerance for convergence.
             maxiter (int): Maximum number of iterations.
+            initial_sample_size (int): Initial sample size.
         """
         self.ncenters = ncenters
         self.max_centroids = max_centroids
         self.tol = tol
         self.maxiter = maxiter
+        self.initial_sample_size = initial_sample_size
 
     def sample_initial(self: Self, ra_dec: Array, key: PRNGKeyArray) -> tuple[Array, Array]:
         """Sample initial data points and centroids.
@@ -73,14 +76,14 @@ class KMeans:
             tuple[Array, Array]: Sampled RA/DEC points and initial centroids.
         """
         if self.max_centroids is None:
-            nsamples = int(max(2 * np.sqrt(ra_dec.shape[0]), 3 * self.ncenters))
+            nsamples = int(max(2 * np.sqrt(ra_dec.shape[0]), self.initial_sample_size * self.ncenters))
         else:
-            nsamples = int(max(2 * np.sqrt(ra_dec.shape[0]), 3 * self.max_centroids))
+            nsamples = int(max(2 * np.sqrt(ra_dec.shape[0]), self.initial_sample_size * self.max_centroids))
 
         sample_key, center_key = jr.split(key, 2)
         if nsamples > ra_dec.shape[0]:
             raise ValueError(
-                'Requested centers are too large for the number of samples. '
+                'Requested centers size is too large for the number of samples. '
                 'Consider increasing the nside or decreasing the number of centers (or max_centroids)'
             )
 
@@ -311,6 +314,7 @@ def kmeans_sample(
     max_centroids: Optional[int] = None,
     tol: float = _TOL_DEF,
     maxiter: int = _MAXITER_DEF,
+    initial_sample_size: int = 3,
 ) -> KMeansState:
     """Perform KMeans clustering on RA/DEC data.
 
@@ -321,11 +325,12 @@ def kmeans_sample(
         max_centroids (Optional[int]): Maximum number of centroids.
         tol (float): Tolerance for convergence.
         maxiter (int): Maximum number of iterations.
+        initial_sample_size (int): Initial sample size.
 
     Returns:
         KMeansState: Final state after clustering.
     """
-    km = KMeans(ncenters, max_centroids, tol, maxiter)
+    km = KMeans(ncenters, max_centroids, tol, maxiter , initial_sample_size=initial_sample_size)
     ra_dec_samples, centroids_samples = km.sample_initial(ra_dec, key)
 
     state = km.fit(ra_dec_samples, centroids_samples)
