@@ -138,6 +138,14 @@ def get_clusters(
     ipix = jnp.arange(npix)
     ra, dec = jhp.pix2ang(nside, ipix, lonlat=True)
     ra_dec = jnp.stack([ra[indices], dec[indices]], axis=-1)
-    km = kmeans_sample(key, ra_dec, n_regions, max_centroids=max_centroids, maxiter=100, tol=1.0e-5 , initial_sample_size=initial_sample_size)
+    km = kmeans_sample(
+        key,
+        ra_dec,
+        n_regions,
+        max_centroids=max_centroids,
+        maxiter=100,
+        tol=1.0e-5,
+        initial_sample_size=initial_sample_size,
+    )
     map_ids = jnp.full(npix, unassigned)
     return map_ids.at[ipix[indices]].set(km.labels)

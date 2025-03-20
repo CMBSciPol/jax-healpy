@@ -48,7 +48,7 @@ class KMeans:
         max_centroids: Optional[int] = None,
         tol: float = _TOL_DEF,
         maxiter: int = _MAXITER_DEF,
-        initial_sample_size: int= 3,
+        initial_sample_size: int = 3,
     ) -> None:
         """Initialize the KMeans instance.
 
@@ -330,7 +330,7 @@ def kmeans_sample(
     Returns:
         KMeansState: Final state after clustering.
     """
-    km = KMeans(ncenters, max_centroids, tol, maxiter , initial_sample_size=initial_sample_size)
+    km = KMeans(ncenters, max_centroids, tol, maxiter, initial_sample_size=initial_sample_size)
     ra_dec_samples, centroids_samples = km.sample_initial(ra_dec, key)
 
     state = km.fit(ra_dec_samples, centroids_samples)
