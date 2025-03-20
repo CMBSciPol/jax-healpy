@@ -88,6 +88,7 @@ def get_clusters(
     key: PRNGKeyArray,
     max_centroids: None = None,
     unassigned: float = UNSEEN,
+    initial_sample_size: int = 3,
 ) -> Array:
     """Cluster pixels of a HEALPix map into regions using KMeans.
 
@@ -98,6 +99,9 @@ def get_clusters(
         key (PRNGKeyArray): JAX random key.
         max_centroids (None, optional): Maximum allowed centroids. Defaults to None.
         unassigned (float, optional): Value for unassigned pixels. Defaults to jhp.UNSEEN.
+        initial_sample_size (int, optional): Initial sample size for KMeans. Defaults to 3.
+            It is used to initialize the centroids.
+            The sample size is initial_sample_size * n_regions.
 
     Returns:
         Array: Map with clustered region labels.
@@ -134,6 +138,14 @@ def get_clusters(
     ipix = jnp.arange(npix)
     ra, dec = jhp.pix2ang(nside, ipix, lonlat=True)
     ra_dec = jnp.stack([ra[indices], dec[indices]], axis=-1)
-    km = kmeans_sample(key, ra_dec, n_regions, max_centroids=max_centroids, maxiter=100, tol=1.0e-5)
+    km = kmeans_sample(
+        key,
+        ra_dec,
+        n_regions,
+        max_centroids=max_centroids,
+        maxiter=100,
+        tol=1.0e-5,
+        initial_sample_size=initial_sample_size,
+    )
     map_ids = jnp.full(npix, unassigned)
     return map_ids.at[ipix[indices]].set(km.labels)
