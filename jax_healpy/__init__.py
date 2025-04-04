@@ -1,6 +1,6 @@
 from jax import config as _config
 
-from .clustering._clustering import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask
+from .clustering._clustering import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask , combine_masks
 from .clustering._kmeans import KMeans, kmeans_sample
 from .pixelfunc import (
     UNSEEN,
@@ -78,6 +78,7 @@ __all__ = [
     'from_cutout_to_fullmap',
     'kmeans_sample',
     'KMeans',
+    'combine_masks',
 ]
 
 _config.update('jax_enable_x64', True)
