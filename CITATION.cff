@@ -1,0 +1,23 @@
+cff-version: 0.0.0
+title: >-
+  jax-healpy: Implementation of HEALPix related functions and extensions in JAX
+message: >-
+  If you use this software, please cite it using the metadata from this file.
+type: software
+authors:
+  - given-names: Pierre
+    family-names: Chanial
+    affiliation: Laboratoire AstroParticule et Cosmologie
+    orcid: 'https://orcid.org/0000-0003-1753-524X'
+    email: pierre.chanial@gmail.com
+  - given-names: Simon
+    family-names: Biquard
+    affiliation: Laboratoire AstroParticule et Cosmologie
+    orcid: 'https://orcid.org/0000-0002-1493-2963'
+    email: sbiquard@gmail.com
+  - given-names: Wassim
+    family-names: Kabalan
+    affiliation: Laboratoire AstroParticule et Cosmologie
+    orcid: 'https://orcid.org/0009-0001-6501-4564'
+repository-code: 'https://github.com/CMBSciPol/jax-healpy'
+license: GPL-3.0
