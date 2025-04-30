@@ -2,7 +2,7 @@ from functools import partial
 
 import jax
 from jax import numpy as jnp
-from jaxtyping import Array, PRNGKeyArray , PyTree
+from jaxtyping import Array, PRNGKeyArray
 
 import jax_healpy as jhp
 
@@ -54,13 +54,14 @@ def get_cutout_from_mask(ful_map: Array, indices: Array, axis: int = 0) -> Array
     """
     return jax.tree.map(lambda x: jnp.take(x, indices, axis=axis), ful_map)
 
-@partial(jax.jit, static_argnums=(2 , 3))
-def combine_masks(cutouts : list[Array] , indices : list[Array], nside : int , axis : int = 0) -> Array:
-    assert len(cutouts) == len(indices)," The number of cutouts and indices must match."
+
+@partial(jax.jit, static_argnums=(2, 3))
+def combine_masks(cutouts: list[Array], indices: list[Array], nside: int, axis: int = 0) -> Array:
+    assert len(cutouts) == len(indices), ' The number of cutouts and indices must match.'
     structure = jax.tree.structure(cutouts[0])
     for cutout in cutouts[1:]:
-        assert jax.tree.structure(cutout) == structure, "All cutouts must have the same structure."
-    
+        assert jax.tree.structure(cutout) == structure, 'All cutouts must have the same structure.'
+
     npix = 12 * nside**2
     full_shape = list(jax.tree.leaves(cutouts)[0].shape)
     full_shape[axis] = npix

@@ -1,6 +1,6 @@
 from jax import config as _config
 
-from .clustering._clustering import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask , combine_masks
+from .clustering._clustering import combine_masks, from_cutout_to_fullmap, get_clusters, get_cutout_from_mask
 from .clustering._kmeans import KMeans, kmeans_sample
 from .pixelfunc import (
     UNSEEN,
