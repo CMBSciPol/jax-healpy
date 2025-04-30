@@ -11,6 +11,7 @@ name = 'jax-healpy'
 authors = [
     {name = 'Pierre Chanial', email = 'pierre.chanial@gmail.com'},
     {name = 'Simon Biquard', email = 'sbiquard@gmail.com'},
+    {name = 'Wassim Kabalan'},
 ]
 maintainers = [
     {name = 'Pierre Chanial', email = 'pierre.chanial@gmail.com'},
