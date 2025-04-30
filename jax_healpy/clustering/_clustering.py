@@ -62,12 +62,12 @@ def combine_masks(cutouts : list[Array] , indices : list[Array], nside : int , a
         assert jax.tree.structure(cutout) == structure, "All cutouts must have the same structure."
     
     npix = 12 * nside**2
-    full_shape = list(cutouts[0].shape)
+    full_shape = list(jax.tree.leaves(cutouts)[0].shape)
     full_shape[axis] = npix
     map_ids = jax.tree.map(lambda x: jnp.full(full_shape, UNSEEN), cutouts[0])
 
     for cutout, indices in zip(cutouts, indices):
-        patch_slice = [slice(None)] * len(cutout.shape)
+        patch_slice = [slice(None)] * len(jax.tree.leaves(cutout)[0].shape)
         patch_slice[axis] = indices
         patch_slice = tuple(patch_slice)
         map_ids = jax.tree.map(lambda maps, lbl: maps.at[patch_slice].set(lbl), map_ids, cutout)
@@ -98,10 +98,10 @@ def from_cutout_to_fullmap(labels: Array, indices: Array, nside: int, axis: int 
         >>> print(jnp.array_equal(reconstructed, full_map))
     """
     npix = 12 * nside**2
-    full_shape = list(labels.shape)
-    full_shape[axis] = npix
 
     def insert_fn(lbl):
+        full_shape = lbl.shape
+        full_shape[axis] = npix
         base = jnp.full(full_shape, UNSEEN, dtype=lbl.dtype)
         slicing = [slice(None)] * lbl.ndim
         slicing[axis] = indices
