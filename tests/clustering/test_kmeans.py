@@ -122,34 +122,29 @@ def test_frequency_map_cutout(mask: tuple[str, Array], nside: int) -> None:
 
     assert cutout.shape == (10, *indices.shape)
 
+def test_normalize_from_clusters(mask: tuple[str, Array], nside: int) -> None:
+    name, mask = mask
+    (indices,) = jnp.where(mask == 1)
 
-def test_normalize_by_first_occurrence_ordering():
-    # Simulate values appearing out of sorted order
-    arr = jnp.array([5, 5, 6, 6, 8, 8, 1, 1, 2, 2, 8, 8, 3, 3, 3])
-    expected = jnp.array([0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 2, 2, 5, 5, 5])
+    n_regions = 25
+    max_centroids = 50
+    key = jax.random.PRNGKey(0)
 
-    result = jhp.normalize_by_first_occurrence(arr, n_regions=6, max_centroids=10)
-    assert_array_equal(result, expected)
+    # Get raw clusters
+    raw_labels = jhp.get_clusters(mask, indices, n_regions, key, max_centroids=max_centroids)
+    normalized = jhp.normalize_by_first_occurrence(raw_labels, n_regions, max_centroids)
 
+    # Ensure UNSEEN positions are unchanged
+    raw_unseen_mask = (raw_labels == hp.UNSEEN)
+    normalized_unseen_mask = (normalized == hp.UNSEEN)
+    assert_array_equal(raw_unseen_mask, normalized_unseen_mask), "UNSEEN positions were modified"
 
-def test_normalize_max_centroids_exceeds_n_regions():
-    arr = jnp.array([1, 2, 3, 4, 5])
-    result = jhp.normalize_by_first_occurrence(arr, n_regions=3, max_centroids=10)
+    # Remove UNSEEN and validate cluster properties
+    valid = np.array(normalized[~normalized_unseen_mask]).astype(np.int64)
 
-    # Output must be clipped to [0, 2]
-    assert result.max() <= 2
-    assert result.min() >= 0
-
-
-def test_normalize_first_occurrence_order_vs_sorted_unique():
-    arr = jnp.array([4, 2, 1, 2, 4, 1])
-
-    # First appearance order: 4 → 0, 2 → 1, 1 → 2
-    result = jhp.normalize_by_first_occurrence(arr, n_regions=3, max_centroids=10)
-    expected = jnp.array([0, 1, 2, 1, 0, 2])
-
-    # Sorted unique would give [1, 2, 4] -> 1→0, 2→1, 4→2 (WRONG!)
-    assert_array_equal(result, expected)
+    uniques, idx = np.unique(valid, return_index=True)
+    assert len(uniques) == n_regions, f"Expected {n_regions} regions, got {len(uniques)}"
+    assert (np.sort(idx) == idx).all(), "First-occurrence indices are not sorted"
 
 
 def test_shuffle_labels_randomizes_labels():
