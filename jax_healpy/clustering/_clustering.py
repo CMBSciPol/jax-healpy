@@ -230,7 +230,7 @@ def normalize_by_first_occurrence(arr: Array, n_regions: int, max_centroids: int
     """
     arr_unseen = jnp.concatenate([jnp.array([UNSEEN]), arr])
 
-    unique_vals, first_idxs = jnp.unique(arr_unseen, size=max_centroids, return_index=True)
+    unique_vals, first_idxs = jnp.unique(arr_unseen, size=max_centroids + 1, return_index=True)
     order = jnp.argsort(first_idxs)
     unique_by_first = unique_vals[order]
     matches = arr_unseen[..., None] == unique_by_first
@@ -238,7 +238,9 @@ def normalize_by_first_occurrence(arr: Array, n_regions: int, max_centroids: int
     no_match = ~jnp.any(matches, axis=-1)
     normalized = jnp.where(no_match, UNSEEN, idxs)
     normalized = normalized[1:]
-    normalized = jnp.where(arr == UNSEEN, UNSEEN, jnp.clip(normalized - (max_centroids - n_regions), 0, n_regions - 1))
+    normalized = jnp.where(
+        arr == UNSEEN, UNSEEN, jnp.clip(normalized - (max_centroids - n_regions) - 1, 0, n_regions - 1)
+    )
     return normalized
 
 
