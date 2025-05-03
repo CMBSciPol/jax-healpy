@@ -17,6 +17,7 @@
 from functools import partial
 
 import jax
+import numpy as np
 from jax import numpy as jnp
 from jaxtyping import Array, PRNGKeyArray
 
@@ -71,18 +72,42 @@ def get_cutout_from_mask(ful_map: Array, indices: Array, axis: int = 0) -> Array
     return jax.tree.map(lambda x: jnp.take(x, indices, axis=axis), ful_map)
 
 
-@partial(jax.jit, static_argnums=(2))
-def from_cutout_to_fullmap(labels: Array, indices: Array, nside: int) -> Array:
-    """Reconstruct the full map from a cutout.
+@partial(jax.jit, static_argnums=(2, 3))
+def combine_masks(cutouts: list[Array], indices: list[Array], nside: int, axis: int = 0) -> Array:
+    if len(cutouts) != len(indices):
+        raise ValueError(' The number of cutouts and indices must match.')
+    structure = jax.tree.structure(cutouts[0])
+    for cutout in cutouts[1:]:
+        if jax.tree.structure(cutout) != structure:
+            raise ValueError('All cutouts must have the same structure.')
+
+    npix = 12 * nside**2
+    full_shape = list(jax.tree.leaves(cutouts)[0].shape)
+    full_shape[axis] = npix
+    map_ids = jax.tree.map(lambda x: jnp.full(full_shape, UNSEEN), cutouts[0])
+
+    for cutout, indices in zip(cutouts, indices):
+        patch_slice = [slice(None)] * len(jax.tree.leaves(cutout)[0].shape)
+        patch_slice[axis] = indices
+        patch_slice = tuple(patch_slice)
+        map_ids = jax.tree.map(lambda maps, lbl: maps.at[patch_slice].set(lbl), map_ids, cutout)
+
+    return map_ids
+
+
+@partial(jax.jit, static_argnums=(2, 3))
+def from_cutout_to_fullmap(labels: Array, indices: Array, nside: int, axis: int = 0) -> Array:
+    """
+    Reconstruct the full map from a cutout by inserting values along a specified axis.
 
     Args:
-        labels (Array): The cutout map labels.
-        indices (Array): Indices where the cutout labels should be placed.
-        nside (int): HEALPix nside parameter.
+        labels (Array): The cutout array, shape [..., npatch, ...].
+        indices (Array): The pixel indices for the cutout.
+        nside (int): HEALPix NSIDE.
+        axis (int): The axis in `labels` that corresponds to the patch dimension (to be expanded to npix).
 
     Returns:
-        Array: The reconstructed full map.
-
+        Array: Full map array with shape like `labels`, but with `npatch` → `npix` along the specified axis.
     Example:
 
         >>> mask = np.load("GAL20.npy")
@@ -93,8 +118,17 @@ def from_cutout_to_fullmap(labels: Array, indices: Array, nside: int) -> Array:
         >>> print(jnp.array_equal(reconstructed, full_map))
     """
     npix = 12 * nside**2
-    map_ids = jax.tree.map(lambda x: jnp.full(npix, UNSEEN), labels)
-    return jax.tree.map(lambda maps, lbl: maps.at[indices].set(lbl), map_ids, labels)
+
+    def insert_fn(lbl):
+        full_shape = list(lbl.shape)
+        full_shape[axis] = npix
+        base = jnp.full(full_shape, UNSEEN)
+        slicing = [slice(None)] * lbl.ndim
+        slicing[axis] = indices
+        slicing = tuple(slicing)
+        return base.at[slicing].set(lbl)
+
+    return jax.tree.map(insert_fn, labels)
 
 
 def get_clusters(
@@ -165,3 +199,78 @@ def get_clusters(
     )
     map_ids = jnp.full(npix, unassigned)
     return map_ids.at[ipix[indices]].set(km.labels)
+
+
+@partial(jax.jit, static_argnums=(2,))
+def normalize_by_first_occurrence(arr: Array, n_regions: int, max_centroids: int) -> Array:
+    """
+    Normalize an array by mapping each unique value to the index of its first occurrence,
+    preserving order up to `n_regions` values.
+
+    Any value not among the first `n_regions` unique elements (determined by order of
+    appearance) is clipped to fit within `[0, n_regions - 1]`, or set to `UNSEEN` if
+    originally marked as such.
+
+    This is useful after clustering or segmentation tasks to ensure label indices are
+    contiguous, compact, and order-consistent for downstream processing.
+
+    Args:
+        arr: Integer array (1D or ND) containing raw labels, including possible `UNSEEN` markers.
+        n_regions: Maximum number of regions (unique labels) to preserve. Others are clipped.
+        max_centroids: Maximum number of unique labels expected (must be static for JIT).
+
+    Returns:
+        An array of same shape as `arr`, where each label is replaced by its first-seen index,
+        or `UNSEEN` if it was originally marked or beyond `n_regions`.
+
+    Example:
+        >>> arr = jnp.array([UNSEEN, UNSEEN, 5, 5, 5, 2, 3, 3, 8])
+        >>> normalize_by_first_occurrence(arr, 4, 10)
+        Array([UNSEEN, UNSEEN, 0, 0, 0, 1, 2, 2, 3])
+    """
+    arr_unseen = jnp.concatenate([jnp.array([UNSEEN]), arr])
+
+    unique_vals, first_idxs = jnp.unique(arr_unseen, size=max_centroids + 1, return_index=True)
+    order = jnp.argsort(first_idxs)
+    unique_by_first = unique_vals[order]
+    matches = arr_unseen[..., None] == unique_by_first
+    idxs = jnp.argmax(matches, axis=-1)
+    no_match = ~jnp.any(matches, axis=-1)
+    normalized = jnp.where(no_match, UNSEEN, idxs)
+    normalized = normalized[1:]
+    normalized = jnp.where(
+        arr == UNSEEN, UNSEEN, jnp.clip(normalized - (max_centroids - n_regions) - 1, 0, n_regions - 1)
+    )
+    return normalized
+
+
+def shuffle_labels(arr: Array) -> Array:
+    """
+    Randomly reassigns label indices using a NumPy-based permutation.
+
+    Assumes that input labels are normalized integers in [0, N), with possible `hp.UNSEEN`
+    entries. The function produces a random bijective mapping of present labels, preserving
+    shape and leaving `hp.UNSEEN` values unchanged.
+
+    This is intended for visualization purposes — shuffling label indices can reduce
+    misleading visual patterns (e.g., color clumping) in plots such as `mollview`, making
+    class structure easier to interpret.
+
+    Args:
+        arr: Integer array of label indices, e.g., [0, 0, 1, 2, hp.UNSEEN].
+
+    Returns:
+        A NumPy array of the same shape as `arr`, with valid labels randomly permuted.
+        `hp.UNSEEN` entries are left unchanged.
+
+    Example:
+        >>> arr = np.array([0, 0, 1, 1, 2, hp.UNSEEN])
+        >>> shuffle_labels(arr)
+        array([2, 2, 0, 0, 1, hp.UNSEEN])  # result will vary
+    """
+    unique_vals = np.unique(arr[arr != UNSEEN])
+    shuffled_vals = np.random.permutation(unique_vals)
+
+    mapping = dict(zip(unique_vals, shuffled_vals))
+    shuffled_arr = np.vectorize(lambda x: mapping.get(x, UNSEEN))(arr)
+    return shuffled_arr.astype(np.float64)

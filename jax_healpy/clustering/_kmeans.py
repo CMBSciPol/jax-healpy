@@ -124,7 +124,7 @@ class KMeans:
         return KMeansState(
             ra_dec=ra_dec,
             centroids=centroids,
-            labels=jnp.zeros(ra_dec.shape[0], dtype=jnp.int32),
+            labels=jnp.zeros(ra_dec.shape[0], dtype=jnp.int64),
             mean_distance=jnp.inf,
             previous_mean_distance=0.0,
             count=0,
@@ -161,7 +161,7 @@ class KMeans:
             distances = cdist_radec(ra_dec, state.centroids)
             if self.max_centroids is not None:
                 distances = jnp.where(centroid_mask[None, :], distances, jnp.inf)
-            labels = distances.argmin(axis=1).astype(jnp.int32)
+            labels = distances.argmin(axis=1).astype(jnp.int64)
 
             distances = distances[indices, labels]
             mean_distance = distances.mean()
@@ -346,6 +346,8 @@ def kmeans_sample(
     Returns:
         KMeansState: Final state after clustering.
     """
+    if not jnp.isscalar(ncenters):
+        raise ValueError('ncenters must be a scalar')
     km = KMeans(ncenters, max_centroids, tol, maxiter, initial_sample_size=initial_sample_size)
     ra_dec_samples, centroids_samples = km.sample_initial(ra_dec, key)
 
