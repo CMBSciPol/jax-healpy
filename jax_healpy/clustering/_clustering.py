@@ -122,7 +122,7 @@ def from_cutout_to_fullmap(labels: Array, indices: Array, nside: int, axis: int 
     def insert_fn(lbl):
         full_shape = list(lbl.shape)
         full_shape[axis] = npix
-        base = jnp.full(full_shape, UNSEEN, dtype=lbl.dtype)
+        base = jnp.full(full_shape, UNSEEN)
         slicing = [slice(None)] * lbl.ndim
         slicing[axis] = indices
         slicing = tuple(slicing)
