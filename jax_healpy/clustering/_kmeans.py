@@ -346,7 +346,8 @@ def kmeans_sample(
     Returns:
         KMeansState: Final state after clustering.
     """
-    assert jnp.isscalar(ncenters)
+    if not jnp.isscalar(ncenters):
+        raise ValueError('ncenters must be a scalar')
     km = KMeans(ncenters, max_centroids, tol, maxiter, initial_sample_size=initial_sample_size)
     ra_dec_samples, centroids_samples = km.sample_initial(ra_dec, key)
 

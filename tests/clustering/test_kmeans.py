@@ -1,4 +1,5 @@
 import chex
+import healpy as hp
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -120,3 +121,54 @@ def test_frequency_map_cutout(mask: tuple[str, Array], nside: int) -> None:
     cutout = jhp.get_cutout_from_mask(frequency_maps, indices, axis=1)
 
     assert cutout.shape == (10, *indices.shape)
+
+
+def test_normalize_by_first_occurrence_ordering():
+    # Simulate values appearing out of sorted order
+    arr = jnp.array([5, 5, 6, 6, 8, 8, 1, 1, 2, 2, 8, 8, 3, 3, 3])
+    expected = jnp.array([0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 2, 2, 5, 5, 5])
+
+    result = jhp.normalize_by_first_occurrence(arr, n_regions=6, max_centroids=10)
+    assert_array_equal(result, expected)
+
+
+def test_normalize_max_centroids_exceeds_n_regions():
+    arr = jnp.array([1, 2, 3, 4, 5])
+    result = jhp.normalize_by_first_occurrence(arr, n_regions=3, max_centroids=10)
+
+    # Output must be clipped to [0, 2]
+    assert result.max() <= 2
+    assert result.min() >= 0
+
+
+def test_normalize_first_occurrence_order_vs_sorted_unique():
+    arr = jnp.array([4, 2, 1, 2, 4, 1])
+
+    # First appearance order: 4 → 0, 2 → 1, 1 → 2
+    result = jhp.normalize_by_first_occurrence(arr, n_regions=3, max_centroids=10)
+    expected = jnp.array([0, 1, 2, 1, 0, 2])
+
+    # Sorted unique would give [1, 2, 4] -> 1→0, 2→1, 4→2 (WRONG!)
+    assert_array_equal(result, expected)
+
+
+def test_shuffle_labels_randomizes_labels():
+    arr = np.array([0, 0, 1, 1, 2, 2])
+    shuffled = jhp.shuffle_labels(arr)
+
+    # Should contain same elements (set equality), but likely different order
+    assert set(shuffled) == {0, 1, 2}
+    assert not np.array_equal(arr, shuffled)  # Not equal in order most times
+
+
+def test_shuffle_labels_preserves_unseen():
+    arr = np.array([0, 1, 2, hp.UNSEEN, 1, hp.UNSEEN])
+    shuffled = jhp.shuffle_labels(arr)
+
+    # UNSEEN stays where it is
+    assert shuffled[3] == hp.UNSEEN
+    assert shuffled[5] == hp.UNSEEN
+
+    # All other entries are in the valid label range
+    valid_labels = shuffled[shuffled != hp.UNSEEN]
+    assert set(valid_labels).issubset({0, 1, 2})
