@@ -43,6 +43,7 @@ from .pixelfunc import (
     vec2pix,
     xyf2pix,
 )
+from ._query_disc import query_disc
 from .sphtfunc import alm2map, map2alm
 
 __all__ = [
@@ -86,6 +87,7 @@ __all__ = [
     # 'get_nside',
     'maptype',
     # 'ma_to_array',
+    'query_disc',
     'alm2map',
     'map2alm',
     # Clustering
