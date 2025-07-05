@@ -54,17 +54,17 @@ def _compute_resolution(nside: int) -> Array:
 
 @partial(jit, static_argnames=['nside', 'inclusive', 'fact', 'nest', 'max_length'])
 def query_disc(
-    nside: int, 
-    vec: ArrayLike, 
-    radius: float, 
-    inclusive: bool = False, 
-    fact: int = 4, 
+    nside: int,
+    vec: ArrayLike,
+    radius: float,
+    inclusive: bool = False,
+    fact: int = 4,
     nest: bool = False,
-    max_length: Optional[int] = None
+    max_length: Optional[int] = None,
 ) -> Array:
     """Find pixels within a disc on the sphere.
 
-    This function supports both single and batched queries. It is fully JIT-compatible 
+    This function supports both single and batched queries. It is fully JIT-compatible
     and differentiable with respect to vec and radius parameters.
 
     Parameters
@@ -92,7 +92,7 @@ def query_disc(
     -------
     ipix : array
         For single vector input (3,): returns (max_length,) or (npix,) if max_length is None
-        For batch vector input (3, B): returns (B, max_length) 
+        For batch vector input (3, B): returns (B, max_length)
         Pixels outside the disc are marked as npix (sentinel value).
         This allows direct indexing like: map.at[disc].set(value)
 
@@ -114,7 +114,7 @@ def query_disc(
     Examples
     --------
     Single disc query:
-    
+
     >>> import jax_healpy as hp
     >>> import jax.numpy as jnp
     >>> import jax
@@ -125,10 +125,10 @@ def query_disc(
     >>> # Use directly for indexing
     >>> map = jnp.zeros(hp.nside2npix(nside))
     >>> map = map.at[disc].set(1.0)
-    
+
     Batch disc query:
-    
-    >>> vecs = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])  # (3, 2) - two centers  
+
+    >>> vecs = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])  # (3, 2) - two centers
     >>> discs = hp.query_disc(nside, vecs, radius, max_length=1000)  # (2, 1000)
     >>> # Each row contains pixels for one disc
     >>> map1 = map.at[discs[0]].set(1.0)  # First disc
@@ -149,12 +149,14 @@ def query_disc(
     return _query_disc(nside, vec, radius, inclusive, fact, max_length)
 
 
-def _query_disc(nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact: int, max_length: Optional[int]) -> Array:
+def _query_disc(
+    nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact: int, max_length: Optional[int]
+) -> Array:
     """JIT-compatible unified implementation of disc query supporting both single and batch inputs.
 
     Algorithm Overview:
     1. Standardize input to (3, B) format and set defaults
-    2. Normalize input vectors and clip radius to valid range  
+    2. Normalize input vectors and clip radius to valid range
     3. Calculate the cosine threshold for the dot product test
     4. Generate all pixel vectors and compute broadcast dot products
     5. Create mask for pixels within the disc(s)
@@ -167,34 +169,30 @@ def _query_disc(nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact
     original_is_single = vec.ndim == 1
     if original_is_single:
         vec = vec[:, None]  # (3,) → (3, 1)
-    
+
     B = vec.shape[1]
     npix = 12 * nside * nside
     radius = jnp.asarray(radius, dtype=jnp.float64)
-    
+
     # Default max_length to npix if not provided
     if max_length is None:
         max_length = npix
-    
+
     # Step 2: Normalize center vectors (handle zero vector case)
     vec_norms = jnp.linalg.norm(vec, axis=0)  # (B,)
     # Create default direction with same shape as vec
     default_dir = jnp.zeros_like(vec)  # (3, B)
     default_dir = default_dir.at[0, :].set(1.0)  # Set first component to 1
-    
+
     # Normalize each vector individually
-    safe_vecs = jnp.where(
-        vec_norms[None, :] > 1e-10,
-        vec / vec_norms[None, :],
-        default_dir
-    )
-    
+    safe_vecs = jnp.where(vec_norms[None, :] > 1e-10, vec / vec_norms[None, :], default_dir)
+
     # Clip radius to valid range [0, π]
     radius = jnp.clip(radius, 0.0, jnp.pi)
 
     # Step 3: Calculate cosine threshold for dot product comparison
     cos_radius = jnp.cos(radius)
-    
+
     # For inclusive mode, expand the radius by pixel resolution divided by fact
     if inclusive:
         expanded_radius = radius + _compute_resolution(nside) / fact
@@ -205,7 +203,7 @@ def _query_disc(nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact
     # Step 4: Generate all pixel vectors and compute broadcast dot products
     all_pixels = jnp.arange(npix, dtype=jnp.int32)
     pixel_vecs = pix2vec(nside, all_pixels, nest=False)  # (npix, 3)
-    
+
     # Broadcast dot products: (npix, 3) @ (3, B) → (npix, B)
     dot_products = jnp.dot(pixel_vecs, safe_vecs)
 
@@ -217,14 +215,14 @@ def _query_disc(nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact
     # Step 6: Select top max_length pixels per disc
     # Create sort keys: valid pixels keep dot product, invalid get -inf
     sort_keys = jnp.where(mask, dot_products, -jnp.inf)  # (npix, B)
-    
+
     # Sort indices by dot product (best pixels last)
     sorted_indices = jnp.argsort(sort_keys, axis=0)  # (npix, B)
-    
+
     # Select top max_length pixels per batch
     top_indices = sorted_indices[-max_length:]  # (max_length, B)
     result = top_indices.T  # (B, max_length)
-    
+
     # Replace invalid entries (where sort key was -inf) with npix
     selected_scores = sort_keys[top_indices, jnp.arange(B)]  # (max_length, B)
     invalid_mask = selected_scores.T == -jnp.inf  # (B, max_length)
@@ -235,17 +233,16 @@ def _query_disc(nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact
         # Count valid pixels per batch
         valid_counts = jnp.sum(mask.astype(jnp.int32), axis=0)  # (B,)
         exceeded_count = jnp.sum(valid_counts > max_length)  # scalar
-        
+
         # Use lax.cond for JAX-compatible conditional warning
         lax.cond(
             exceeded_count > 0,
-            lambda: jax.debug.print("Warning: {} valid pixels exceeded max_length={}", 
-                                    valid_counts.max(), max_length),
-            lambda: None
+            lambda: jax.debug.print('Warning: {} valid pixels exceeded max_length={}', valid_counts.max(), max_length),
+            lambda: None,
         )
 
     # Step 8: Squeeze output for single vector compatibility
     if original_is_single:
         result = jnp.squeeze(result, axis=0)  # (1, max_length) → (max_length,)
-    
+
     return result
