@@ -134,11 +134,10 @@ def query_disc(
     >>> map1 = map.at[discs[0]].set(1.0)  # First disc
     >>> map2 = map.at[discs[1]].set(2.0)  # Second disc
 
-    For JIT compilation, use static_argnums for nside:
+    For JIT compilation:
 
     >>> jit_query_disc = jax.jit(
-    ...     lambda n, v, r: hp.query_disc(n, v, r),
-    ...     static_argnums=(0,)
+    ...     lambda n, v, r: hp.query_disc(n, v, r)
     ... )
     >>> disc_jit = jit_query_disc(nside, vec, radius)
     """
@@ -146,16 +145,16 @@ def query_disc(
     if nest:
         raise NotImplementedError('Nested ordering not yet supported')
 
-    return _query_disc(nside, vec, radius, inclusive, fact, max_length)
+    return _query_disc_ring(nside, vec, radius, inclusive, fact, max_length)
 
 
-def _query_disc(
+def _query_disc_ring(
     nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact: int, max_length: Optional[int]
 ) -> Array:
     """JIT-compatible unified implementation of disc query supporting both single and batch inputs.
 
     Algorithm Overview:
-    1. Standardize input to (3, B) format and set defaults
+    1. Standardize input to (3, batch_dims) format and set defaults
     2. Normalize input vectors and clip radius to valid range
     3. Calculate the cosine threshold for the dot product test
     4. Generate all pixel vectors and compute broadcast dot products
@@ -164,13 +163,13 @@ def _query_disc(
     7. Apply JAX-compatible warning system for truncation
     8. Squeeze output for single vector compatibility
     """
-    # Step 1: Input standardization to (3, B) format
+    # Step 1: Input standardization to (3, batch_dims) format
     vec = jnp.asarray(vec, dtype=jnp.float64)
     original_is_single = vec.ndim == 1
     if original_is_single:
         vec = vec[:, None]  # (3,) → (3, 1)
 
-    B = vec.shape[1]
+    batch_dims = vec.shape[1]
     npix = 12 * nside * nside
     radius = jnp.asarray(radius, dtype=jnp.float64)
 
@@ -179,9 +178,9 @@ def _query_disc(
         max_length = npix
 
     # Step 2: Normalize center vectors (handle zero vector case)
-    vec_norms = jnp.linalg.norm(vec, axis=0)  # (B,)
+    vec_norms = jnp.linalg.norm(vec, axis=0)  # (batch_dims,)
     # Create default direction with same shape as vec
-    default_dir = jnp.zeros_like(vec)  # (3, B)
+    default_dir = jnp.zeros_like(vec)  # (3, batch_dims)
     default_dir = default_dir.at[0, :].set(1.0)  # Set first component to 1
 
     # Normalize each vector individually
@@ -204,34 +203,34 @@ def _query_disc(
     all_pixels = jnp.arange(npix, dtype=jnp.int32)
     pixel_vecs = pix2vec(nside, all_pixels, nest=False)  # (npix, 3)
 
-    # Broadcast dot products: (npix, 3) @ (3, B) → (npix, B)
+    # Broadcast dot products: (npix, 3) @ (3, batch_dims) → (npix, batch_dims)
     dot_products = jnp.dot(pixel_vecs, safe_vecs)
 
     # Step 5: Create mask for pixels within the disc(s)
     # Use small tolerance to handle floating point precision issues
     tolerance = 1e-6
-    mask = dot_products >= (cos_expanded_radius - tolerance)  # (npix, B)
+    mask = dot_products >= (cos_expanded_radius - tolerance)  # (npix, batch_dims)
 
     # Step 6: Select top max_length pixels per disc
     # Create sort keys: valid pixels keep dot product, invalid get -inf
-    sort_keys = jnp.where(mask, dot_products, -jnp.inf)  # (npix, B)
+    sort_keys = jnp.where(mask, dot_products, -jnp.inf)  # (npix, batch_dims)
 
     # Sort indices by dot product (best pixels last)
-    sorted_indices = jnp.argsort(sort_keys, axis=0)  # (npix, B)
+    sorted_indices = jnp.argsort(sort_keys, axis=0)  # (npix, batch_dims)
 
     # Select top max_length pixels per batch
-    top_indices = sorted_indices[-max_length:]  # (max_length, B)
-    result = top_indices.T  # (B, max_length)
+    top_indices = sorted_indices[-max_length:]  # (max_length, batch_dims)
+    result = top_indices.T  # (batch_dims, max_length)
 
     # Replace invalid entries (where sort key was -inf) with npix
-    selected_scores = sort_keys[top_indices, jnp.arange(B)]  # (max_length, B)
-    invalid_mask = selected_scores.T == -jnp.inf  # (B, max_length)
+    selected_scores = sort_keys[top_indices, jnp.arange(batch_dims)]  # (max_length, batch_dims)
+    invalid_mask = selected_scores.T == -jnp.inf  # (batch_dims, max_length)
     result = jnp.where(invalid_mask, npix, result)
 
     # Step 7: JAX-compatible warning system for truncation
     if max_length < npix:  # Only check for truncation if limiting
         # Count valid pixels per batch
-        valid_counts = jnp.sum(mask.astype(jnp.int32), axis=0)  # (B,)
+        valid_counts = jnp.sum(mask.astype(jnp.int32), axis=0)  # (batch_dims,)
         exceeded_count = jnp.sum(valid_counts > max_length)  # scalar
 
         # Use lax.cond for JAX-compatible conditional warning
