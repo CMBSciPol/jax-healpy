@@ -16,6 +16,7 @@
 
 from jax import config as _config
 
+from ._query_disc import query_disc
 from .clustering._clustering import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask
 from .clustering._kmeans import KMeans, kmeans_sample
 from .pixelfunc import (
@@ -86,6 +87,7 @@ __all__ = [
     # 'get_nside',
     'maptype',
     # 'ma_to_array',
+    'query_disc',
     'alm2map',
     'map2alm',
     # Clustering
