@@ -78,7 +78,10 @@ def query_disc(
         The radius of the disc in radians
     inclusive : bool, optional
         If False (default), return pixels whose centers lie within the disc.
+        Results are guaranteed to match healpy exactly for inclusive=False.
         If True, return all pixels that overlap with the disc.
+        Note: inclusive=True may produce slightly different results compared to healpy
+        due to algorithm differences in determining pixel overlap.
     fact : int, optional
         For inclusive queries, the pixelization factor (default: 4)
     nest : bool, optional
@@ -179,9 +182,8 @@ def _query_disc_ring(
 
     # Step 2: Normalize center vectors (handle zero vector case)
     vec_norms = jnp.linalg.norm(vec, axis=0)  # (batch_dims,)
-    # Create default direction with same shape as vec
-    default_dir = jnp.zeros_like(vec)  # (3, batch_dims)
-    default_dir = default_dir.at[0, :].set(1.0)  # Set first component to 1
+    # Create default direction - broadcasts to (3, batch_dims)
+    default_dir = jnp.array([1.0, 0.0, 0.0])[:, None]
 
     # Normalize each vector individually
     safe_vecs = jnp.where(vec_norms[None, :] > 1e-10, vec / vec_norms[None, :], default_dir)
