@@ -1,5 +1,24 @@
+# This file is part of jax-healpy.
+# Copyright (C) 2024 CNRS / SciPol developers
+#
+# jax-healpy is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# jax-healpy is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
+
 from jax import config as _config
 
+from ._query_disc import query_disc
+from .clustering._clustering import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask
+from .clustering._kmeans import KMeans, kmeans_sample
 from .pixelfunc import (
     UNSEEN,
     ang2pix,
@@ -69,8 +88,15 @@ __all__ = [
     # 'get_nside',
     'maptype',
     # 'ma_to_array',
+    'query_disc',
     'alm2map',
     'map2alm',
+    # Clustering
+    'get_clusters',
+    'get_cutout_from_mask',
+    'from_cutout_to_fullmap',
+    'kmeans_sample',
+    'KMeans',
 ]
 
 _config.update('jax_enable_x64', True)
