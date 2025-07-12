@@ -1766,139 +1766,139 @@ def get_interp_weights(
 def _get_interp_weights_ring(nside: int, theta_coords: Array, phi_coords: Array) -> tuple[Array, Array]:
     """
     Memory-optimized implementation of bilinear interpolation for RING ordering.
-    
+
     This optimized version reduces temporary memory usage by 2.8x while maintaining
     full numerical precision by:
     1. Eliminating excessive conditional operations that create intermediate arrays
     2. Using direct computation instead of conditional masking
     3. Streamlined special case handling with mathematical formulas
     4. Efficient array construction using stack operations
-    
+
     Gradient Compatibility:
     ----------------------
     This function is fully compatible with JAX's automatic differentiation system.
     The implementation carefully separates discrete operations (pixel selection) from
     continuous operations (weight computation):
-    
+
     - Discrete pixel indices use `lax.stop_gradient()` to prevent gradient flow
       through non-differentiable operations like `jnp.floor().astype(int)`
     - Weight computations use continuous mathematical operations that preserve gradients
     - Final weight normalization enforces the constraint sum(weights) = 1.0, ensuring
       that gradients of the weight sum are exactly zero
-    
+
     The stop_gradient usage is mathematically sound because:
     1. Pixel indices are discrete selectors that don't affect the interpolation mathematics
     2. Weight values depend continuously on input coordinates within each pixel region
     3. The fundamental constraint sum(weights) = 1.0 must hold regardless of pixel selection
-    
+
     This design allows proper gradient flow for meaningful computations (like map
     interpolation) while maintaining numerical precision and memory efficiency.
     """
-    
+
     # Core computation - minimal intermediate arrays
     z = jnp.cos(theta_coords)
     ir1 = _ring_above(nside, z)
     ir2 = ir1 + 1
-    
+
     # Special case flags - compute once
     is_north_pole = ir1 == 0
     is_south_pole = ir2 == (4 * nside)
     is_normal = ~is_north_pole & ~is_south_pole
-    
+
     # Safe ring indices for _get_ring_info calls
     ir1_safe = jnp.maximum(ir1, 1)
     ir2_safe = jnp.minimum(ir2, 4 * nside - 1)
-    
+
     # Get ring properties - only two function calls needed
     theta1, sp1, nr1, shift1 = _get_ring_info(nside, ir1_safe)
     theta2, sp2, nr2, shift2 = _get_ring_info(nside, ir2_safe)
-    
+
     # Core phi interpolation computation
     dphi1 = 2.0 * jnp.pi / nr1
     dphi2 = 2.0 * jnp.pi / nr2
-    
+
     # Phi interpolation indices and weights
     phi1_norm = (phi_coords / dphi1 - shift1) % nr1
     phi2_norm = (phi_coords / dphi2 - shift2) % nr2
-    
+
     # Compute pixel indices (for pixel selection only)
     # Stop gradient: Floor+cast operations are non-differentiable and only used for indexing
     i1_1 = lax.stop_gradient(jnp.floor(phi1_norm).astype(jnp.int32))
     i1_2 = lax.stop_gradient(jnp.floor(phi2_norm).astype(jnp.int32))
-    
+
     # Compute weights using gradient-friendly fractional parts
     # Use modulo instead of floor subtraction for better gradient behavior
     w_phi1 = phi1_norm % 1.0
     w_phi2 = phi2_norm % 1.0
-    
+
     i2_1 = (i1_1 + 1) % nr1
     i2_2 = (i1_2 + 1) % nr2
-    
+
     # Theta interpolation weight computation
     theta_denom = jnp.where(is_normal, theta2 - theta1, 1.0)  # Avoid div by 0
     w_theta_base = jnp.where(is_normal, (theta_coords - theta1) / theta_denom, 0.0)
-    
+
     # Special case adjustments using mathematical formulas
     w_theta_north = jnp.where(is_north_pole, theta_coords / theta2, w_theta_base)
     w_theta_south = jnp.where(is_south_pole, (theta_coords - theta1) / (jnp.pi - theta1), w_theta_base)
-    
+
     # Pixel computation - direct mathematical approach
     # Normal case pixels
     pixels_ring1_1 = sp1 + i1_1
     pixels_ring1_2 = sp1 + i2_1
     pixels_ring2_1 = sp2 + i1_2
     pixels_ring2_2 = sp2 + i2_2
-    
+
     # North pole pixel adjustments
     npix_total = 12 * nside * nside
     pixels_ring1_1 = jnp.where(is_north_pole, (pixels_ring2_1 + 2) & 3, pixels_ring1_1)
     pixels_ring1_2 = jnp.where(is_north_pole, (pixels_ring2_2 + 2) & 3, pixels_ring1_2)
-    
+
     # South pole pixel adjustments
     pixels_ring2_1 = jnp.where(is_south_pole, ((pixels_ring1_1 + 2) & 3) + npix_total - 4, pixels_ring2_1)
     pixels_ring2_2 = jnp.where(is_south_pole, ((pixels_ring1_2 + 2) & 3) + npix_total - 4, pixels_ring2_2)
-    
+
     # Weight computation - optimized mathematical approach
     # Base phi weights
     w1_phi = 1.0 - w_phi1
     w2_phi = w_phi1
     w3_phi = 1.0 - w_phi2
     w4_phi = w_phi2
-    
+
     # Apply theta interpolation
     w1_base = w1_phi * (1.0 - w_theta_base)
     w2_base = w2_phi * (1.0 - w_theta_base)
     w3_base = w3_phi * w_theta_base
     w4_base = w4_phi * w_theta_base
-    
+
     # North pole weight adjustments
     north_factor = (1.0 - w_theta_north) * 0.25
     w1_north = jnp.where(is_north_pole, north_factor, w1_base)
     w2_north = jnp.where(is_north_pole, north_factor, w2_base)
     w3_north = jnp.where(is_north_pole, w3_phi * w_theta_north + north_factor, w3_base)
     w4_north = jnp.where(is_north_pole, w4_phi * w_theta_north + north_factor, w4_base)
-    
+
     # South pole weight adjustments
     south_factor = w_theta_south * 0.25
     w1_final = jnp.where(is_south_pole, w1_north * (1.0 - w_theta_south) + south_factor, w1_north)
     w2_final = jnp.where(is_south_pole, w2_north * (1.0 - w_theta_south) + south_factor, w2_north)
     w3_final = jnp.where(is_south_pole, south_factor, w3_north)
     w4_final = jnp.where(is_south_pole, south_factor, w4_north)
-    
+
     # Final assembly - single stack operation
     # Stop gradient: Pixel indices are discrete array selectors, not part of interpolation math
     pixels = lax.stop_gradient(jnp.stack([pixels_ring1_1, pixels_ring1_2, pixels_ring2_1, pixels_ring2_2]))
     weights = jnp.stack([w1_final, w2_final, w3_final, w4_final])
-    
+
     # Clamp weights to ensure non-negativity (handles floating point precision issues)
     weights = jnp.maximum(weights, 0.0)
-    
+
     # Ensure weights sum to exactly 1.0 for gradient consistency
     # This enforces the mathematical constraint sum(weights) = 1.0, making gradients
     # of the sum exactly zero while preserving gradients of individual weights
     weight_sum = jnp.sum(weights, axis=0, keepdims=True)
     weights = weights / weight_sum
-    
+
     return pixels, weights
 
 
@@ -2000,4 +2000,3 @@ def get_interp_val(
         result = result[0]
 
     return result
-
