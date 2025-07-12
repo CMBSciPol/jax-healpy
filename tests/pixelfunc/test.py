@@ -1,5 +1,6 @@
 # from .._query_disc import boundaries
 # from .._pixelfunc import ringinfo, pix2ring, isnsideok
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -72,9 +73,8 @@ def test_vec2pix_lonlat(lon0: float, lat0: float) -> None:
     np.testing.assert_array_almost_equal(lat1, lat0, decimal=5)
 
 
-@pytest.mark.xfail(reason='get_interp_val not implemented')
 def test_get_interp_val_lonlat(theta0: float, phi0: float, lon0: float, lat0: float) -> None:
-    m = np.arange(12.0)
+    m = jnp.arange(12.0)
     val0 = hp.get_interp_val(m, theta0, phi0)
     val1 = hp.get_interp_val(m, lon0, lat0, lonlat=True)
     np.testing.assert_array_almost_equal(val0, val1)
