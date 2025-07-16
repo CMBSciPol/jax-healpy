@@ -15,9 +15,15 @@
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
 from jax import config as _config
-
 from ._query_disc import query_disc
-from .clustering._clustering import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask
+from .clustering._clustering import (
+    combine_masks,
+    from_cutout_to_fullmap,
+    get_clusters,
+    get_cutout_from_mask,
+    normalize_by_first_occurrence,
+    shuffle_labels,
+)
 from .clustering._kmeans import KMeans, kmeans_sample
 from .pixelfunc import (
     UNSEEN,
@@ -96,6 +102,9 @@ __all__ = [
     'from_cutout_to_fullmap',
     'kmeans_sample',
     'KMeans',
+    'combine_masks',
+    'normalize_by_first_occurrence',
+    'shuffle_labels',
 ]
 
 _config.update('jax_enable_x64', True)

@@ -1,4 +1,5 @@
 import chex
+import healpy as hp
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -120,3 +121,50 @@ def test_frequency_map_cutout(mask: tuple[str, Array], nside: int) -> None:
     cutout = jhp.get_cutout_from_mask(frequency_maps, indices, axis=1)
 
     assert cutout.shape == (10, *indices.shape)
+
+
+def test_normalize_from_clusters(mask: tuple[str, Array], nside: int) -> None:
+    name, mask = mask
+    (indices,) = jnp.where(mask == 1)
+
+    n_regions = 25
+    max_centroids = 50
+    key = jax.random.PRNGKey(0)
+
+    # Get raw clusters
+    raw_labels = jhp.get_clusters(mask, indices, n_regions, key, max_centroids=max_centroids)
+    normalized = jhp.normalize_by_first_occurrence(raw_labels, n_regions, max_centroids)
+
+    # Ensure UNSEEN positions are unchanged
+    raw_unseen_mask = raw_labels == hp.UNSEEN
+    normalized_unseen_mask = normalized == hp.UNSEEN
+    assert_array_equal(raw_unseen_mask, normalized_unseen_mask), 'UNSEEN positions were modified'
+
+    # Remove UNSEEN and validate cluster properties
+    valid = np.array(normalized[~normalized_unseen_mask]).astype(np.int64)
+
+    uniques, idx = np.unique(valid, return_index=True)
+    assert len(uniques) == n_regions, f'Expected {n_regions} regions, got {len(uniques)}'
+    assert (np.sort(idx) == idx).all(), 'First-occurrence indices are not sorted'
+
+
+def test_shuffle_labels_randomizes_labels():
+    arr = np.array([0, 0, 1, 1, 2, 2])
+    shuffled = jhp.shuffle_labels(arr)
+
+    # Should contain same elements (set equality), but likely different order
+    assert set(shuffled) == {0, 1, 2}
+    assert not np.array_equal(arr, shuffled)  # Not equal in order most times
+
+
+def test_shuffle_labels_preserves_unseen():
+    arr = np.array([0, 1, 2, hp.UNSEEN, 1, hp.UNSEEN])
+    shuffled = jhp.shuffle_labels(arr)
+
+    # UNSEEN stays where it is
+    assert shuffled[3] == hp.UNSEEN
+    assert shuffled[5] == hp.UNSEEN
+
+    # All other entries are in the valid label range
+    valid_labels = shuffled[shuffled != hp.UNSEEN]
+    assert set(valid_labels).issubset({0, 1, 2})
