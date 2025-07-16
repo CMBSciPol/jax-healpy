@@ -15,6 +15,7 @@
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
 from jax import config as _config
+
 from ._query_disc import query_disc
 from .clustering._clustering import (
     combine_masks,
