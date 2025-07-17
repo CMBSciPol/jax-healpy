@@ -8,3 +8,4 @@ __pycache__
 /.vscode/
 /venv*/
 /benchmarks/results/
+Healpix*
