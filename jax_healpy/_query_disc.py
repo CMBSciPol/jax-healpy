@@ -26,62 +26,62 @@ import jax.numpy as jnp
 from jax import jit, lax
 from jaxtyping import Array, ArrayLike
 
-from .pixelfunc import pix2vec, _ring_above, _get_ring_info
+from .pixelfunc import _get_ring_info, _ring_above, pix2vec
 
 __all__ = ['query_disc', 'estimate_disc_pixel_count', 'estimate_disc_radius', '_query_disc_bruteforce']
 
 
 def _ring2z(nside: int, ring_idx: ArrayLike) -> Array:
     """Convert ring index to z-coordinate following HEALPix C++ implementation.
-    
+
     This follows the exact logic from the C++ healpix_base.cc ring2z function.
-    
+
     Parameters
     ----------
     nside : int
         HEALPix nside parameter
     ring_idx : ArrayLike
         Ring index (1 to 4*nside-1)
-        
+
     Returns
     -------
     z : Array
         z-coordinate (cos(theta)) for the ring
     """
     ring = jnp.asarray(ring_idx, dtype=jnp.int32)
-    
+
     # Convert to northern hemisphere ring number
     northring = jnp.where(ring > 2 * nside, 4 * nside - ring, ring)
-    
+
     # HEALPix constants
     fact2 = 4.0 / (12.0 * nside * nside)  # 4/npix
-    
+
     # Polar cap region (northring < nside)
     polar_z = 1.0 - (northring * northring) * fact2
-    
+
     # Equatorial region (northring >= nside)
     equatorial_z = (2.0 * nside - northring) * 2.0 / (3.0 * nside)
-    
+
     # Select based on region
     z = jnp.where(northring < nside, polar_z, equatorial_z)
-    
+
     # Handle southern hemisphere (original ring > 2*nside)
     z = jnp.where(ring > 2 * nside, -z, z)
-    
+
     return z
 
 
 def _max_pixrad(nside: int) -> float:
     """Calculate maximum pixel radius for the given nside.
-    
-    This approximates the maximum angular distance from a pixel center 
+
+    This approximates the maximum angular distance from a pixel center
     to any point within the pixel. Based on HEALPix C++ max_pixrad.
-    
+
     Parameters
     ----------
     nside : int
         HEALPix nside parameter
-        
+
     Returns
     -------
     max_radius : float
@@ -218,26 +218,21 @@ def estimate_disc_radius(nside: int, pixel_count: int) -> float:
 
 
 def _query_disc_ring_single(
-    nside: int, 
-    vec: Array, 
-    radius: float, 
-    inclusive: bool = False, 
-    fact: int = 4,
-    max_length: int = None
+    nside: int, vec: Array, radius: float, inclusive: bool = False, fact: int = 4, max_length: int = None
 ) -> Array:
     """True geometric single-disc query for RING scheme following HEALPix C++ algorithm.
-    
+
     This implements the exact geometry-based algorithm from HEALPix C++ that processes
     only candidate rings and generates pixels directly from geometric intersections.
     NO brute-force operations are performed.
-    
+
     Parameters
     ----------
     nside : int
         HEALPix nside parameter
     vec : Array
         Unit vector (3,) defining disc center
-    radius : float  
+    radius : float
         Disc radius in radians
     inclusive : bool
         If True, include pixels that overlap the disc boundary
@@ -245,7 +240,7 @@ def _query_disc_ring_single(
         Oversampling factor for inclusive mode
     max_length : int
         Maximum number of pixels to return
-        
+
     Returns
     -------
     pixels : Array
@@ -254,76 +249,68 @@ def _query_disc_ring_single(
     npix = 12 * nside * nside
     if max_length is None:
         max_length = npix
-    
+
     # Step 1: Setup and Geometric Bounds
     # Normalize vector and handle edge cases
     vec_norm = jnp.linalg.norm(vec)
     safe_vec = jnp.where(vec_norm > 1e-10, vec / vec_norm, jnp.array([1.0, 0.0, 0.0]))
-    
+
     # Clip radius to valid range [0, π]
     radius = jnp.clip(radius, 0.0, jnp.pi)
-    
+
     # CORRECTED: Proper inclusive mode calculation based on C++ reference
     if inclusive:
         # b2.max_pixrad() for finer grid and max_pixrad() for original grid
         finer_pixrad = _max_pixrad(fact * nside)  # More precise pixel radius
-        coarse_pixrad = _max_pixrad(nside)        # Original pixel radius  
+        coarse_pixrad = _max_pixrad(nside)  # Original pixel radius
         rsmall = radius + finer_pixrad
         rbig = radius + coarse_pixrad
     else:
         rsmall = rbig = radius
-    
+
     # Handle full-sphere case
     full_sphere = rsmall >= jnp.pi
     rbig = jnp.minimum(jnp.pi, rbig)
-    
+
     # Pre-compute trigonometric values
-    cosrbig = jnp.cos(rbig) 
-    
+    cosrbig = jnp.cos(rbig)
+
     # Disc center coordinates
     z0 = safe_vec[2]  # cos(theta)
     phi0 = jnp.arctan2(safe_vec[1], safe_vec[0])
-    
+
     # Handle polar singularity where sin(theta) = 0
     sin_theta_sq = (1.0 - z0) * (1.0 + z0)  # sin²(theta) = 1 - cos²(theta)
     xa = jnp.where(
         sin_theta_sq > 1e-10,
         1.0 / jnp.sqrt(sin_theta_sq),  # Normal case: 1/sin(theta)
-        1e10  # Polar case: very large value (effectively infinity)
+        1e10,  # Polar case: very large value (effectively infinity)
     )
-    
+
     # Calculate candidate ring range
     # Note: z0 = cos(theta), so theta = arccos(z0)
     theta0 = jnp.arccos(jnp.clip(z0, -1.0, 1.0))  # Clip to handle numerical precision
     rlat1 = theta0 - rsmall  # theta - rsmall
-    rlat2 = theta0 + rsmall  # theta + rsmall  
-    
+    rlat2 = theta0 + rsmall  # theta + rsmall
+
     zmax = jnp.cos(jnp.maximum(0.0, rlat1))
     irmin = _ring_above(nside, zmax) + 1
-    
+
     zmin = jnp.cos(jnp.minimum(jnp.pi, rlat2))
     irmax = _ring_above(nside, zmin)
-    
+
     # For inclusive mode, expand ring range slightly
-    irmin = jnp.where(
-        inclusive & (rlat1 > 0), 
-        jnp.maximum(1, irmin - 1), 
-        irmin
-    )
-    irmax = jnp.where(
-        inclusive & (rlat2 < jnp.pi), 
-        jnp.minimum(4 * nside - 1, irmax + 1), 
-        irmax
-    )
-    
+    irmin = jnp.where(inclusive & (rlat1 > 0), jnp.maximum(1, irmin - 1), irmin)
+    irmax = jnp.where(inclusive & (rlat2 < jnp.pi), jnp.minimum(4 * nside - 1, irmax + 1), irmax)
+
     # Handle polar regions (following C++ logic exactly)
-    north_pole_in_disc = (rlat1 <= 0.0) & (irmin > 1) 
+    north_pole_in_disc = (rlat1 <= 0.0) & (irmin > 1)
     south_pole_in_disc = (rlat2 >= jnp.pi) & (irmax + 1 < 4 * nside)
-    
+
     # Step 2: Initialize pixel mask for accumulation
     # Use boolean mask to track valid pixels - JAX compatible approach
     pixel_mask = jnp.zeros(npix, dtype=bool)
-    
+
     # Step 3: Add polar region pixels if needed
     def add_north_pole_pixels(mask):
         # If north pole is in disc, add pixels from rings 1 to irmin-1
@@ -331,25 +318,21 @@ def _query_disc_ring_single(
         def add_north_pixels():
             # Determine which ring to use as the boundary
             boundary_ring = jnp.maximum(1, irmin - 1)
-            
+
             # Get total pixels in north cap up to boundary_ring
             ring_info = _get_ring_info(nside, boundary_ring)
             north_cap_pixels = ring_info[1] + ring_info[2]  # startpix + ringpix of boundary ring
-            
+
             # Create mask for pixels 0 to north_cap_pixels-1
             north_indices = jnp.arange(npix)
             north_mask = north_indices < north_cap_pixels
             return mask | north_mask
-            
+
         def no_north_pixels():
             return mask
-            
-        return lax.cond(
-            north_pole_in_disc,
-            add_north_pixels,
-            no_north_pixels
-        )
-    
+
+        return lax.cond(north_pole_in_disc, add_north_pixels, no_north_pixels)
+
     def add_south_pole_pixels(mask):
         # C++ logic: if (rlat2>=pi) && (irmax+1<4*nside_)
         # Add pixels from startpix of ring (irmax+1) to npix-1
@@ -357,123 +340,121 @@ def _query_disc_ring_single(
             # Get start pixel of ring irmax+1 (which is guaranteed to exist by the condition)
             ring_info = _get_ring_info(nside, irmax + 1)
             south_start_pixel = ring_info[1]  # startpix
-            
+
             # Create mask for pixels from south_start_pixel to npix-1
             south_indices = jnp.arange(npix)
             south_mask = south_indices >= south_start_pixel
             return mask | south_mask
-            
+
         def no_south_pixels():
             return mask
-            
-        return lax.cond(
-            south_pole_in_disc,
-            add_south_pixels,
-            no_south_pixels
-        )
-    
+
+        return lax.cond(south_pole_in_disc, add_south_pixels, no_south_pixels)
+
     # Add polar pixels
     pixel_mask = add_north_pole_pixels(pixel_mask)
     pixel_mask = add_south_pole_pixels(pixel_mask)
-    
+
     # Step 4: Process rings using fixed-size loop
     def process_ring_iteration(ring_idx, mask):
         """Process a single ring and update the pixel mask."""
-        
+
         # Only process if ring is in our candidate range
         in_range = (ring_idx >= irmin) & (ring_idx <= irmax) & (ring_idx >= 1) & (ring_idx < 4 * nside)
-        
+
         def process_valid_ring():
             # Get ring properties
             z = _ring2z(nside, ring_idx)
             ring_info = _get_ring_info(nside, ring_idx)
             ipix1 = ring_info[1]  # Start pixel index for this ring
-            nr = ring_info[2]     # Number of pixels in ring  
-            shifted = ring_info[3] # Whether ring is shifted
-            
+            nr = ring_info[2]  # Number of pixels in ring
+            shifted = ring_info[3]  # Whether ring is shifted
+
             # Calculate intersection geometry
             x = (cosrbig - z * z0) * xa
             ysq = 1.0 - z * z - x * x
-            
+
             def calculate_ring_pixels():
                 """Calculate which pixels in this ring are in the disc."""
                 # Following C++ logic: handle ysq <= 0 case
                 # When ysq <= 0, no normal intersection exists - ring is either
                 # completely inside or completely outside the disc
-                
+
                 def handle_no_intersection():
                     # When ysq <= 0, ring is either completely inside or outside the disc
                     # Check if ring center is inside the disc to determine which case
-                    
+
                     # Get a representative point on the ring (any longitude will do)
                     ring_phi = 0.0  # Use phi=0 as representative point
-                    ring_vec = jnp.array([
-                        jnp.sqrt(1 - z*z) * jnp.cos(ring_phi),  # x = sin(theta) * cos(phi)
-                        jnp.sqrt(1 - z*z) * jnp.sin(ring_phi),  # y = sin(theta) * sin(phi)  
-                        z                                        # z = cos(theta)
-                    ])
-                    
+                    ring_vec = jnp.array(
+                        [
+                            jnp.sqrt(1 - z * z) * jnp.cos(ring_phi),  # x = sin(theta) * cos(phi)
+                            jnp.sqrt(1 - z * z) * jnp.sin(ring_phi),  # y = sin(theta) * sin(phi)
+                            z,  # z = cos(theta)
+                        ]
+                    )
+
                     # Check if this ring point is inside the disc
                     ring_dot = jnp.dot(ring_vec, safe_vec)
                     ring_inside_disc = ring_dot >= cosrbig
-                    
+
                     # If ring is inside disc, include all pixels (dphi = pi)
                     # If ring is outside disc, include no pixels (dphi = 0)
                     dphi = jnp.where(ring_inside_disc, jnp.pi - 1e-15, 0.0)
                     return dphi
-                
+
                 def handle_normal_intersection():
                     # Normal case: calculate intersection half-angle
                     dphi = jnp.arctan2(jnp.sqrt(ysq), x)
                     return dphi
-                
+
                 # Calculate dphi based on whether we have a geometric intersection
                 dphi = lax.cond(ysq <= 0, handle_no_intersection, handle_normal_intersection)
-                
+
                 # If dphi <= 0, no pixels in this ring
                 def no_pixels():
                     return jnp.zeros(npix, dtype=bool)
-                
+
                 def calculate_pixels():
                     # Convert longitude range to pixel indices within ring
                     shift = jnp.where(shifted, 0.5, 0.0)
                     inv_twopi = 1.0 / (2.0 * jnp.pi)
-                    
+
                     # Calculate pixel range in ring coordinates (following C++ logic exactly)
                     ip_lo = jnp.floor(nr * inv_twopi * (phi0 - dphi) - shift).astype(jnp.int32) + 1
                     ip_hi = jnp.floor(nr * inv_twopi * (phi0 + dphi) - shift).astype(jnp.int32)
-                    
+
                     # Handle fullcircle case (when dphi ≈ π, we want nearly the entire ring)
                     fullcircle = dphi >= (jnp.pi - 1e-10)  # Close to full circle
-                    
+
                     def adjust_for_fullcircle():
                         # C++ logic: if (ip_hi-ip_lo<nr-1) expand the range
                         adj_ip_lo = ip_lo
                         adj_ip_hi = ip_hi
-                        
+
                         needs_expansion = (adj_ip_hi - adj_ip_lo) < (nr - 1)
-                        
+
                         def expand_range():
                             # if (ip_lo>0) --ip_lo; else ++ip_hi;
                             new_ip_lo = jnp.where(adj_ip_lo > 0, adj_ip_lo - 1, adj_ip_lo)
                             new_ip_hi = jnp.where(adj_ip_lo > 0, adj_ip_hi, adj_ip_hi + 1)
                             return new_ip_lo, new_ip_hi
-                        
+
                         def keep_range():
                             return adj_ip_lo, adj_ip_hi
-                        
+
                         return lax.cond(needs_expansion, expand_range, keep_range)
-                    
+
                     def keep_original():
                         return ip_lo, ip_hi
-                    
+
                     ip_lo, ip_hi = lax.cond(fullcircle, adjust_for_fullcircle, keep_original)
-                    
+
                     # DO NOT clip here - wraparound is detected by ip_lo > ip_hi or out-of-bounds values
-                    
+
                     # Create mask for this ring's pixels
                     ring_pixel_indices = jnp.arange(npix)
-                    
+
                     # Handle the C++ wraparound logic exactly
                     def simple_range():
                         # Standard case: ip_lo <= ip_hi and both in bounds
@@ -481,17 +462,17 @@ def _query_disc_ring_single(
                         ring_end = ipix1 + ip_hi + 1
                         ring_mask = (ring_pixel_indices >= ring_start) & (ring_pixel_indices < ring_end)
                         return ring_mask
-                    
+
                     def handle_wraparound():
                         # Handle out-of-bounds cases according to C++ logic
                         # Adjust indices for wraparound
                         adj_ip_lo = ip_lo
                         adj_ip_hi = ip_hi
-                        
+
                         # Handle ip_hi >= nr case
                         adj_ip_lo = jnp.where(ip_hi >= nr, adj_ip_lo - nr, adj_ip_lo)
                         adj_ip_hi = jnp.where(ip_hi >= nr, adj_ip_hi - nr, adj_ip_hi)
-                        
+
                         # Handle ip_lo < 0 case (wraparound)
                         def wraparound_case():
                             # Two segments: [ipix1, ipix1+ip_hi+1) and [ipix1+ip_lo+nr, ipix1+nr)
@@ -499,77 +480,74 @@ def _query_disc_ring_single(
                             mask1 = (ring_pixel_indices >= ipix1) & (ring_pixel_indices < ipix1 + adj_ip_hi + 1)
                             mask2 = (ring_pixel_indices >= ipix1 + adj_ip_lo + nr) & (ring_pixel_indices < ipix1 + nr)
                             return mask1 | mask2
-                        
+
                         def normal_case():
                             # Single segment: [ipix1+adj_ip_lo, ipix1+adj_ip_hi]
                             ring_start = ipix1 + adj_ip_lo
                             ring_end = ipix1 + adj_ip_hi + 1
                             ring_mask = (ring_pixel_indices >= ring_start) & (ring_pixel_indices < ring_end)
                             return ring_mask
-                        
+
                         return lax.cond(adj_ip_lo < 0, wraparound_case, normal_case)
-                    
+
                     # Check if we need special handling
                     needs_special_handling = (ip_lo > ip_hi) | (ip_hi >= nr) | (ip_lo < 0)
                     return lax.cond(needs_special_handling, handle_wraparound, simple_range)
-                
+
                 # Return appropriate result based on dphi
                 return lax.cond(dphi <= 0, no_pixels, calculate_pixels)
-            
+
             def no_ring_pixels():
                 """No intersection - return empty mask."""
                 return jnp.zeros(npix, dtype=bool)
-            
+
             # Always try to calculate ring pixels - the dphi calculation handles the ysq <= 0 case
             ring_mask = calculate_ring_pixels()
-            
+
             return mask | ring_mask
-            
+
         def skip_ring():
             """Ring not in range - return unchanged mask."""
             return mask
-            
+
         return lax.cond(in_range, process_valid_ring, skip_ring)
-    
+
     # Process all rings using fixed-size loop (static bounds)
     max_rings = 4 * nside
     pixel_mask = lax.fori_loop(1, max_rings, process_ring_iteration, pixel_mask)
-    
+
     # Step 5: Extract valid pixels using memory-optimized method
     def extract_pixels_from_mask(mask):
         """Extract pixel indices from boolean mask without expensive argsort."""
+
         # Instead of sorting all npix elements, use a scan to collect valid pixels
         def fori_body(i, carry):
             result_array, count = carry
             pixel_is_valid = mask[i]
-            
+
             # Add pixel to result if valid and we have space
             should_add = pixel_is_valid & (count < max_length)
-            new_result = jnp.where(
-                should_add,
-                result_array.at[count].set(i),
-                result_array
-            )
+            new_result = jnp.where(should_add, result_array.at[count].set(i), result_array)
             new_count = jnp.where(should_add, count + 1, count)
-            
+
             return (new_result, new_count)
-        
+
         # Initialize result array filled with sentinel values
         init_result = jnp.full(max_length, npix, dtype=jnp.int32)
         init_carry = (init_result, 0)
-        
+
         # Scan through all pixels to collect valid ones
         (final_result, final_count) = lax.fori_loop(0, npix, fori_body, init_carry)
-        
+
         return final_result
-    
+
     # Handle full sphere case
     def get_all_pixels():
         return jnp.arange(max_length, dtype=jnp.int32)
-    
+
     def get_geometric_pixels():
         return extract_pixels_from_mask(pixel_mask)
-    
+
     return lax.cond(full_sphere, get_all_pixels, get_geometric_pixels)
 
 
@@ -676,30 +654,27 @@ def _query_disc_ring(
     nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact: int, max_length: Optional[int]
 ) -> Array:
     """Efficient RING scheme query with batching support using geometric algorithm."""
-    
+
     # Convert to JAX arrays
     vec = jnp.asarray(vec, dtype=jnp.float64)
     radius = jnp.asarray(radius, dtype=jnp.float64)
     original_is_single = vec.ndim == 1
-    
+
     if original_is_single:
         vec = vec[None, :]  # (3,) → (1, 3)
-        
-    batch_dims = vec.shape[0]
+
     npix = 12 * nside * nside
-    
+
     if max_length is None:
         max_length = npix
-    
+
     # Process each vector in the batch
     def process_single_vec(single_vec):
-        return _query_disc_ring_single(
-            nside, single_vec, radius, inclusive, fact, max_length
-        )
-    
+        return _query_disc_ring_single(nside, single_vec, radius, inclusive, fact, max_length)
+
     # Use vmap to handle batching
     result = jax.vmap(process_single_vec)(vec)  # (batch_dims, max_length)
-    
+
     # Squeeze for single vector input
     if original_is_single:
         result = jnp.squeeze(result, axis=0)  # (1, max_length) → (max_length,)
@@ -802,4 +777,4 @@ def _query_disc_bruteforce(
     if original_is_single:
         result = jnp.squeeze(result, axis=1)  # (max_length, 1) → (max_length,)
 
-    return result# This file is part of jax-healpy.
+    return result  # This file is part of jax-healpy.
