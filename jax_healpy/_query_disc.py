@@ -224,33 +224,50 @@ def _query_disc_ring_single(
 
     This implements the exact geometry-based algorithm from HEALPix C++ that processes
     only candidate rings and generates pixels directly from geometric intersections.
-    NO brute-force operations are performed.
+    NO brute-force operations are performed. The algorithm is memory-optimized using
+    lax.fori_loop instead of lax.scan to avoid large intermediate arrays.
+
+    Algorithm Steps:
+    1. Setup geometric bounds and normalize input vector
+    2. Calculate candidate ring range based on disc geometry
+    3. Initialize pixel mask for accumulation
+    4. Add polar region pixels if disc intersects poles
+    5. Process rings using fixed-size loop for JAX compatibility
+    6. Extract valid pixels using memory-optimized collection method
 
     Parameters
     ----------
     nside : int
-        HEALPix nside parameter
+        HEALPix nside parameter (must be a power of 2)
     vec : Array
-        Unit vector (3,) defining disc center
+        Unit vector (3,) defining disc center. Will be normalized if not unit length.
     radius : float
-        Disc radius in radians
-    inclusive : bool
-        If True, include pixels that overlap the disc boundary
-    fact : int
-        Oversampling factor for inclusive mode
-    max_length : int
-        Maximum number of pixels to return
+        Disc radius in radians, will be clipped to [0, π]
+    inclusive : bool, optional
+        If True, include pixels that overlap the disc boundary (default: False)
+    fact : int, optional
+        Oversampling factor for inclusive mode (default: 4)
+    max_length : int, optional
+        Maximum number of pixels to return. If None, defaults to npix.
 
     Returns
     -------
     pixels : Array
-        Array of pixel indices in the disc, padded with npix for unused entries
+        Array of pixel indices in the disc, shape (max_length,).
+        Pixels outside the disc are marked as npix (sentinel value).
+        Results are padded with npix for unused entries.
+
+    Notes
+    -----
+    This function achieves significant memory optimization compared to brute-force
+    approaches by avoiding creation of large intermediate arrays and using geometric
+    ring processing following the HEALPix C++ reference implementation.
     """
     npix = 12 * nside * nside
     if max_length is None:
         max_length = npix
 
-    # Step 1: Setup and Geometric Bounds
+    # #step1: Setup and Geometric Bounds
     # Normalize vector and handle edge cases
     vec_norm = jnp.linalg.norm(vec)
     safe_vec = jnp.where(vec_norm > 1e-10, vec / vec_norm, jnp.array([1.0, 0.0, 0.0]))
@@ -258,9 +275,9 @@ def _query_disc_ring_single(
     # Clip radius to valid range [0, π]
     radius = jnp.clip(radius, 0.0, jnp.pi)
 
-    # CORRECTED: Proper inclusive mode calculation based on C++ reference
+    # Calculate inclusive mode radii based on C++ reference
     if inclusive:
-        # b2.max_pixrad() for finer grid and max_pixrad() for original grid
+        # Use finer grid and original grid pixel radii for inclusive bounds
         finer_pixrad = _max_pixrad(fact * nside)  # More precise pixel radius
         coarse_pixrad = _max_pixrad(nside)  # Original pixel radius
         rsmall = radius + finer_pixrad
@@ -275,6 +292,7 @@ def _query_disc_ring_single(
     # Pre-compute trigonometric values
     cosrbig = jnp.cos(rbig)
 
+    # #step2: Calculate Disc Center Coordinates and Ring Range
     # Disc center coordinates
     z0 = safe_vec[2]  # cos(theta)
     phi0 = jnp.arctan2(safe_vec[1], safe_vec[0])
@@ -307,11 +325,11 @@ def _query_disc_ring_single(
     north_pole_in_disc = (rlat1 <= 0.0) & (irmin > 1)
     south_pole_in_disc = (rlat2 >= jnp.pi) & (irmax + 1 < 4 * nside)
 
-    # Step 2: Initialize pixel mask for accumulation
+    # #step3: Initialize pixel mask for accumulation
     # Use boolean mask to track valid pixels - JAX compatible approach
     pixel_mask = jnp.zeros(npix, dtype=bool)
 
-    # Step 3: Add polar region pixels if needed
+    # #step4: Add polar region pixels if needed
     def add_north_pole_pixels(mask):
         # If north pole is in disc, add pixels from rings 1 to irmin-1
         # NOTE: When irmin = 1, we still need to potentially add pixels from the north cap
@@ -355,7 +373,7 @@ def _query_disc_ring_single(
     pixel_mask = add_north_pole_pixels(pixel_mask)
     pixel_mask = add_south_pole_pixels(pixel_mask)
 
-    # Step 4: Process rings using fixed-size loop
+    # #step5: Process rings using fixed-size loop
     def process_ring_iteration(ring_idx, mask):
         """Process a single ring and update the pixel mask."""
 
@@ -516,11 +534,15 @@ def _query_disc_ring_single(
     max_rings = 4 * nside
     pixel_mask = lax.fori_loop(1, max_rings, process_ring_iteration, pixel_mask)
 
-    # Step 5: Extract valid pixels using memory-optimized method
+    # #step6: Extract valid pixels using memory-optimized method
     def extract_pixels_from_mask(mask):
-        """Extract pixel indices from boolean mask without expensive argsort."""
+        """Extract pixel indices from boolean mask without expensive argsort.
 
-        # Instead of sorting all npix elements, use a scan to collect valid pixels
+        This memory-optimized approach uses lax.fori_loop instead of lax.scan
+        to avoid creating large intermediate arrays with jnp.arange(npix).
+        """
+
+        # #step6a: Use fori_loop to collect valid pixels sequentially
         def fori_body(i, carry):
             result_array, count = carry
             pixel_is_valid = mask[i]
@@ -532,11 +554,11 @@ def _query_disc_ring_single(
 
             return (new_result, new_count)
 
-        # Initialize result array filled with sentinel values
+        # #step6b: Initialize result array filled with sentinel values
         init_result = jnp.full(max_length, npix, dtype=jnp.int32)
         init_carry = (init_result, 0)
 
-        # Scan through all pixels to collect valid ones
+        # #step6c: Scan through all pixels to collect valid ones
         (final_result, final_count) = lax.fori_loop(0, npix, fori_body, init_carry)
 
         return final_result
@@ -653,7 +675,33 @@ def query_disc(
 def _query_disc_ring(
     nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact: int, max_length: Optional[int]
 ) -> Array:
-    """Efficient RING scheme query with batching support using geometric algorithm."""
+    """Efficient RING scheme query with batching support using geometric algorithm.
+
+    This function handles both single and batched disc queries by using jax.vmap
+    to vectorize the single-disc geometric algorithm.
+
+    Parameters
+    ----------
+    nside : int
+        HEALPix nside parameter
+    vec : ArrayLike
+        Either single vector (3,) or batch of vectors (B, 3)
+    radius : float
+        Disc radius in radians
+    inclusive : bool
+        If True, include pixels that overlap the disc boundary
+    fact : int
+        Oversampling factor for inclusive mode
+    max_length : Optional[int]
+        Maximum number of pixels to return per disc
+
+    Returns
+    -------
+    Array
+        For single vector: shape (max_length,)
+        For batch: shape (B, max_length)
+        Pixels outside discs are marked as npix (sentinel value)
+    """
 
     # Convert to JAX arrays
     vec = jnp.asarray(vec, dtype=jnp.float64)
@@ -685,17 +733,36 @@ def _query_disc_ring(
 def _query_disc_bruteforce(
     nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact: int, max_length: Optional[int]
 ) -> Array:
-    """JIT-compatible unified implementation of disc query supporting both single and batch inputs.
+    """DEPRECATED: Brute-force disc query with O(batch_size × npix) complexity.
+
+    ⚠️  **WARNING: NOT RECOMMENDED FOR PRODUCTION USE** ⚠️
+    
+    This function has poor computational and memory scaling characteristics:
+    - **Complexity**: O(batch_size × npix) where npix = 12 × nside²
+    - **Memory**: Creates large intermediate arrays of size (npix × batch_size)
+    - **Performance**: Much slower than the geometric algorithm for large nside values
+    
+    **RECOMMENDATION**: Use the default `query_disc()` function instead, which uses
+    an efficient geometric algorithm with much better scaling properties.
+    
+    This brute-force implementation is kept only for reference and testing purposes.
+    It computes dot products with ALL pixels on the sphere, making it inefficient
+    for typical use cases.
 
     Algorithm Overview:
     1. Standardize input to (batch_dims, 3) format and set defaults
     2. Normalize input vectors and clip radius to valid range
     3. Calculate the cosine threshold for the dot product test
-    4. Generate all pixel vectors and compute broadcast dot products
-    5. Create mask for pixels within the disc(s)
+    4. Generate ALL pixel vectors and compute broadcast dot products (EXPENSIVE!)
+    5. Create mask for pixels within the disc(s) (large intermediate arrays)
     6. Select top max_length pixels per disc with sentinel padding
     7. Apply JAX-compatible warning system for truncation
     8. Squeeze output for single vector compatibility
+    
+    Performance Comparison:
+    - For nside=512: ~3M pixels → creates 3M × batch_size arrays
+    - For nside=1024: ~12M pixels → creates 12M × batch_size arrays
+    - Geometric algorithm processes only candidate rings (~10-100× fewer operations)
     """
     # Step 1: Input standardization to (batch_dims, 3) format
     vec = jnp.asarray(vec, dtype=jnp.float64)
