@@ -16,7 +16,7 @@
 
 from jax import config as _config
 
-from ._query_disc import query_disc
+from ._query_disc import estimate_disc_pixel_count, estimate_disc_radius, query_disc
 from .clustering._clustering import (
     combine_masks,
     from_cutout_to_fullmap,
@@ -30,6 +30,8 @@ from .pixelfunc import (
     UNSEEN,
     ang2pix,
     ang2vec,
+    get_interp_val,
+    get_interp_weights,
     isnpixok,
     isnsideok,
     maptype,
@@ -63,8 +65,8 @@ __all__ = [
     'vec2pix',
     'ang2vec',
     'vec2ang',
-    # 'get_interp_weights',
-    # 'get_interp_val',
+    'get_interp_weights',
+    'get_interp_val',
     # 'get_all_neighbours',
     # 'max_pixrad',
     'nest2ring',
@@ -95,6 +97,8 @@ __all__ = [
     'maptype',
     # 'ma_to_array',
     'query_disc',
+    'estimate_disc_pixel_count',
+    'estimate_disc_radius',
     'alm2map',
     'map2alm',
     # Clustering

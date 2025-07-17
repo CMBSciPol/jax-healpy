@@ -273,7 +273,7 @@ def test_batch_edge_cases():
     npix = jhp.nside2npix(nside)
 
     # Test with very small max_length (truncation)
-    vecs = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])  # (3, 2)
+    vecs = jnp.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])  # (2, 3)
     max_length = 5
 
     result = jhp.query_disc(nside, vecs, 0.5, max_length=max_length)  # Large radius
