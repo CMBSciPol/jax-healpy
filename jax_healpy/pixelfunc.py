@@ -85,6 +85,7 @@ Map data manipulation
 
 from functools import partial
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import jit, lax, vmap
@@ -138,20 +139,21 @@ MAX_NSIDE = 1 << 29
 UNSEEN = -1.6375e30
 
 
-def check_theta_valid(theta: ArrayLike) -> None:
-    """Raises exception if theta is not within 0 and pi"""
-    # For JAX arrays (tracers), we can't check values at compile time, so skip validation
-    # For numpy arrays and scalars, we can validate the values
-    try:
-        # Try to convert to numpy and validate - this works for scalars and numpy arrays
-        # but will fail for JAX tracers during JIT compilation
-        theta_np = np.asarray(theta)
-        if (theta_np < 0).any() or (theta_np > np.pi + 1e-5).any():
-            raise ValueError('THETA is out of range [0,𝝥]')
-    except (TypeError, ValueError):
-        # If conversion fails (e.g., JAX tracer), skip validation
-        # The function will handle invalid values gracefully
-        pass
+def check_theta_valid(theta):
+    """
+        JIT Compatible check_theta_valid
+        Raises exception if theta is not within 0 and pi
+    """
+    invalid_theta = not ((theta >= 0).all() and (theta <= np.pi + 1e-5).all())
+
+    def _raise_invalid_theta(invalid_theta):
+        if invalid_theta:
+            raise ValueError('THETA is out of range [0,pi]')
+
+    lax.cond(
+        invalid_theta,
+        jax.debug.callback(_raise_invalid_theta, invalid_theta),
+    )
 
 
 def check_nside(nside: int, nest: bool = False) -> None:
