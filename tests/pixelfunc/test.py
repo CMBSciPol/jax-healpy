@@ -80,7 +80,6 @@ def test_get_interp_val_lonlat(theta0: float, phi0: float, lon0: float, lat0: fl
     np.testing.assert_array_almost_equal(val0, val1)
 
 
-@pytest.mark.xfail(reason='get_interp_weights not implemented')
 def test_get_interp_weights() -> None:
     p0, w0 = (np.array([0, 1, 4, 5]), np.array([1.0, 0.0, 0.0, 0.0]))
 

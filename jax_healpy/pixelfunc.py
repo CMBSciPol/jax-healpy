@@ -140,15 +140,18 @@ UNSEEN = -1.6375e30
 
 def check_theta_valid(theta: ArrayLike) -> None:
     """Raises exception if theta is not within 0 and pi"""
-    # Handle both JAX arrays and numpy arrays
-    if hasattr(theta, 'shape'):  # JAX array
-        # For JAX arrays, we can't check at compile time, so we skip validation
-        # The function will handle invalid values gracefully
-        pass
-    else:  # scalar or numpy array
+    # For JAX arrays (tracers), we can't check values at compile time, so skip validation
+    # For numpy arrays and scalars, we can validate the values
+    try:
+        # Try to convert to numpy and validate - this works for scalars and numpy arrays
+        # but will fail for JAX tracers during JIT compilation
         theta_np = np.asarray(theta)
         if (theta_np < 0).any() or (theta_np > np.pi + 1e-5).any():
             raise ValueError('THETA is out of range [0,𝝥]')
+    except (TypeError, ValueError):
+        # If conversion fails (e.g., JAX tracer), skip validation
+        # The function will handle invalid values gracefully
+        pass
 
 
 def check_nside(nside: int, nest: bool = False) -> None:

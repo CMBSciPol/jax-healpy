@@ -11,9 +11,9 @@ import jax_healpy as jhp
 
 
 @pytest.mark.parametrize('region_name', ['Low Cap', 'Equator', 'High Cap', 'All'])
-def test_get_interp_weights_regional_precision(region_name):
+@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64, 128, 256])
+def test_get_interp_weights_regional_precision(region_name, nside):
     """Test precision in different HEALPix regions based on playground validation."""
-    nside = 16
     npix = jhp.nside2npix(nside)
 
     # Define HEALPix regions exactly like playground
@@ -51,8 +51,7 @@ def test_get_interp_weights_regional_precision(region_name):
     sorted_hp_pixels = np.take_along_axis(hp_pixels, sorted_hp_indices, axis=0)
     sorted_hp_weights = np.take_along_axis(hp_weights, sorted_hp_indices, axis=0)
 
-    # Calculate errors (same as playground)
-    pixel_error = jnp.mean((sorted_pixels - sorted_hp_pixels) ** 2)
+    # Calculate weight error for validation
     weight_error = jnp.mean((sorted_weights - sorted_hp_weights) ** 2)
 
     # Focus on weight precision - this is what the user cares about
@@ -61,20 +60,15 @@ def test_get_interp_weights_regional_precision(region_name):
     # First verify weights sum to 1 (fundamental requirement)
     weight_sums = jnp.sum(weights, axis=0)
     assert_allclose(weight_sums, 1.0, rtol=1e-12, atol=1e-12, err_msg=f'{region_name} weights should sum to 1.0')
-
-    print(f'Region: {region_name}')
-    print(f'Pixel error: {pixel_error}')
-    print(f'Weight error: {weight_error}')
-    print(f'Weights sum to 1: {(weight_sums == 1.0).all()} ')
+    # Check pixel and weight errors to be very small
 
     # Test weight precision - be pragmatic about tolerances
     # The key requirement is that weights sum to 1 and interpolation is physically meaningful
-    if region_name == 'Equator':
-        # Equatorial region typically has smaller errors
-        assert weight_error < 0.5, f'Equator region weight MSE {weight_error} should be reasonable'
+    # Allow higher tolerance for higher nside values due to numerical precision limits
+    if nside <= 128:
+        assert weight_error < 1e-20, f'{region_name} region weight MSE {weight_error} should be very precise'
     else:
-        # Polar regions may have larger differences due to algorithm variations
-        assert weight_error < 0.5, f'{region_name} region weight MSE {weight_error} should be reasonable'
+        assert weight_error < 1e-5, f'{region_name} region weight MSE {weight_error} should be reasonable'
 
     # Verify all weights are non-negative (physical requirement)
     assert jnp.all(weights >= 0), f'{region_name} all weights should be non-negative'
@@ -82,10 +76,84 @@ def test_get_interp_weights_regional_precision(region_name):
     # Relaxed pixel test - allow some differences but ensure they're reasonable neighbors
     # (Since the implementation finds valid interpolation neighbors and weights sum to 1)
     max_pixel_diff = jnp.max(jnp.abs(sorted_pixels - sorted_hp_pixels))
+    print(f"weight error: {weight_error}, max_pixel_diff: {max_pixel_diff}")
+    assert max_pixel_diff == 0.0, f'{region_name} max pixel difference {max_pixel_diff} too large'
+
+
+@pytest.mark.parametrize('region_name', ['Low Cap', 'Equator', 'High Cap', 'All'])
+@pytest.mark.parametrize('nside', [512, 1024, 2048, 4096])
+def test_get_interp_weights_high_nside_sampling(region_name, nside):
+    """Test precision for high nside values using random sampling to avoid memory issues."""
+    npix = jhp.nside2npix(nside)
+
+    # Define HEALPix regions exactly like the full precision test
+    low_cap_start, low_cap_end = 0, 2 * nside * (nside - 1)
+    equator_start, equator_end = low_cap_end, npix - low_cap_end
+    high_cap_start, high_cap_end = equator_end, npix
+
+    region_map = {
+        'Low Cap': (low_cap_start, low_cap_end),
+        'Equator': (equator_start, equator_end),
+        'High Cap': (high_cap_start, high_cap_end),
+        'All': (0, npix),
+    }
+
+    start, end = region_map[region_name]
+    region_size = end - start
+    
+    # Use random sampling to test 1000 pixels from the region (or all if region is smaller)
+    n_samples = min(1000, region_size)
+    
+    # Generate random pixel indices within the region
+    key = jax.random.key(42)  # Fixed seed for reproducibility
+    if region_size > n_samples:
+        # Sample random indices within the region
+        random_offsets = jax.random.choice(key, region_size, (n_samples,), replace=False)
+        ipix = start + random_offsets
+    else:
+        # If region is small, test all pixels
+        ipix = jnp.arange(start, end, dtype=jnp.int32)
+
+    # Get base coordinates and add small perturbations
+    theta, phi = jhp.pix2ang(nside, ipix)
+    key1, key2 = jax.random.split(key, 2)
+    theta_perturb = theta + jax.random.uniform(key1, theta.shape, minval=-0.01, maxval=0.01)
+    phi_perturb = phi + jax.random.uniform(key2, phi.shape, minval=-0.01, maxval=0.01)
+
+    # Get interpolation weights
+    pixels, weights = jhp.get_interp_weights(nside, theta_perturb, phi_perturb)
+    hp_pixels, hp_weights = hp.get_interp_weights(nside, theta_perturb, phi_perturb)
+
+    # Sort for comparison
+    sorted_indices = jnp.argsort(pixels, axis=0)
+    sorted_pixels = jnp.take_along_axis(pixels, sorted_indices, axis=0)
+    sorted_weights = jnp.take_along_axis(weights, sorted_indices, axis=0)
+
+    sorted_hp_indices = np.argsort(hp_pixels, axis=0)
+    sorted_hp_pixels = np.take_along_axis(hp_pixels, sorted_hp_indices, axis=0)
+    sorted_hp_weights = np.take_along_axis(hp_weights, sorted_hp_indices, axis=0)
+
+    # Calculate weight error for validation
+    weight_error = jnp.mean((sorted_weights - sorted_hp_weights) ** 2)
+
+    # First verify weights sum to 1 (fundamental requirement)
+    weight_sums = jnp.sum(weights, axis=0)
+    assert_allclose(weight_sums, 1.0, rtol=1e-12, atol=1e-12, err_msg=f'{region_name} weights should sum to 1.0')
+
+    # Test weight precision - use relaxed tolerance for high nside sampling
+    # High nside values with random sampling may have slightly higher numerical errors
+    assert weight_error < 1e-5, f'{region_name} region weight MSE {weight_error} should be reasonable'
+
+    # Verify all weights are non-negative (physical requirement)
+    assert jnp.all(weights >= 0), f'{region_name} all weights should be non-negative'
+
+    # Relaxed pixel test - allow some differences but ensure they're reasonable neighbors
+    max_pixel_diff = jnp.max(jnp.abs(sorted_pixels - sorted_hp_pixels))
+    print(f"weight error: {weight_error}, max_pixel_diff: {max_pixel_diff}")
     assert max_pixel_diff < npix // 4, f'{region_name} max pixel difference {max_pixel_diff} too large'
 
 
-@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64])
+@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64, 128, 256 , 512 , 8192])
 def test_get_interp_weights_shapes(nside):
     """Test that output shapes are correct."""
     # Test single point
@@ -109,7 +177,7 @@ def test_get_interp_weights_shapes(nside):
     assert weights.shape == (4, 3), f'Expected weights shape (4, 3), got {weights.shape}'
 
 
-@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64])
+@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64, 128, 256, 512, 8192])
 def test_get_interp_weights_sum_to_one(nside):
     """Test that weights sum to 1.0 for each point."""
     # Generate test points
@@ -171,7 +239,7 @@ def test_get_interp_weights_gradient():
 
 
 # Tests for get_interp_val
-@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64])
+@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64, 128, 256, 512])
 def test_get_interp_val_single_map(nside):
     """Test get_interp_val with single map against healpy."""
     # Create a simple test map
@@ -197,7 +265,7 @@ def test_get_interp_val_single_map(nside):
     assert_allclose(jax_result, hp_result, rtol=1e-12, atol=1e-12)
 
 
-@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64])
+@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64, 128, 256, 512])
 def test_get_interp_val_multiple_maps(nside):
     """Test get_interp_val with multiple maps."""
     npix = jhp.nside2npix(nside)
