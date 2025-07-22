@@ -17,6 +17,7 @@
 from functools import partial
 
 import jax
+import numpy as np
 from jax import numpy as jnp
 from jaxtyping import Array, PRNGKeyArray
 
@@ -71,18 +72,42 @@ def get_cutout_from_mask(ful_map: Array, indices: Array, axis: int = 0) -> Array
     return jax.tree.map(lambda x: jnp.take(x, indices, axis=axis), ful_map)
 
 
-@partial(jax.jit, static_argnums=(2))
-def from_cutout_to_fullmap(labels: Array, indices: Array, nside: int) -> Array:
-    """Reconstruct the full map from a cutout.
+@partial(jax.jit, static_argnums=(2, 3))
+def combine_masks(cutouts: list[Array], indices: list[Array], nside: int, axis: int = 0) -> Array:
+    if len(cutouts) != len(indices):
+        raise ValueError(' The number of cutouts and indices must match.')
+    structure = jax.tree.structure(cutouts[0])
+    for cutout in cutouts[1:]:
+        if jax.tree.structure(cutout) != structure:
+            raise ValueError('All cutouts must have the same structure.')
+
+    npix = 12 * nside**2
+    full_shape = list(jax.tree.leaves(cutouts)[0].shape)
+    full_shape[axis] = npix
+    map_ids = jax.tree.map(lambda x: jnp.full(full_shape, UNSEEN), cutouts[0])
+
+    for cutout, indices in zip(cutouts, indices):
+        patch_slice = [slice(None)] * len(jax.tree.leaves(cutout)[0].shape)
+        patch_slice[axis] = indices
+        patch_slice = tuple(patch_slice)
+        map_ids = jax.tree.map(lambda maps, lbl: maps.at[patch_slice].set(lbl), map_ids, cutout)
+
+    return map_ids
+
+
+@partial(jax.jit, static_argnums=(2, 3))
+def from_cutout_to_fullmap(labels: Array, indices: Array, nside: int, axis: int = 0) -> Array:
+    """
+    Reconstruct the full map from a cutout by inserting values along a specified axis.
 
     Args:
-        labels (Array): The cutout map labels.
-        indices (Array): Indices where the cutout labels should be placed.
-        nside (int): HEALPix nside parameter.
+        labels (Array): The cutout array, shape [..., npatch, ...].
+        indices (Array): The pixel indices for the cutout.
+        nside (int): HEALPix NSIDE.
+        axis (int): The axis in `labels` that corresponds to the patch dimension (to be expanded to npix).
 
     Returns:
-        Array: The reconstructed full map.
-
+        Array: Full map array with shape like `labels`, but with `npatch` → `npix` along the specified axis.
     Example:
 
         >>> mask = np.load("GAL20.npy")
@@ -93,8 +118,17 @@ def from_cutout_to_fullmap(labels: Array, indices: Array, nside: int) -> Array:
         >>> print(jnp.array_equal(reconstructed, full_map))
     """
     npix = 12 * nside**2
-    map_ids = jax.tree.map(lambda x: jnp.full(npix, UNSEEN), labels)
-    return jax.tree.map(lambda maps, lbl: maps.at[indices].set(lbl), map_ids, labels)
+
+    def insert_fn(lbl):
+        full_shape = list(lbl.shape)
+        full_shape[axis] = npix
+        base = jnp.full(full_shape, UNSEEN)
+        slicing = [slice(None)] * lbl.ndim
+        slicing[axis] = indices
+        slicing = tuple(slicing)
+        return base.at[slicing].set(lbl)
+
+    return jax.tree.map(insert_fn, labels)
 
 
 def get_clusters(
