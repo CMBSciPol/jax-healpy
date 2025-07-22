@@ -85,7 +85,7 @@ def test_get_interp_weights_regional_precision(region_name):
     assert max_pixel_diff < npix // 4, f'{region_name} max pixel difference {max_pixel_diff} too large'
 
 
-@pytest.mark.parametrize('nside', [4, 8, 16, 32])
+@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64])
 def test_get_interp_weights_shapes(nside):
     """Test that output shapes are correct."""
     # Test single point
@@ -109,7 +109,7 @@ def test_get_interp_weights_shapes(nside):
     assert weights.shape == (4, 3), f'Expected weights shape (4, 3), got {weights.shape}'
 
 
-@pytest.mark.parametrize('nside', [4, 8, 16, 32])
+@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64])
 def test_get_interp_weights_sum_to_one(nside):
     """Test that weights sum to 1.0 for each point."""
     # Generate test points
@@ -171,7 +171,7 @@ def test_get_interp_weights_gradient():
 
 
 # Tests for get_interp_val
-@pytest.mark.parametrize('nside', [4, 8, 16, 32])
+@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64])
 def test_get_interp_val_single_map(nside):
     """Test get_interp_val with single map against healpy."""
     # Create a simple test map
@@ -197,7 +197,7 @@ def test_get_interp_val_single_map(nside):
     assert_allclose(jax_result, hp_result, rtol=1e-12, atol=1e-12)
 
 
-@pytest.mark.parametrize('nside', [4, 8, 16])
+@pytest.mark.parametrize('nside', [4, 8, 16, 32, 64])
 def test_get_interp_val_multiple_maps(nside):
     """Test get_interp_val with multiple maps."""
     npix = jhp.nside2npix(nside)
