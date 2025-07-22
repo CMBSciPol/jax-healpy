@@ -273,4 +273,4 @@ def shuffle_labels(arr: Array) -> Array:
 
     mapping = dict(zip(unique_vals, shuffled_vals))
     shuffled_arr = np.vectorize(lambda x: mapping.get(x, UNSEEN))(arr)
-    return shuffled_arr.astype(np.float64)
+    return shuffled_arr.astype(arr.dtype)

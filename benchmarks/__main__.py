@@ -32,6 +32,8 @@ BENCHMARKED_FUNCS = [
     'pix2xyf',
     'xyf2pix',
     'reorder',
+    'get_interp_weights',
+    'get_interp_val',
 ]
 CHART_PATH_NAME = 'chart-{style}-n{n}.png'
 
@@ -82,13 +84,21 @@ def _get_args(
     dtype: np.dtype,
     rng: np.random.Generator,
 ) -> tuple[ArrayLike]:
-    if func_name in {'ang2vec', 'ang2pix'}:
+    if func_name in {'ang2vec', 'ang2pix', 'get_interp_weights'}:
         theta = rng.uniform(0, np.pi, size=n).astype(dtype)
         phi = rng.uniform(0, 2 * np.pi, size=n).astype(dtype)
         if func_name == 'ang2vec':
             args = (theta, phi)
         else:
             args = (nside, theta, phi)
+
+    elif func_name == 'get_interp_val':
+        # Generate a random map and interpolation points
+        npix = 12 * nside**2
+        m = rng.uniform(0, 10, size=npix).astype(dtype)
+        theta = rng.uniform(0, np.pi, size=n).astype(dtype)
+        phi = rng.uniform(0, 2 * np.pi, size=n).astype(dtype)
+        args = (m, theta, phi)
 
     elif func_name in {'vec2ang', 'vec2pix'}:
         vec = rng.uniform(-np.pi, np.pi, size=(3, n))
@@ -155,6 +165,19 @@ def _get_func(library: str, func_name: str, *args: Any):
 
             def func_() -> None:
                 func(*args, r2n=True).block_until_ready()
+
+        elif func_name == 'get_interp_weights':
+
+            def func_() -> None:
+                p, w = func(*args)
+                p.block_until_ready()
+                w.block_until_ready()
+
+        elif func_name == 'get_interp_val':
+
+            def func_() -> None:
+                result = func(*args)
+                result.block_until_ready()
 
         else:
 

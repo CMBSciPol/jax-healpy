@@ -149,11 +149,11 @@ def test_normalize_from_clusters(mask: tuple[str, Array], nside: int) -> None:
 
 
 def test_shuffle_labels_randomizes_labels():
-    arr = np.array([0, 0, 1, 1, 2, 2])
+    arr = np.array([0, 0, 1, 1, 2, 2, 3, 3, 3, 4, 4, 5, 6, 6, 6, 6])
     shuffled = jhp.shuffle_labels(arr)
 
     # Should contain same elements (set equality), but likely different order
-    assert set(shuffled) == {0, 1, 2}
+    assert set(shuffled) == {0, 1, 2, 3, 4, 5, 6}
     assert not np.array_equal(arr, shuffled)  # Not equal in order most times
 
 
