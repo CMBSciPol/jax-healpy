@@ -188,7 +188,6 @@ def test_get_interp_weights_high_nside_sampling(region_name, nside):
 
     # Pixel accuracy validation - be as strict as possible while accounting for high nside complexity
     max_pixel_diff = jnp.max(jnp.abs(sorted_pixels - sorted_hp_pixels))
-    print(f'nside {nside}, {region_name}: weight error: {weight_error:.2e}, max_pixel_diff: {max_pixel_diff}')
 
     # For high nside values, allow minimal pixel differences due to floating point precision limits
     # But still maintain strict bounds relative to the total number of pixels
