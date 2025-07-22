@@ -165,3 +165,78 @@ def get_clusters(
     )
     map_ids = jnp.full(npix, unassigned)
     return map_ids.at[ipix[indices]].set(km.labels)
+
+
+@partial(jax.jit, static_argnums=(2,))
+def normalize_by_first_occurrence(arr: Array, n_regions: int, max_centroids: int) -> Array:
+    """
+    Normalize an array by mapping each unique value to the index of its first occurrence,
+    preserving order up to `n_regions` values.
+
+    Any value not among the first `n_regions` unique elements (determined by order of
+    appearance) is clipped to fit within `[0, n_regions - 1]`, or set to `UNSEEN` if
+    originally marked as such.
+
+    This is useful after clustering or segmentation tasks to ensure label indices are
+    contiguous, compact, and order-consistent for downstream processing.
+
+    Args:
+        arr: Integer array (1D or ND) containing raw labels, including possible `UNSEEN` markers.
+        n_regions: Maximum number of regions (unique labels) to preserve. Others are clipped.
+        max_centroids: Maximum number of unique labels expected (must be static for JIT).
+
+    Returns:
+        An array of same shape as `arr`, where each label is replaced by its first-seen index,
+        or `UNSEEN` if it was originally marked or beyond `n_regions`.
+
+    Example:
+        >>> arr = jnp.array([UNSEEN, UNSEEN, 5, 5, 5, 2, 3, 3, 8])
+        >>> normalize_by_first_occurrence(arr, 4, 10)
+        Array([UNSEEN, UNSEEN, 0, 0, 0, 1, 2, 2, 3])
+    """
+    arr_unseen = jnp.concatenate([jnp.array([UNSEEN]), arr])
+
+    unique_vals, first_idxs = jnp.unique(arr_unseen, size=max_centroids + 1, return_index=True)
+    order = jnp.argsort(first_idxs)
+    unique_by_first = unique_vals[order]
+    matches = arr_unseen[..., None] == unique_by_first
+    idxs = jnp.argmax(matches, axis=-1)
+    no_match = ~jnp.any(matches, axis=-1)
+    normalized = jnp.where(no_match, UNSEEN, idxs)
+    normalized = normalized[1:]
+    normalized = jnp.where(
+        arr == UNSEEN, UNSEEN, jnp.clip(normalized - (max_centroids - n_regions) - 1, 0, n_regions - 1)
+    )
+    return normalized
+
+
+def shuffle_labels(arr: Array) -> Array:
+    """
+    Randomly reassigns label indices using a NumPy-based permutation.
+
+    Assumes that input labels are normalized integers in [0, N), with possible `hp.UNSEEN`
+    entries. The function produces a random bijective mapping of present labels, preserving
+    shape and leaving `hp.UNSEEN` values unchanged.
+
+    This is intended for visualization purposes — shuffling label indices can reduce
+    misleading visual patterns (e.g., color clumping) in plots such as `mollview`, making
+    class structure easier to interpret.
+
+    Args:
+        arr: Integer array of label indices, e.g., [0, 0, 1, 2, hp.UNSEEN].
+
+    Returns:
+        A NumPy array of the same shape as `arr`, with valid labels randomly permuted.
+        `hp.UNSEEN` entries are left unchanged.
+
+    Example:
+        >>> arr = np.array([0, 0, 1, 1, 2, hp.UNSEEN])
+        >>> shuffle_labels(arr)
+        array([2, 2, 0, 0, 1, hp.UNSEEN])  # result will vary
+    """
+    unique_vals = np.unique(arr[arr != UNSEEN])
+    shuffled_vals = np.random.permutation(unique_vals)
+
+    mapping = dict(zip(unique_vals, shuffled_vals))
+    shuffled_arr = np.vectorize(lambda x: mapping.get(x, UNSEEN))(arr)
+    return shuffled_arr.astype(arr.dtype)
