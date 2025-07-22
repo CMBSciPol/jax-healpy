@@ -15,7 +15,7 @@ jobs:
       uses: actions/setup-python@v3
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip setuptools isort
+        python -m pip install --upgrade pip isort
         python -m pip install pre-commit
     - name: Run pre-commit
       run: python -m pre_commit run --all-files

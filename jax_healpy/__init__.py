@@ -16,7 +16,7 @@
 
 from jax import config as _config
 
-from ._query_disc import query_disc
+from ._query_disc import estimate_disc_pixel_count, estimate_disc_radius, query_disc
 from .clustering._clustering import (
     combine_masks,
     from_cutout_to_fullmap,
@@ -97,6 +97,8 @@ __all__ = [
     'maptype',
     # 'ma_to_array',
     'query_disc',
+    'estimate_disc_pixel_count',
+    'estimate_disc_radius',
     'alm2map',
     'map2alm',
     # Clustering
