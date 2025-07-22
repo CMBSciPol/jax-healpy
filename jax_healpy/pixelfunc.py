@@ -141,8 +141,8 @@ UNSEEN = -1.6375e30
 
 def check_theta_valid(theta):
     """
-        JIT Compatible check_theta_valid
-        Raises exception if theta is not within 0 and pi
+    JIT Compatible check_theta_valid
+    Raises exception if theta is not within 0 and pi
     """
     invalid_theta = not ((theta >= 0).all() and (theta <= np.pi + 1e-5).all())
 
