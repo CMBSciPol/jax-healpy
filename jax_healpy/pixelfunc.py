@@ -723,7 +723,7 @@ def ang2pix(
     >>> print(hp.ang2pix(np.array([1, 2, 4, 8, 16]), 0, 0, lonlat=True))
     [   4   12   72  336 1440]
     """
-    check_theta_valid(theta)
+    #check_theta_valid(theta)
     check_nside(nside, nest=nest)
 
     if nest:
