@@ -14,7 +14,15 @@ sys.path.insert(0, os.path.abspath('../../'))
 project = 'jax-healpy'
 copyright = '2024, Pierre Chanial, Simon Biquard, Wassim Kabalan'
 author = 'Pierre Chanial, Simon Biquard, Wassim Kabalan'
-release = '0.1.0'
+
+# Get version from setuptools_scm
+try:
+    from importlib.metadata import version
+
+    release = version('jax-healpy')
+except Exception:
+    # Fallback if package is not installed
+    release = '0.0.0'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
