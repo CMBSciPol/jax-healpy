@@ -59,8 +59,8 @@ recommended = [
 ]
 
 [project.urls]
-homepage = 'https://pchanial.github.io/jax-healpy'
-repository = 'https://github.com/pchanial/jax-healpy'
+homepage = 'https://jax-healpy.readthedocs.io'
+repository = 'https://github.com/CMBSciPol/jax-healpy'
 
 [tool.coverage.report]
 exclude_lines = [

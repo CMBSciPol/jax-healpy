@@ -17,12 +17,17 @@ author = 'Pierre Chanial, Simon Biquard, Wassim Kabalan'
 
 # Get version from setuptools_scm
 try:
-    from importlib.metadata import version
+    from setuptools_scm import get_version
 
-    release = version('jax-healpy')
+    release = get_version(root='../..')
 except Exception:
-    # Fallback if package is not installed
-    release = '0.0.0'
+    # Fallback if setuptools_scm fails
+    try:
+        from importlib.metadata import version
+
+        release = version('jax-healpy')
+    except Exception:
+        release = '0.0.0'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -48,7 +53,7 @@ html_static_path = ['_static']
 
 # Theme options
 html_theme_options = {
-    'repository_url': 'https://github.com/pchanial/jax-healpy',
+    'repository_url': 'https://github.com/CMBSciPol/jax-healpy',
     'use_repository_button': True,
     'use_issues_button': True,
     'use_edit_page_button': True,
