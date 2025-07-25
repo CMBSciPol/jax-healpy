@@ -15,20 +15,34 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for dynamic versioning
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Debug Git tags and versioning
         run: |
-          python -m pip install --upgrade pip
-          pip install build twine
+          echo "Git tags:"
+          git tag -l
+          echo "Current tag:"
+          git describe --tags --exact-match HEAD || echo "No exact tag match"
+          echo "Version info:"
+          git describe --tags --always
 
       - name: Build package
         run: |
+          pip install --upgrade pip
+          pip install build
           python -m build
+
+      - name: Verify build artifacts
+        run: |
+          ls -la dist/
+          echo "Built artifacts:"
+          find dist/ -name "*.whl" -o -name "*.tar.gz" | head -10
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
