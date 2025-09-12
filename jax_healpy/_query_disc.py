@@ -823,4 +823,4 @@ def _query_disc_bruteforce(
     if original_is_single:
         result = jnp.squeeze(result, axis=1)  # (max_length, 1) → (max_length,)
 
-    return result  # This file is part of jax-healpy.
+    return result

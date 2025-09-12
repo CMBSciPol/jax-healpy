@@ -459,7 +459,7 @@ def test_query_disc_bruteforce():
     # Test batch functionality
     vecs_batch = jnp.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])  # (2, 3)
     bf_batch = _query_disc_bruteforce(nside, vecs_batch, radius, inclusive=False, fact=4, max_length=max_len)
-    assert bf_batch.shape == (max_len, 2), f'Batch should return ({max_len}, 2)'
+    assert bf_batch.shape == (2, max_len), f'Batch should return (2, {max_len})'
 
     # Test single vector case (should squeeze)
     bf_single = _query_disc_bruteforce(nside, vec, radius, inclusive=False, fact=4, max_length=max_len)
