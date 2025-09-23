@@ -107,7 +107,7 @@ __all__ = [
     'nest2ring',
     'ring2nest',
     'reorder',
-    'udgrade',
+    'ud_grade',
     'UNSEEN',
     # 'mask_good',
     # 'mask_bad',
@@ -2468,7 +2468,7 @@ def mask_bad(m: ArrayLike) -> Array:
 
 
 @partial(jit, static_argnames=['nside_out', 'pess', 'order_in', 'order_out', 'power', 'dtype'])
-def udgrade(
+def ud_grade(
     map_in: ArrayLike,
     nside_out: int,
     pess: bool = False,
@@ -2527,9 +2527,9 @@ def udgrade(
     >>> nside_in = 4
     >>> map_in = np.arange(jhp.nside2npix(nside_in), dtype=float)
     >>> # Degrade to nside=2
-    >>> map_out = jhp.udgrade(map_in, 2)
+    >>> map_out = jhp.ud_grade(map_in, 2)
     >>> # Upgrade to nside=8
-    >>> map_out = jhp.udgrade(map_in, 8)
+    >>> map_out = jhp.ud_grade(map_in, 8)
 
     Notes
     -----
