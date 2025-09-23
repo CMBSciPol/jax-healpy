@@ -33,12 +33,12 @@ except Exception:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
-    'sphinx.ext.autodoc',
-    'sphinx.ext.viewcode',
-    'sphinx.ext.napoleon',
-    'sphinx.ext.intersphinx',
     'myst_parser',
     'nbsphinx',
+    'sphinx.ext.autodoc',
+    'sphinx.ext.intersphinx',
+    'sphinx.ext.napoleon',
+    'sphinx.ext.viewcode',
     'sphinx_copybutton',
 ]
 
@@ -53,30 +53,30 @@ html_static_path = ['_static']
 
 # Theme options
 html_theme_options = {
-    'repository_url': 'https://github.com/CMBSciPol/jax-healpy',
-    'use_repository_button': True,
-    'use_issues_button': True,
-    'use_edit_page_button': True,
     'path_to_docs': 'docs/source',
+    'repository_url': 'https://github.com/CMBSciPol/jax-healpy',
     'use_download_button': True,
+    'use_edit_page_button': True,
+    'use_issues_button': True,
+    'use_repository_button': True,
     'use_sidenotes': True,
 }
 
 # Napoleon settings
+napoleon_attr_annotations = True
 napoleon_google_docstring = True
-napoleon_numpy_docstring = True
 napoleon_include_init_with_doc = False
 napoleon_include_private_with_doc = False
 napoleon_include_special_with_doc = True
+napoleon_numpy_docstring = True
+napoleon_preprocess_types = False
+napoleon_type_aliases = None
 napoleon_use_admonition_for_examples = False
 napoleon_use_admonition_for_notes = False
 napoleon_use_admonition_for_references = False
 napoleon_use_ivar = False
 napoleon_use_param = True
 napoleon_use_rtype = True
-napoleon_preprocess_types = False
-napoleon_type_aliases = None
-napoleon_attr_annotations = True
 
 # Intersphinx mapping
 intersphinx_mapping = {
@@ -88,21 +88,25 @@ intersphinx_mapping = {
 
 # MyST parser configuration
 myst_enable_extensions = [
-    'dollarmath',
     'amsmath',
+    'colon_fence',
     'deflist',
+    'dollarmath',
     'fieldlist',
     'html_admonition',
     'html_image',
-    'colon_fence',
-    'smartquotes',
     'replacements',
+    'smartquotes',
     'strikethrough',
     'tasklist',
 ]
 
 # Nbsphinx configuration
-nbsphinx_execute = 'never'  # Don't execute notebooks during build
+nbsphinx_execute = 'always'
+nbsphinx_execute_arguments = [
+    "--InlineBackend.figure_formats={'svg', 'pdf'}",
+    "--InlineBackend.rc={'figure.dpi': 96}",
+]
 
 # Autodoc configuration
 autodoc_member_order = 'bysource'

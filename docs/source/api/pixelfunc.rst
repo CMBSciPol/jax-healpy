@@ -37,6 +37,13 @@ Functions for converting between RING and NESTED pixelization schemes:
 .. autofunction:: jax_healpy.ring2nest
 .. autofunction:: jax_healpy.reorder
 
+Map Resolution Functions
+------------------------
+
+Functions for changing map resolution:
+
+.. autofunction:: jax_healpy.udgrade
+
 Interpolation
 -------------
 
@@ -44,6 +51,13 @@ Functions for interpolating values on the sphere:
 
 .. autofunction:: jax_healpy.get_interp_weights
 .. autofunction:: jax_healpy.get_interp_val
+
+Neighbor Functions
+------------------
+
+Functions for finding neighboring pixels:
+
+.. autofunction:: jax_healpy.get_all_neighbours
 
 HEALPix Parameters
 ------------------

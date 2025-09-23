@@ -13,10 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - API reference with detailed function documentation
 - Installation guide with HPC system instructions
 - Contributing guidelines for developers
+- `get_all_neighbours`: Function to get all neighboring pixels for a given pixel
+- `udgrade`: Function for upgrading/downgrading HEALPix map resolution
 
 ### Changed
 - Improved README with better structure and examples
 - Enhanced project metadata and PyPI badges
+- Better memory complexity implementation of `query_disc` function
 
 ### Fixed
 - Documentation build configuration for ReadTheDocs

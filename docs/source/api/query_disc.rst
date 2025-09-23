@@ -13,6 +13,17 @@ Disc Query Functions
 
 .. autofunction:: jax_healpy.query_disc
 
+Disc Estimation Functions
+-------------------------
+
+.. autofunction:: jax_healpy.estimate_disc_pixel_count
+
+   Estimate the number of pixels within a circular disc on the sphere.
+
+.. autofunction:: jax_healpy.estimate_disc_radius
+
+   Estimate the angular radius needed to contain a given number of pixels.
+
    Find all pixels within a circular region on the sphere.
 
    This function identifies all HEALPix pixels whose centers lie within
