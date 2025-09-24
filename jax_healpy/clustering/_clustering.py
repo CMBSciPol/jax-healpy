@@ -96,7 +96,7 @@ def combine_masks(cutouts: list[Array], indices: list[Array], nside: int, axis: 
 
 
 @partial(jax.jit, static_argnums=(2, 3))
-def from_cutout_to_fullmap(labels: Array, indices: Array, nside: int, axis: int = 0) -> Array:
+def get_fullmap_from_cutout(labels: Array, indices: Array, nside: int, axis: int = 0) -> Array:
     """
     Reconstruct the full map from a cutout by inserting values along a specified axis.
 
@@ -114,7 +114,7 @@ def from_cutout_to_fullmap(labels: Array, indices: Array, nside: int, axis: int 
         >>> indices, = jnp.where(mask == 1)
         >>> full_map = random.normal(random.key(0), shape=(jhp.nside2npix(64),))
         >>> cutout = get_cutout_from_mask(full_map, indices)
-        >>> reconstructed = from_cutout_to_fullmap(cutout, indices, nside=64)
+        >>> reconstructed = get_fullmap_from_cutout(cutout, indices, nside=64)
         >>> print(jnp.array_equal(reconstructed, full_map))
     """
     npix = 12 * nside**2
@@ -131,12 +131,12 @@ def from_cutout_to_fullmap(labels: Array, indices: Array, nside: int, axis: int 
     return jax.tree.map(insert_fn, labels)
 
 
-def get_clusters(
+def find_kmeans_clusters(
     mask: Array,
     indices: Array,
     n_regions: int,
     key: PRNGKeyArray,
-    max_centroids: None = None,
+    max_centroids: int | None = None,
     unassigned: float = UNSEEN,
     initial_sample_size: int = 3,
 ) -> Array:
@@ -147,7 +147,7 @@ def get_clusters(
         indices (Array): Indices of valid pixels.
         n_regions (int): Number of regions to cluster into.
         key (PRNGKeyArray): JAX random key.
-        max_centroids (None, optional): Maximum allowed centroids. Defaults to None.
+        max_centroids (int | None, optional): Maximum allowed centroids. Defaults to None.
         unassigned (float, optional): Value for unassigned pixels. Defaults to jhp.UNSEEN.
         initial_sample_size (int, optional): Initial sample size for KMeans. Defaults to 3.
             It is used to initialize the centroids.
@@ -171,13 +171,13 @@ def get_clusters(
         >>> key = random.key(0)
 
         # Perform clustering
-        >>> clustered_map = get_clusters(mask, indices, n_regions=5, key=key)
+        >>> clustered_map = find_kmeans_clusters(mask, indices, n_regions=5, key=key)
         >>> print(jnp.unique(clustered_map))
         [0 1 2 3 4]
 
         # Error example when max_centroids constraint is violated
         >>> try:
-        ...     clustered_map = get_clusters(mask, indices, n_regions=15, key=key, max_centroids=10)
+        ...     clustered_map = find_kmeans_clusters(mask, indices, n_regions=15, key=key, max_centroids=10)
         ... except RuntimeError as e:
         ...     print(e)
     """

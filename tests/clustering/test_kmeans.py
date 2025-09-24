@@ -9,6 +9,13 @@ from jaxtyping import Array
 from numpy.testing import assert_array_equal
 
 import jax_healpy as jhp
+from jax_healpy.clustering import (
+    find_kmeans_clusters,
+    get_cutout_from_mask,
+    get_fullmap_from_cutout,
+    normalize_by_first_occurrence,
+)
+from jax_healpy.clustering._clustering import shuffle_labels
 
 
 @pytest.fixture(scope='module', params=['FULL_MAP', 'GAL020', 'GAL040', 'GAL060'])
@@ -34,10 +41,10 @@ def test_kmeans(mask: tuple[str, Array]) -> None:
     n_regions = 10
     key = jax.random.key(0)
 
-    clustered = jhp.get_clusters(mask, indices, n_regions, key)
+    clustered = find_kmeans_clusters(mask, indices, n_regions, key)
     print(f'Got {n_regions} regions for mask {name}')
 
-    cutout = jhp.get_cutout_from_mask(clustered, indices)
+    cutout = get_cutout_from_mask(clustered, indices)
     # Shape must be the same as the mask
     assert cutout.shape == indices.shape
 
@@ -61,7 +68,7 @@ def test_kmeans_jit(mask: tuple[str, Array]) -> None:
     key = jax.random.key(0)
 
     # number of regions cannot be a tracer if max_centroids is None
-    jitted_clusters = jax.jit(jhp.get_clusters, static_argnums=(4, 5))
+    jitted_clusters = jax.jit(find_kmeans_clusters, static_argnums=(4, 5))
     with pytest.raises(TracerBoolConversionError):
         jitted_clusters(mask, indices, n_regions, key, max_centroids=None)
 
@@ -74,7 +81,7 @@ def test_kmeans_jit(mask: tuple[str, Array]) -> None:
         indices: Array,
         n_regions: Array,
     ) -> Array:
-        return jhp.get_clusters(mask, indices, n_regions, key, max_centroids=10)
+        return find_kmeans_clusters(mask, indices, n_regions, key, max_centroids=10)
 
     _ = jit_clusters(mask, indices, 5)
     _ = jit_clusters(mask, indices, 10)
@@ -97,11 +104,11 @@ def test_cutout_and_reconstruct(mask: tuple[str, Array], nside: int) -> None:
     # set to unseen everything outside the mask
     gaussian_map = gaussian_map.at[inv_indices].set(jhp.UNSEEN)
 
-    cutout = jhp.get_cutout_from_mask(gaussian_map, indices)
+    cutout = get_cutout_from_mask(gaussian_map, indices)
 
     assert cutout.shape == indices.shape
 
-    reconstruct = jhp.from_cutout_to_fullmap(cutout, indices, nside)
+    reconstruct = get_fullmap_from_cutout(cutout, indices, nside)
 
     assert_array_equal(reconstruct, gaussian_map)
 
@@ -118,7 +125,7 @@ def test_frequency_map_cutout(mask: tuple[str, Array], nside: int) -> None:
     # set to unseen everything outside the mask
     frequency_maps = frequency_maps.at[..., inv_indices].set(jhp.UNSEEN)
 
-    cutout = jhp.get_cutout_from_mask(frequency_maps, indices, axis=1)
+    cutout = get_cutout_from_mask(frequency_maps, indices, axis=1)
 
     assert cutout.shape == (10, *indices.shape)
 
@@ -132,8 +139,8 @@ def test_normalize_from_clusters(mask: tuple[str, Array], nside: int) -> None:
     key = jax.random.PRNGKey(0)
 
     # Get raw clusters
-    raw_labels = jhp.get_clusters(mask, indices, n_regions, key, max_centroids=max_centroids)
-    normalized = jhp.normalize_by_first_occurrence(raw_labels, n_regions, max_centroids)
+    raw_labels = find_kmeans_clusters(mask, indices, n_regions, key, max_centroids=max_centroids)
+    normalized = normalize_by_first_occurrence(raw_labels, n_regions, max_centroids)
 
     # Ensure UNSEEN positions are unchanged
     raw_unseen_mask = raw_labels == hp.UNSEEN
@@ -150,7 +157,7 @@ def test_normalize_from_clusters(mask: tuple[str, Array], nside: int) -> None:
 
 def test_shuffle_labels_randomizes_labels():
     arr = np.array([0, 0, 1, 1, 2, 2, 3, 3, 3, 4, 4, 5, 6, 6, 6, 6])
-    shuffled = jhp.shuffle_labels(arr)
+    shuffled = shuffle_labels(arr)
 
     # Should contain same elements (set equality), but likely different order
     assert set(shuffled) == {0, 1, 2, 3, 4, 5, 6}
@@ -159,7 +166,7 @@ def test_shuffle_labels_randomizes_labels():
 
 def test_shuffle_labels_preserves_unseen():
     arr = np.array([0, 1, 2, hp.UNSEEN, 1, hp.UNSEEN])
-    shuffled = jhp.shuffle_labels(arr)
+    shuffled = shuffle_labels(arr)
 
     # UNSEEN stays where it is
     assert shuffled[3] == hp.UNSEEN

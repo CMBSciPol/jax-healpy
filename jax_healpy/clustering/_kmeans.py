@@ -327,7 +327,7 @@ def kmeans_sample(
     key: PRNGKeyArray,
     ra_dec: Array,
     ncenters: int,
-    max_centroids: Optional[int] = None,
+    max_centroids: int | None = None,
     tol: float = _TOL_DEF,
     maxiter: int = _MAXITER_DEF,
     initial_sample_size: int = 3,

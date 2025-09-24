@@ -17,15 +17,6 @@
 from jax import config as _config
 
 from ._query_disc import estimate_disc_pixel_count, estimate_disc_radius, query_disc
-from .clustering._clustering import (
-    combine_masks,
-    from_cutout_to_fullmap,
-    get_clusters,
-    get_cutout_from_mask,
-    normalize_by_first_occurrence,
-    shuffle_labels,
-)
-from .clustering._kmeans import KMeans, kmeans_sample
 from .pixelfunc import (
     UNSEEN,
     ang2pix,
@@ -58,7 +49,6 @@ from .pixelfunc import (
 from .sphtfunc import alm2map, map2alm
 
 __all__ = [
-    'UNSEEN',
     'pix2ang',
     'ang2pix',
     'pix2xyf',
@@ -75,7 +65,7 @@ __all__ = [
     'ring2nest',
     'reorder',
     'ud_grade',
-    # 'UNSEEN',
+    'UNSEEN',
     # 'mask_good',
     # 'mask_bad',
     # 'ma',
@@ -103,15 +93,6 @@ __all__ = [
     'estimate_disc_radius',
     'alm2map',
     'map2alm',
-    # Clustering
-    'get_clusters',
-    'get_cutout_from_mask',
-    'from_cutout_to_fullmap',
-    'kmeans_sample',
-    'KMeans',
-    'combine_masks',
-    'normalize_by_first_occurrence',
-    'shuffle_labels',
 ]
 
 _config.update('jax_enable_x64', True)

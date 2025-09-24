@@ -13,3 +13,18 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
+from ._clustering import (
+    combine_masks,
+    find_kmeans_clusters,
+    get_cutout_from_mask,
+    get_fullmap_from_cutout,
+    normalize_by_first_occurrence,
+)
+
+__all__ = [
+    'combine_masks',
+    'find_kmeans_clusters',
+    'get_cutout_from_mask',
+    'get_fullmap_from_cutout',
+    'normalize_by_first_occurrence',
+]
