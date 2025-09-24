@@ -1,10 +1,24 @@
-# from .._query_disc import boundaries
-# from .._pixelfunc import ringinfo, pix2ring, isnsideok
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import jax_healpy as hp
+
+
+def test_get_nside_single_map() -> None:
+    m = jnp.zeros(12)
+    assert hp.get_nside(m) == 1
+
+
+def test_get_nside_multiple_map() -> None:
+    m = jnp.zeros((4, 12))
+    assert hp.get_nside(m) == 1
+
+
+def test_get_nside_invalid() -> None:
+    m = jnp.zeros(())
+    with pytest.raises(ValueError, match=r'Map must be 1D or 2D, got shape \(\)'):
+        _ = hp.get_nside(m)
 
 
 def test_nside2npix() -> None:

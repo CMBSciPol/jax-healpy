@@ -128,7 +128,7 @@ __all__ = [
     'isnpixok',
     # 'get_map_size',
     # 'get_min_valid_nside',
-    # 'get_nside',
+    'get_nside',
     'maptype',
     # 'ma_to_array',
 ]
