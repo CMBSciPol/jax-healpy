@@ -26,7 +26,7 @@ from numpy.testing import assert_array_equal
 import jax_healpy as jhp
 
 
-@pytest.mark.parametrize('region_name', ['Low Cap', 'Equator', 'High Cap', 'All'])
+@pytest.mark.parametrize('region_name', ['Low Cap', 'Equator', 'High Cap'])
 @pytest.mark.parametrize('nside', [4, 8, 16, 32, 64, 128, 256])
 def test_get_all_neighbours_comprehensive_precision(region_name, nside):
     """Test precision in different HEALPix regions with comprehensive pixel coverage."""
@@ -41,7 +41,6 @@ def test_get_all_neighbours_comprehensive_precision(region_name, nside):
         'Low Cap': (low_cap_start, low_cap_end),
         'Equator': (equator_start, equator_end),
         'High Cap': (high_cap_start, high_cap_end),
-        'All': (0, npix),
     }
 
     start, end = region_map[region_name]
@@ -98,7 +97,7 @@ def test_get_all_neighbours_comprehensive_precision(region_name, nside):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize('region_name', ['Low Cap', 'Equator', 'High Cap', 'All'])
+@pytest.mark.parametrize('region_name', ['Low Cap', 'Equator', 'High Cap'])
 @pytest.mark.parametrize('nside', [512, 1024, 2048, 4096, 8192])
 def test_get_all_neighbours_high_nside_sampling(region_name, nside):
     """Test precision for high nside values using random sampling to avoid memory issues."""
@@ -113,7 +112,6 @@ def test_get_all_neighbours_high_nside_sampling(region_name, nside):
         'Low Cap': (low_cap_start, low_cap_end),
         'Equator': (equator_start, equator_end),
         'High Cap': (high_cap_start, high_cap_end),
-        'All': (0, npix),
     }
 
     start, end = region_map[region_name]

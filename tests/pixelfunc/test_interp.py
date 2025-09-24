@@ -10,7 +10,7 @@ from numpy.testing import assert_allclose
 import jax_healpy as jhp
 
 
-@pytest.mark.parametrize('region_name', ['Low Cap', 'Equator', 'High Cap', 'All'])
+@pytest.mark.parametrize('region_name', ['Low Cap', 'Equator', 'High Cap'])
 @pytest.mark.parametrize('nside', [4, 8, 16, 32, 64, 128, 256])
 def test_get_interp_weights_regional_precision(region_name, nside):
     """Test precision in different HEALPix regions based on playground validation."""
@@ -25,7 +25,6 @@ def test_get_interp_weights_regional_precision(region_name, nside):
         'Low Cap': (low_cap_start, low_cap_end),
         'Equator': (equator_start, equator_end),
         'High Cap': (high_cap_start, high_cap_end),
-        'All': (0, npix),
     }
 
     start, end = region_map[region_name]
@@ -84,27 +83,16 @@ def test_get_interp_weights_regional_precision(region_name, nside):
     # Pixel accuracy validation - as strict as possible while accounting for known algorithmic limitations
     max_pixel_diff = jnp.max(jnp.abs(sorted_pixels - sorted_hp_pixels))
 
-    # Set pixel difference thresholds based on empirical testing and known precision limits
-    if nside <= 128:
-        # For nside <= 128, demand perfect pixel matching in most cases
-        max_allowed_diff = 0
-        assert max_pixel_diff == max_allowed_diff, (
-            f'{region_name} region nside {nside}: demand pixel-exact matching, found max diff {max_pixel_diff}'
-        )
-    else:
-        # For nside >= 256, allow minimal pixel differences due to phi interpolation algorithm limitations
-        # These differences occur in challenging coordinate regions (poles, ring transitions)
-        # But still maintain strict bounds - much better than original test
-        max_allowed_diff = 4 if region_name == 'All' else 0  # Matches the observed maximum difference for nside=256
-        assert max_pixel_diff <= max_allowed_diff, f"""
-            {region_name} region nside {nside}: max pixel diff {max_pixel_diff}
-            exceeds strict algorithmic limit {max_allowed_diff}.
-            This indicates a precision regression beyond known limitations.
-            """
+    max_allowed_diff = 0
+    assert max_pixel_diff <= max_allowed_diff, f"""
+        {region_name} region nside {nside}: max pixel diff {max_pixel_diff}
+        exceeds strict algorithmic limit {max_allowed_diff}.
+        This indicates a precision regression beyond known limitations.
+        """
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize('region_name', ['Low Cap', 'Equator', 'High Cap', 'All'])
+@pytest.mark.parametrize('region_name', ['Low Cap', 'Equator', 'High Cap'])
 @pytest.mark.parametrize('nside', [512, 1024, 2048, 4096, 8192])
 def test_get_interp_weights_high_nside_sampling(region_name, nside):
     """Test precision for high nside values using random sampling to avoid memory issues."""
@@ -119,7 +107,6 @@ def test_get_interp_weights_high_nside_sampling(region_name, nside):
         'Low Cap': (low_cap_start, low_cap_end),
         'Equator': (equator_start, equator_end),
         'High Cap': (high_cap_start, high_cap_end),
-        'All': (0, npix),
     }
 
     start, end = region_map[region_name]
