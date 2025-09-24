@@ -90,14 +90,12 @@ pytest -m "not slow"
 We use several tools to maintain code quality:
 
 ```bash
-# Run linting and formatting
-ruff check .
-ruff format .
+pre-commit install
 
-# Type checking (if mypy is installed)
-mypy jax_healpy/
+# Pre-commit hooks will run ruff, mypy and other QA tools automatically at each commit
+git commit -am "New commit"
 
-# Pre-commit hooks will run these automatically
+# to run the QA tools on the whole repository:
 pre-commit run --all-files
 ```
 

@@ -72,9 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite with pytest
 - Benchmarking framework comparing performance to healpy
 - Development tools:
-  - Pre-commit hooks for code quality
-  - Ruff linting and formatting
-  - Type checking with mypy
+  - Pre-commit hooks for code quality, including ruff linting and formatting and mypy
   - Coverage reporting
 
 ### Dependencies

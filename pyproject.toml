@@ -44,7 +44,6 @@ dynamic = ['version']
 test = [
     'healpy',
     'matplotlib',
-    'mypy',
     'pandas',
     'pytest',
     'pytest-cov',
