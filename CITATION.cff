@@ -5,23 +5,21 @@ message: >-
   If you use this software, please cite it using the metadata from this file.
 type: software
 authors:
-  - given-names: Pierre
-    family-names: Chanial
-    affiliation: Laboratoire AstroParticule et Cosmologie
-    orcid: 'https://orcid.org/0000-0003-1753-524X'
-    email: pierre.chanial@gmail.com
-  - given-names: Magdy
-    family-names: Morshed
-    affiliation: INFN Sezione di Ferrara: Ferrara, IT
-    orcid: 'https://orcid.org/0000-0002-3214-8881'
-  - given-names: Simon
-    family-names: Biquard
-    affiliation: Laboratoire AstroParticule et Cosmologie
-    orcid: 'https://orcid.org/0000-0002-1493-2963'
-    email: sbiquard@gmail.com
-  - given-names: Wassim
-    family-names: Kabalan
-    affiliation: Laboratoire AstroParticule et Cosmologie
-    orcid: 'https://orcid.org/0009-0001-6501-4564'
+  - family-names: "Chanial"
+    given-names: "Pierre"
+    affiliation: "Laboratoire AstroParticule et Cosmologie"
+    orcid: "https://orcid.org/0000-0003-1753-524X"
+  - family-names: "Morshed"
+    given-names: "Magdy"
+    affiliation: "INFN Sezione di Ferrara: Ferrara, IT"
+    orcid: "https://orcid.org/0000-0002-3214-8881"
+  - family-names: "Biquard"
+    given-names: "Simon"
+    affiliation: "Laboratoire AstroParticule et Cosmologie"
+    orcid: "https://orcid.org/0000-0002-1493-2963"
+  - family-names: "Kabalan"
+    given-names: "Wassim"
+    affiliation: "Laboratoire AstroParticule et Cosmologie"
+    orcid: "https://orcid.org/0009-0001-6501-4564"
 repository-code: 'https://github.com/CMBSciPol/jax-healpy'
 license: GPL-3.0
