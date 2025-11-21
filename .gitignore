@@ -10,3 +10,4 @@ __pycache__
 /.venv*/
 /benchmarks/results/
 Healpix*
+.pip-packages*
