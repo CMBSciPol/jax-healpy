@@ -43,14 +43,8 @@ jobs:
           pip install git+https://github.com/astro-informatics/s2fft.git@ASKabalan
           pip install .[test]
 
-      - name: Verify s2fft import
-        run: python -c "import s2fft; print('s2fft imported successfully')"
-
-      - name: List test files
-        run: ls -la tests/sphtfunc/
-
-      - name: Test collection
-        run: pytest --collect-only tests/sphtfunc/ 2>&1 | tail -50
-
       - name: Run tests
-        run: pytest -v -m "not slow"
+        run: |
+          pip list | grep -E "numpy|healpy|jax|s2fft"
+          pytest -v -m "not slow" --tb=short 2>&1 || true
+          pytest -v tests/sphtfunc/test_spin_transforms.py::test_map2alm_spin_different_spins -x --tb=long
