@@ -43,7 +43,13 @@ jobs:
           pip install .[test,all]
 
       - name: Verify s2fft import
-        run: python -c "import s2fft; print('s2fft version:', s2fft.__version__)"
+        run: python -c "import s2fft; print('s2fft imported successfully')"
+
+      - name: List test files
+        run: ls -la tests/sphtfunc/
+
+      - name: Test collection
+        run: pytest --collect-only tests/sphtfunc/ 2>&1 | tail -50
 
       - name: Run tests
         run: pytest -v -m "not slow"
