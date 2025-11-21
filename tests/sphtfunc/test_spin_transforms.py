@@ -4,14 +4,15 @@ import healpy as hp
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from s2fft.sampling.reindex import flm_hp_to_2d_fast
 
 import jax_healpy as jhp
-from conftest import nside, lmax
-from s2fft.sampling.reindex import flm_hp_to_2d_fast , flm_2d_to_hp_fast
-import jax
+
 
 @pytest.mark.parametrize('healpy_ordering', [True, False])
-def test_map2alm_spin_basic(flm_generator: Callable[[...], np.ndarray], nside: int, lmax: int, healpy_ordering: bool) -> None:
+def test_map2alm_spin_basic(
+    flm_generator: Callable[[...], np.ndarray], nside: int, lmax: int, healpy_ordering: bool
+) -> None:
     """Test basic map2alm_spin with spin=2 against healpy."""
     if lmax is None:
         lmax = 3 * nside - 1
@@ -43,10 +44,10 @@ def test_map2alm_spin_basic(flm_generator: Callable[[...], np.ndarray], nside: i
         assert result_jax[1].shape == (nalm,)
         # Tolerances based on validation (max errors: ~0.007 abs, ~0.066 rel)
         # Using random maps instead of alm2map_spin output to avoid roundtrip incompatibilities
-        MSE_Q = np.mean(np.abs(result_jax[0] - result_hp[0])**2)
-        MSE_U = np.mean(np.abs(result_jax[1] - result_hp[1])**2)
-        assert MSE_Q < 1e-6, f"MSE Q too high: {MSE_Q}"
-        assert MSE_U < 1e-6, f"MSE U too high: {MSE_U}"
+        MSE_Q = np.mean(np.abs(result_jax[0] - result_hp[0]) ** 2)
+        MSE_U = np.mean(np.abs(result_jax[1] - result_hp[1]) ** 2)
+        assert MSE_Q < 1e-6, f'MSE Q too high: {MSE_Q}'
+        assert MSE_U < 1e-6, f'MSE U too high: {MSE_U}'
         np.testing.assert_allclose(result_jax[0], result_hp[0], atol=1e-2, rtol=1e-8)
         np.testing.assert_allclose(result_jax[1], result_hp[1], atol=1e-2, rtol=1e-8)
     else:
@@ -59,12 +60,13 @@ def test_map2alm_spin_basic(flm_generator: Callable[[...], np.ndarray], nside: i
         result_hp_2d_1 = flm_hp_to_2d_fast(result_hp[1], L)
         # Tolerances based on validation (max errors: ~0.007 abs, ~0.066 rel)
         # Using random maps instead of alm2map_spin output to avoid roundtrip incompatibilities
-        MSE_Q = np.mean(np.abs(result_jax[0] - result_hp_2d_0)**2)
-        MSE_U = np.mean(np.abs(result_jax[1] - result_hp_2d_1)**2)
-        assert MSE_Q < 1e-6, f"MSE Q too high: {MSE_Q}"
-        assert MSE_U < 1e-6, f"MSE U too high: {MSE_U}"
+        MSE_Q = np.mean(np.abs(result_jax[0] - result_hp_2d_0) ** 2)
+        MSE_U = np.mean(np.abs(result_jax[1] - result_hp_2d_1) ** 2)
+        assert MSE_Q < 1e-6, f'MSE Q too high: {MSE_Q}'
+        assert MSE_U < 1e-6, f'MSE U too high: {MSE_U}'
         np.testing.assert_allclose(result_jax[0], result_hp_2d_0, atol=1e-2, rtol=1e-8)
         np.testing.assert_allclose(result_jax[1], result_hp_2d_1, atol=1e-2, rtol=1e-8)
+
 
 @pytest.mark.parametrize('healpy_ordering', [True, False])
 def test_alm2map_spin_basic(flm_generator: Callable[[...], np.ndarray], nside: int, lmax: int, healpy_ordering) -> None:
@@ -98,7 +100,9 @@ def test_alm2map_spin_basic(flm_generator: Callable[[...], np.ndarray], nside: i
         alm_B_test = flm_hp_to_2d_fast(alm_B_hp, L)
 
     # Apply inverse spin transform with jax_healpy
-    result_jax = jhp.alm2map_spin([alm_E_test, alm_B_test], nside, spin=spin, lmax=lmax, healpy_ordering=healpy_ordering)
+    result_jax = jhp.alm2map_spin(
+        [alm_E_test, alm_B_test], nside, spin=spin, lmax=lmax, healpy_ordering=healpy_ordering
+    )
 
     # Apply inverse spin transform with healpy
     result_hp = hp.alm2map_spin([alm_E_hp, alm_B_hp], nside, spin=spin, lmax=lmax)
@@ -106,16 +110,19 @@ def test_alm2map_spin_basic(flm_generator: Callable[[...], np.ndarray], nside: i
     # Compare results using MSE metric
     # Note: Tolerance accounts for numerical roundtrip error through healpy's map2alm_spin
     # MSE is more robust than pointwise comparison for handling near-zero pixels
-    MSE_Q = np.mean(np.abs(result_jax[0] - result_hp[0])**2)
-    MSE_U = np.mean(np.abs(result_jax[1] - result_hp[1])**2)
-    assert MSE_Q < 1e-4, f"MSE Q too high: {MSE_Q}"
-    assert MSE_U < 1e-4, f"MSE U too high: {MSE_U}"
+    MSE_Q = np.mean(np.abs(result_jax[0] - result_hp[0]) ** 2)
+    MSE_U = np.mean(np.abs(result_jax[1] - result_hp[1]) ** 2)
+    assert MSE_Q < 1e-4, f'MSE Q too high: {MSE_Q}'
+    assert MSE_U < 1e-4, f'MSE U too high: {MSE_U}'
     # Pointwise comparison with relaxed tolerance for s2fft numerical differences
     # The single-transform s2fft approach has slightly larger pointwise errors than healpy's C++ implementation
     # but maintains good overall accuracy as measured by MSE
     np.testing.assert_allclose(result_jax[0], result_hp[0], atol=0.15, rtol=1e-8)
     np.testing.assert_allclose(result_jax[1], result_hp[1], atol=0.15, rtol=1e-8)
+
+
 2
+
 
 def test_map2alm_spin_validation(nside: int, lmax: int) -> None:
     """Test that map2alm_spin validates input correctly."""
@@ -149,10 +156,11 @@ def test_alm2map_spin_validation(nside: int, lmax: int) -> None:
 
 @pytest.mark.parametrize('spin', [1, 2, 3])
 @pytest.mark.parametrize('healpy_ordering', [True, False])
-def test_map2alm_spin_different_spins(flm_generator: Callable[[...], np.ndarray], spin: int, nside: int, healpy_ordering: bool) -> None:
+def test_map2alm_spin_different_spins(
+    flm_generator: Callable[[...], np.ndarray], spin: int, nside: int, healpy_ordering: bool
+) -> None:
     """Test map2alm_spin with different spin values."""
-    if lmax is None:
-        lmax = 3 * nside - 1
+    lmax = 3 * nside - 1
     L = lmax + 1
 
     # Generate maps
@@ -172,7 +180,9 @@ def test_map2alm_spin_different_spins(flm_generator: Callable[[...], np.ndarray]
 
 @pytest.mark.parametrize('spin', [1, 2, 3])
 @pytest.mark.parametrize('healpy_ordering', [True, False])
-def test_alm2map_spin_different_spins(flm_generator: Callable[[...], np.ndarray], spin: int, nside: int, lmax: int, healpy_ordering: bool) -> None:
+def test_alm2map_spin_different_spins(
+    flm_generator: Callable[[...], np.ndarray], spin: int, nside: int, lmax: int, healpy_ordering: bool
+) -> None:
     """Test alm2map_spin with different spin values against healpy.
 
     Uses a roundtrip approach: generate random Q/U maps, convert to alms with healpy,
@@ -201,7 +211,9 @@ def test_alm2map_spin_different_spins(flm_generator: Callable[[...], np.ndarray]
         alm_B_test = flm_hp_to_2d_fast(alm_B_hp, L)
 
     # Apply inverse spin transform with jax_healpy
-    result_jax = jhp.alm2map_spin([alm_E_test, alm_B_test], nside, spin=spin, lmax=lmax, healpy_ordering=healpy_ordering)
+    result_jax = jhp.alm2map_spin(
+        [alm_E_test, alm_B_test], nside, spin=spin, lmax=lmax, healpy_ordering=healpy_ordering
+    )
 
     # Apply inverse spin transform with healpy
     result_hp = hp.alm2map_spin([alm_E_hp, alm_B_hp], nside, spin=spin, lmax=lmax)
@@ -218,10 +230,10 @@ def test_alm2map_spin_different_spins(flm_generator: Callable[[...], np.ndarray]
     mse_threshold = 1e-4 if spin <= 2 else 2e-4
     atol_threshold = 0.15 if spin <= 2 else 0.20
 
-    MSE_Q = np.mean(np.abs(result_jax[0] - result_hp[0])**2)
-    MSE_U = np.mean(np.abs(result_jax[1] - result_hp[1])**2)
-    assert MSE_Q < mse_threshold, f"MSE Q too high for spin={spin}: {MSE_Q}"
-    assert MSE_U < mse_threshold, f"MSE U too high for spin={spin}: {MSE_U}"
+    MSE_Q = np.mean(np.abs(result_jax[0] - result_hp[0]) ** 2)
+    MSE_U = np.mean(np.abs(result_jax[1] - result_hp[1]) ** 2)
+    assert MSE_Q < mse_threshold, f'MSE Q too high for spin={spin}: {MSE_Q}'
+    assert MSE_U < mse_threshold, f'MSE U too high for spin={spin}: {MSE_U}'
 
     # Pointwise comparison with relaxed tolerance for s2fft numerical differences
     np.testing.assert_allclose(result_jax[0], result_hp[0], atol=atol_threshold, rtol=1e-2)

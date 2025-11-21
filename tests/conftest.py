@@ -1,8 +1,9 @@
 from pathlib import Path
 
+import healpy as hp
 import numpy as np
 import pytest
-import healpy as hp 
+
 
 @pytest.fixture(scope='session')
 def numpy_rng() -> np.random.RandomState:
@@ -15,19 +16,12 @@ def data_path() -> Path:
     return Path(__file__).parent / 'data'
 
 
-@pytest.fixture(
-    scope="session",
-    params=[
-        32 , 64 , 128 
-    ])
+@pytest.fixture(scope='session', params=[32, 64, 128])
 def nside(request):
     return request.param
 
-@pytest.fixture(
-    scope="session",
-    params=[
-        None , 2 , 3
-    ])
+
+@pytest.fixture(scope='session', params=[None, 2, 3])
 def lmax(request, nside: int):
     if request.param is None:
         return None  # Let the function use default (3*nside-1)

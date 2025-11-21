@@ -1,14 +1,14 @@
 import healpy as hp
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-
-import jax
-import jax_healpy as jhp
 from s2fft.sampling.reindex import flm_hp_to_2d_fast
-from conftest import synthesized_map, cla, nside , lmax
 
-jax.config.update("jax_enable_x64", True)
+import jax_healpy as jhp
+
+jax.config.update('jax_enable_x64', True)
+
 
 def test_anafast_basic(synthesized_map: np.ndarray, lmax: int) -> None:
     """Test basic anafast auto-spectrum computation."""
@@ -18,7 +18,8 @@ def test_anafast_basic(synthesized_map: np.ndarray, lmax: int) -> None:
     # Power spectra should match closely
     np.testing.assert_allclose(cl_jax, cl_healpy, atol=1e-10, rtol=1e-10)
 
-@pytest.mark.parametrize("iter", [2, 3])
+
+@pytest.mark.parametrize('iter', [2, 3])
 def test_anafast_with_iter(synthesized_map: np.ndarray, lmax: int, iter: int) -> None:
     """Test anafast with iterative refinement."""
     cl_iter3_healpy = hp.anafast(synthesized_map, lmax=lmax, iter=iter, pol=False)
@@ -26,6 +27,7 @@ def test_anafast_with_iter(synthesized_map: np.ndarray, lmax: int, iter: int) ->
 
     # Both should be reasonably close (iter improves accuracy but not drastically for well-behaved maps)
     np.testing.assert_allclose(cl_iter3_healpy, cl_iter3_jax, atol=1e-10, rtol=1e-10)
+
 
 def test_anafast_cross_spectrum(synthesized_map: np.ndarray, lmax: int) -> None:
     """Test anafast cross-spectrum computation."""
@@ -86,6 +88,7 @@ def test_anafast_cross_with_alm_return(synthesized_map: np.ndarray, lmax: int) -
     np.testing.assert_allclose(alm1, alm1_hp_2d, atol=1e-10, rtol=1e-10)
     np.testing.assert_allclose(alm2, alm2_hp_2d, atol=1e-10, rtol=1e-10)
 
+
 def test_synfast_basic(cla: np.ndarray, nside: int) -> None:
     """Test basic synfast map generation."""
     lmax = 3 * nside - 1
@@ -108,10 +111,14 @@ def test_synfast_basic(cla: np.ndarray, nside: int) -> None:
     # Variance should be reasonable (related to C_l)
     assert jnp.std(map_jax) > 0
 
-    print(f"Mean JAX: {jnp.mean(map_jax)}, Mean Healpy: {np.mean(map_healpy)}")
-    print(f"Std JAX: {jnp.std(map_jax)}, Std Healpy: {np.std(map_healpy)}")
-    print(f"atol diff mean: {jnp.abs(jnp.mean(map_jax) - np.mean(map_healpy))} rtol diff mean: {jnp.abs(jnp.mean(map_jax) - np.mean(map_healpy)) / (np.abs(np.mean(map_healpy)) + 1e-20)}")
-    print(f"atol diff std: {jnp.abs(jnp.std(map_jax) - np.std(map_healpy))} rtol diff std: {jnp.abs(jnp.std(map_jax) - np.std(map_healpy)) / (np.abs(np.std(map_healpy)) + 1e-20)}")
+    print(f'Mean JAX: {jnp.mean(map_jax)}, Mean Healpy: {np.mean(map_healpy)}')
+    print(f'Std JAX: {jnp.std(map_jax)}, Std Healpy: {np.std(map_healpy)}')
+    mean_diff = jnp.abs(jnp.mean(map_jax) - np.mean(map_healpy))
+    mean_rtol = mean_diff / (np.abs(np.mean(map_healpy)) + 1e-20)
+    print(f'atol diff mean: {mean_diff} rtol diff mean: {mean_rtol}')
+    std_diff = jnp.abs(jnp.std(map_jax) - np.std(map_healpy))
+    std_rtol = std_diff / (np.abs(np.std(map_healpy)) + 1e-20)
+    print(f'atol diff std: {std_diff} rtol diff std: {std_rtol}')
 
     # Compare summary statistics with healpy map (stochastic realizations won't match sample-wise)
     assert np.isclose(np.mean(map_jax), np.mean(map_healpy), atol=1e-5)
@@ -157,8 +164,8 @@ def test_synfast_roundtrip(nside: int) -> None:
     # Most multipoles should have reasonable accuracy (within ~20% for single realization)
     # Exclude l<2 which can be noisy
     # Absolute error threshold accounts for cosmic variance in single realizations
-    print(f"jnp.median(rel_error[2:]) = {jnp.median(rel_error[2:])}")
-    print(f"jnp.median(a_error[2:]) = {jnp.median(a_error[2:])}")
+    print(f'jnp.median(rel_error[2:]) = {jnp.median(rel_error[2:])}')
+    print(f'jnp.median(a_error[2:]) = {jnp.median(a_error[2:])}')
     assert jnp.median(rel_error[2:]) < 0.2
     assert jnp.median(a_error[2:]) < 1e-3
 

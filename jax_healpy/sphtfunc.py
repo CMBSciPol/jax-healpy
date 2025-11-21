@@ -14,15 +14,15 @@
 # You should have received a copy of the GNU General Public License
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
+import warnings
 from functools import partial, wraps
 from typing import Callable, ParamSpec, TypeVar
-import warnings
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax.typing import ArrayLike
 from jaxtyping import PRNGKeyArray
-import numpy as np
 
 try:
     from s2fft.recursions.price_mcewen import generate_precomputes_jax
@@ -125,7 +125,7 @@ def _generate_random_alm(cl: ArrayLike, lmax: int, mmax: int | None, prng_key: P
     alms = (rand_real + 1j * rand_imag) * scale * valid_mask
     alms = alms.at[:, L - 1].set(alms[:, L - 1].real)
 
-    left_half = alms[:, :L - 1]
+    left_half = alms[:, : L - 1]
     right_half = alms[:, L:]
     m_positive = jnp.arange(1, L)
     phase = (-1) ** m_positive
@@ -135,7 +135,7 @@ def _generate_random_alm(cl: ArrayLike, lmax: int, mmax: int | None, prng_key: P
     valid_left = jnp.abs(m_neg_grid) <= ell_grid_left
     left_half = conj_right_flipped * valid_left
 
-    return jnp.concatenate([left_half, alms[:, L - 1:L], right_half], axis=1)
+    return jnp.concatenate([left_half, alms[:, L - 1 : L], right_half], axis=1)
 
 
 def _alm2map_core(
@@ -930,7 +930,22 @@ def alm2cl(
     return cl
 
 
-@partial(jax.jit, static_argnames=['lmax', 'mmax', 'iter', 'alm', 'nspec', 'pol', 'use_weights', 'datapath', 'gal_cut', 'use_pixel_weights', 'method'])
+@partial(
+    jax.jit,
+    static_argnames=[
+        'lmax',
+        'mmax',
+        'iter',
+        'alm',
+        'nspec',
+        'pol',
+        'use_weights',
+        'datapath',
+        'gal_cut',
+        'use_pixel_weights',
+        'method',
+    ],
+)
 @requires_s2fft
 def anafast(
     map1: ArrayLike,
@@ -1135,7 +1150,22 @@ def smoothalm(
     return almxfl(alms, bl, mmax=mmax, inplace=False, healpy_ordering=healpy_ordering)
 
 
-@partial(jax.jit, static_argnames=['fwhm', 'sigma', 'pol', 'iter', 'lmax', 'mmax', 'use_weights', 'use_pixel_weights', 'datapath', 'verbose', 'nest'])
+@partial(
+    jax.jit,
+    static_argnames=[
+        'fwhm',
+        'sigma',
+        'pol',
+        'iter',
+        'lmax',
+        'mmax',
+        'use_weights',
+        'use_pixel_weights',
+        'datapath',
+        'verbose',
+        'nest',
+    ],
+)
 @requires_s2fft
 def smoothing(
     map_in: ArrayLike,
@@ -1304,7 +1334,7 @@ def synalm(
     # Check if cls is a tuple (polarization case)
     if isinstance(cls, (tuple, list)):
         raise NotImplementedError(
-            'Full TEB polarization support not yet implemented. ' 'Only scalar (single power spectrum) case supported.'
+            'Full TEB polarization support not yet implemented. Only scalar (single power spectrum) case supported.'
         )
 
     # Scalar case - use existing _generate_random_alm
@@ -1364,10 +1394,13 @@ def pixwin(nside: int, pol: bool = False, lmax: int | None = None, datapath: str
     )
 
 
-@partial(jax.jit, static_argnames=['nside', 'lmax', 'mmax', 'alm', 'pol', 'pixwin', 'fwhm', 'sigma', 'new', 'verbose', 'method'])
+@partial(
+    jax.jit,
+    static_argnames=['nside', 'lmax', 'mmax', 'alm', 'pol', 'pixwin', 'fwhm', 'sigma', 'new', 'verbose', 'method'],
+)
 @requires_s2fft
 def synfast(
-    prng_key: PRNGKeyArray ,
+    prng_key: PRNGKeyArray,
     cls: ArrayLike,
     nside: int,
     lmax: int | None = None,
@@ -1482,13 +1515,9 @@ def synfast(
     min_supported_lmax = 2 * nside - 1
     if resolved_lmax < min_supported_lmax:
         raise ValueError(
-            'synfast requires lmax >= {min_supported} for nside={nside} when using the '
-            's2fft backend (got lmax={given}). Provide a longer C_l array or specify a '
-            'larger lmax (you can zero-pad the spectrum) before calling synfast.'.format(
-                min_supported=min_supported_lmax,
-                nside=nside,
-                given=resolved_lmax,
-            )
+            f'synfast requires lmax >= {min_supported_lmax} for nside={nside} when using the '
+            f's2fft backend (got lmax={resolved_lmax}). Provide a longer C_l array or specify a '
+            'larger lmax (you can zero-pad the spectrum) before calling synfast.'
         )
 
     alms = _generate_random_alm(cls, resolved_lmax, mmax, prng_key=prng_key)
@@ -1596,7 +1625,13 @@ def map2alm_spin(
 @partial(jax.jit, static_argnames=['nside', 'spin', 'lmax', 'mmax', 'method', 'healpy_ordering'])
 @requires_s2fft
 def alm2map_spin(
-    alms, nside: int, spin: int, lmax: int | None = None, mmax: int | None = None, method: str = 'jax', healpy_ordering: bool = True
+    alms,
+    nside: int,
+    spin: int,
+    lmax: int | None = None,
+    mmax: int | None = None,
+    method: str = 'jax',
+    healpy_ordering: bool = True,
 ):
     """Compute HEALPix maps from spin-weighted spherical harmonic coefficients.
 

@@ -1,16 +1,16 @@
-from pathlib import Path
 from typing import Callable
 
 import healpy as hp
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from s2fft.sampling.s2_samples import flm_2d_to_hp, flm_hp_to_2d
-import jax
-import jax_healpy as jhp
-from conftest import synthesized_map, cla, nside , lmax
 
-jax.config.update("jax_enable_x64", True)
+import jax_healpy as jhp
+
+jax.config.update('jax_enable_x64', True)
+
 
 @pytest.mark.parametrize('healpy_ordering', [False, True])
 def test_map2alm(synthesized_map: np.ndarray, lmax: int | None, healpy_ordering: bool, nside: int) -> None:
@@ -33,9 +33,11 @@ def test_map2alm_requires_minimum_bandlimit(synthesized_map: np.ndarray, nside: 
 
 # This test in particular is flaky due to alm2map accuracy variations
 # even with fixed random seed. Allow reruns to reduce false positives.
-@pytest.mark.flaky(reruns=5 , reruns_delay=2)
+@pytest.mark.flaky(reruns=5, reruns_delay=2)
 @pytest.mark.parametrize('healpy_ordering', [False, True])
-def test_alm2map(flm_generator: Callable[[...], np.ndarray], lmax: int | None, healpy_ordering: bool, nside: int) -> None:
+def test_alm2map(
+    flm_generator: Callable[[...], np.ndarray], lmax: int | None, healpy_ordering: bool, nside: int
+) -> None:
     if lmax is None:
         L = 3 * nside
     else:
@@ -48,7 +50,7 @@ def test_alm2map(flm_generator: Callable[[...], np.ndarray], lmax: int | None, h
     expected_map = hp.alm2map(flm, nside, lmax=lmax, pol=False).real
 
     # alm2map is randomly less accurate sometimes
-    np.testing.assert_allclose(actual_map, expected_map, atol=1e-14) 
+    np.testing.assert_allclose(actual_map, expected_map, atol=1e-14)
 
 
 def test_alm2map_pixwin_not_supported(flm_generator: Callable[[...], np.ndarray], nside: int) -> None:
@@ -88,7 +90,7 @@ def test_alm2map_batched(flm_generator_batched: Callable[[...], np.ndarray], hea
     expected_map_2 = hp.alm2map(flm1, nside, lmax=L - 1, pol=False)
     expected_map = jnp.stack([expected_map_1, expected_map_2]).real
 
-    np.testing.assert_allclose(jhp_map, expected_map, atol=1e-10 , rtol=1e-6)
+    np.testing.assert_allclose(jhp_map, expected_map, atol=1e-10, rtol=1e-6)
 
 
 @pytest.mark.parametrize('healpy_ordering', [False, True])
@@ -102,17 +104,19 @@ def test_map2alm_batched(synthesized_map: np.ndarray, healpy_ordering: bool, nsi
     expected_flm_1 = hp.map2alm(np.array(synthesized_map_1), lmax=L - 1, iter=0, pol=False)
     expected_flm_2 = hp.map2alm(np.array(synthesized_map_2), lmax=L - 1, iter=0, pol=False)
     if not healpy_ordering:
-        expected_flm_1 , expected_flm_2 = flm_hp_to_2d(expected_flm_1, L), flm_hp_to_2d(expected_flm_2, L)
+        expected_flm_1, expected_flm_2 = flm_hp_to_2d(expected_flm_1, L), flm_hp_to_2d(expected_flm_2, L)
 
     expected_flm = jnp.stack([expected_flm_1, expected_flm_2])
 
     np.testing.assert_allclose(actual_flm, expected_flm, atol=1e-14)
+
 
 @pytest.mark.parametrize('healpy_ordering', [False, True])
 def test_alm2map_invalid_ndim_error(healpy_ordering) -> None:
     alms = jnp.zeros((2, 3), dtype=complex)
     with pytest.raises(ValueError):
         _ = jhp.alm2map(alms[None, None, ...], nside=1, pol=False, healpy_ordering=healpy_ordering)
+
 
 @pytest.mark.parametrize('iter_val', [2, 3])
 def test_map2alm_iter(synthesized_map: np.ndarray, iter_val: int, lmax: int | None) -> None:

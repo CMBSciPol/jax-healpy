@@ -3,15 +3,15 @@
 from typing import Callable
 
 import healpy as hp
-import jax.numpy as jnp
+import jax
 import numpy as np
 import pytest
-
-import jax_healpy as jhp
-import jax
 from s2fft.sampling.s2_samples import flm_2d_to_hp
 
-jax.config.update("jax_enable_x64", True)
+import jax_healpy as jhp
+
+jax.config.update('jax_enable_x64', True)
+
 
 @pytest.mark.parametrize('fwhm_deg', [5.0, 10.0])
 @pytest.mark.parametrize('lmax_val', [64, 128, 256])

@@ -23,6 +23,7 @@ def flm_generator(numpy_rng) -> Callable[[...], np.ndarray]:
 
     return generate_flm
 
+
 @pytest.fixture(scope='session')
 def numpy_rng() -> np.random.RandomState:
     seed = 0
@@ -37,16 +38,17 @@ def flm_generator_batched() -> Callable[[...], np.ndarray]:
     # from s2fft.utils import signal_generator
     numpy_rng_1 = np.random.RandomState(1)
     numpy_rng_2 = np.random.RandomState(2)
+
     def generate_flm_1(L: int, healpy_ordering: bool = False, **keywords: Any) -> np.ndarray:
         flm = signal_generator.generate_flm(numpy_rng_1, L, **keywords)
         if healpy_ordering:
             flm = flm_2d_to_hp(flm, L)
-        return  flm
-    
+        return flm
+
     def generate_flm_2(L: int, healpy_ordering: bool = False, **keywords: Any) -> np.ndarray:
         flm = signal_generator.generate_flm(numpy_rng_2, L, **keywords)
         if healpy_ordering:
             flm = flm_2d_to_hp(flm, L)
         return flm
 
-    return generate_flm_1 , generate_flm_2
+    return generate_flm_1, generate_flm_2
