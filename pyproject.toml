@@ -35,7 +35,20 @@ dependencies = [
 dynamic = ['version']
 
 [project.optional-dependencies]
-recommended = [
+test = [
+    'healpy',
+    'matplotlib',
+    'pandas',
+    'pytest',
+    'pytest-cov',
+    'pytest-rerunfailures',
+    'pytest-mock',
+    'setuptools_scm',
+    'typer',
+    'PyYAML',
+    'chex',
+]
+all = [
     's2fft',
 ]
 
@@ -95,6 +108,13 @@ testpaths = [
 markers = [
     "slow: marks tests as slow (deselected by default in CI)",
 ]
+
+[tool.setuptools_scm]
+version_scheme = 'post-release'
+fallback_version = '0.0.0'
+
+[tool.setuptools]
+packages = ['jax_healpy']
 
 [tool.ruff]
 line-length = 120
