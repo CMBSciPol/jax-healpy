@@ -42,7 +42,7 @@ Map Resolution Functions
 
 Functions for changing map resolution:
 
-.. autofunction:: jax_healpy.udgrade
+.. autofunction:: jax_healpy.ud_grade
 
 Interpolation
 -------------

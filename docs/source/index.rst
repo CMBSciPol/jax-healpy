@@ -26,16 +26,13 @@ Key Features
    getting_started
    installation
    user_guide/pixelization
-   user_guide/spherical_harmonics
-   user_guide/clustering
 
 .. toctree::
    :maxdepth: 2
    :caption: Examples
 
    examples/basic_usage
-   examples/benchmarks
-   examples/clustering_analysis
+   examples/clustering
 
 .. toctree::
    :maxdepth: 2

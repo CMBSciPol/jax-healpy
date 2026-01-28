@@ -202,8 +202,7 @@ Now that you have jax-healpy working, explore:
 
 - [User Guide](user_guide/pixelization.md) for detailed function documentation
 - [Examples](examples/basic_usage.md) for more complex use cases
-- [API Reference](api/pixelfunc.md) for complete function listings
-- [Benchmarks](examples/benchmarks.md) to see performance comparisons
+- [API Reference](api/pixelfunc.rst) for complete function listings
 
 ## Common Issues
 
