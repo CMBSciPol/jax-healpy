@@ -2190,15 +2190,12 @@ def get_all_neighbours(
         # Add center pixels as first element: [CENTER, SW, W, NW, N, NE, E, SE, S]
         # Combine center + neighbors: shape (9, *input_shape)
         result = jnp.concatenate([ipix[None, ...], neighbors], axis=0)
-
-        if input_shape == ():
-            return result.squeeze()
-        return result
     else:
-        # Original behavior: return only 8 neighbors
-        if input_shape == ():
-            return neighbors.squeeze()
-        return neighbors
+        result = neighbors
+
+    if input_shape == ():
+        return result.squeeze()
+    return result
 
 
 def _get_all_neighbors_xyf(nside: int, ix: Array, iy: Array, face_num: Array, nest: bool = False) -> Array:
