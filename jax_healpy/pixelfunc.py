@@ -1462,7 +1462,7 @@ def _pix2vec_ring(nside, pixels):
             (1 - z) * (1 + z),
         )
     )
-    return jnp.array([sin_theta * jnp.cos(phi), sin_theta * jnp.sin(phi), z]).T
+    return jnp.stack([sin_theta * jnp.cos(phi), sin_theta * jnp.sin(phi), z], axis=-1)
 
 
 @partial(jit, static_argnames=['lonlat'])
@@ -1482,8 +1482,7 @@ def ang2vec(theta: ArrayLike, phi: ArrayLike, lonlat: bool = False) -> Array:
     Returns
     -------
     vec : float, array
-      if theta and phi are vectors, the result is a 2D array with a vector per row
-      otherwise, it is a 1D array of shape (3,)
+      Array of shape (*input_shape, 3) containing the 3D position vectors.
 
     See Also
     --------
@@ -1497,7 +1496,7 @@ def ang2vec(theta: ArrayLike, phi: ArrayLike, lonlat: bool = False) -> Array:
     x = sin_theta * jnp.cos(phi)
     y = sin_theta * jnp.sin(phi)
     z = jnp.cos(theta)
-    return jnp.array([x, y, z]).T
+    return jnp.stack([x, y, z], axis=-1)
 
 
 @partial(jit, static_argnames=['lonlat'])
@@ -1507,7 +1506,7 @@ def vec2ang(vectors: ArrayLike, lonlat: bool = False) -> tuple[Array, Array]:
     Parameters
     ----------
     vectors : float, array-like
-      the vector(s) to convert, shape is (3,) or (N, 3)
+      the vector(s) to convert, shape is (*batch, 3)
     lonlat : bool, optional
       If True, return angles will be longitude and latitude in degree,
       otherwise, angles will be co-latitude and longitude in radians (default)
@@ -1515,16 +1514,16 @@ def vec2ang(vectors: ArrayLike, lonlat: bool = False) -> tuple[Array, Array]:
     Returns
     -------
     theta, phi : float, tuple of two arrays
-      the colatitude and longitude in radians
+      the colatitude and longitude in radians, each of shape (*batch,)
 
     See Also
     --------
     ang2vec, rotator.vec2dir, rotator.dir2vec
     """
-    vectors = vectors.reshape(-1, 3)
+    vectors = jnp.asarray(vectors)
     dnorm = jnp.sqrt(vectors[..., 0] ** 2 + vectors[..., 1] ** 2 + vectors[..., 2] ** 2)
-    theta = jnp.arccos(vectors[:, 2] / dnorm)
-    phi = jnp.arctan2(vectors[:, 1], vectors[:, 0])
+    theta = jnp.arccos(vectors[..., 2] / dnorm)
+    phi = jnp.arctan2(vectors[..., 1], vectors[..., 0])
     phi = jnp.where(phi < 0, phi + 2 * np.pi, phi)
     if lonlat:
         return _thetaphi2lonlat(theta, phi)
@@ -2162,7 +2161,6 @@ def get_all_neighbours(
         # theta contains pixel indices
         ipix = theta.astype(_pixel_dtype_for(nside))
         input_shape = ipix.shape
-        ipix_flat = ipix.flatten()
     else:
         # theta, phi contain angular coordinates - convert to pixels
         phi = jnp.asarray(phi)
@@ -2176,45 +2174,29 @@ def get_all_neighbours(
         theta_bc, phi_bc = jnp.broadcast_arrays(theta, phi)
         input_shape = theta_bc.shape
 
-        # Convert angular coordinates to pixel indices
-        ipix_flat = ang2pix(nside, theta_bc.flatten(), phi_bc.flatten(), nest=nest)
+        # Convert angular coordinates to pixel indices (preserves batch shape)
+        ipix = ang2pix(nside, theta_bc, phi_bc, nest=nest)
 
-    # Convert pixels to (x, y, face) coordinates
-    ix, iy, face_num = pix2xyf(nside, ipix_flat, nest=nest)
+    # Convert pixels to (x, y, face) coordinates (all element-wise, preserves batch shape)
+    ix, iy, face_num = pix2xyf(nside, ipix, nest=nest)
 
-    # Vectorized neighbor finding for all pixels
-    neighbors_flat = _get_all_neighbors_xyf(nside, ix, iy, face_num, nest=nest)
+    # Vectorized neighbor finding for all pixels — output shape (8, *input_shape)
+    neighbors = _get_all_neighbors_xyf(nside, ix, iy, face_num, nest=nest)
 
     # Conditionally include center pixel based on get_center parameter
     if get_center:
         # Add center pixels as first element: [CENTER, SW, W, NW, N, NE, E, SE, S]
-        if phi is None:
-            # Pixel mode: center pixels are the input pixels themselves
-            center_pixels_flat = ipix_flat
-        else:
-            # Angular mode: center pixels are pixels at the given coordinates
-            # We already have ipix_flat from the coordinate conversion above
-            center_pixels_flat = ipix_flat
+        # Combine center + neighbors: shape (9, *input_shape)
+        result = jnp.concatenate([ipix[None, ...], neighbors], axis=0)
 
-        # Combine center + neighbors: shape (9, N)
-        result_flat = jnp.concatenate([center_pixels_flat[None, :], neighbors_flat], axis=0)
-
-        # Reshape result to (9, *input_shape)
         if input_shape == ():
-            # Scalar input - should return shape (9,), not (9, 1)
-            return result_flat.squeeze()  # Remove the extra dimension
-        else:
-            # Array input - reshape from (9, N) to (9, *input_shape)
-            return result_flat.reshape((9,) + input_shape)
+            return result.squeeze()
+        return result
     else:
-        # Original behavior: return only 8 neighbors for backward compatibility
-        # Reshape result to (8, *input_shape)
+        # Original behavior: return only 8 neighbors
         if input_shape == ():
-            # Scalar input - should return shape (8,), not (8, 1)
-            return neighbors_flat.squeeze()  # Remove the extra dimension
-        else:
-            # Array input - reshape from (8, N) to (8, *input_shape)
-            return neighbors_flat.reshape((8,) + input_shape)
+            return neighbors.squeeze()
+        return neighbors
 
 
 def _get_all_neighbors_xyf(nside: int, ix: Array, iy: Array, face_num: Array, nest: bool = False) -> Array:
@@ -2236,10 +2218,10 @@ def _get_all_neighbors_xyf(nside: int, ix: Array, iy: Array, face_num: Array, ne
     nside : int
         HEALPix resolution parameter (must be power of 2)
     ix, iy : Array
-        Face-local x, y coordinates of pixels (shape: (N,))
+        Face-local x, y coordinates of pixels (shape: (*batch,))
         Valid range: [0, nside-1] for pixels within face
     face_num : Array
-        Face numbers of pixels (shape: (N,))
+        Face numbers of pixels (shape: (*batch,))
         Valid range: [0, 11] for HEALPix faces
     nest : bool, optional
         Whether to use NESTED ordering scheme. Default is False (RING ordering).
@@ -2247,7 +2229,7 @@ def _get_all_neighbors_xyf(nside: int, ix: Array, iy: Array, face_num: Array, ne
     Returns
     -------
     neighbors : Array
-        Neighbor pixel indices for each input pixel. Shape: (8, N)
+        Neighbor pixel indices for each input pixel. Shape: (8, *batch)
         Neighbors in order: [SW, W, NW, N, NE, E, SE, S]
         Non-existent neighbors (at map boundaries) are marked with -1.
 
@@ -2256,22 +2238,24 @@ def _get_all_neighbors_xyf(nside: int, ix: Array, iy: Array, face_num: Array, ne
     This function implements the exact neighbor-finding logic from the original
     HEALPix C++ library, ensuring bit-for-bit compatibility with healpy results.
     """
-    n_pixels = ix.shape[0]
+    batch_shape = ix.shape
+    batch_ndim = len(batch_shape)
 
     # Initialize output array for neighbors
-    neighbors = jnp.full((8, n_pixels), -1, dtype=_pixel_dtype_for(nside))
+    neighbors = jnp.full((8,) + batch_shape, -1, dtype=_pixel_dtype_for(nside))
 
     # Apply 8-direction offsets to get neighbor coordinates
-    # Use broadcasting: ix[None, :] + _NB_XOFFSET[:, None] -> (8, N)
-    neighbor_ix = ix[None, :] + _NB_XOFFSET[:, None]  # Shape: (8, N)
-    neighbor_iy = iy[None, :] + _NB_YOFFSET[:, None]  # Shape: (8, N)
-    neighbor_face = jnp.broadcast_to(face_num[None, :], (8, n_pixels))  # Shape: (8, N)
+    # Reshape offsets to (8, 1, 1, ...) for broadcasting with (*batch,)
+    offset_shape = (-1,) + (1,) * batch_ndim
+    neighbor_ix = ix[None, ...] + _NB_XOFFSET.reshape(offset_shape)  # Shape: (8, *batch)
+    neighbor_iy = iy[None, ...] + _NB_YOFFSET.reshape(offset_shape)  # Shape: (8, *batch)
+    neighbor_face = jnp.broadcast_to(face_num[None, ...], (8,) + batch_shape)  # Shape: (8, *batch)
 
     # Check which neighbors are within the current face (no boundary crossing)
     # Valid range is [0, nside-1] for both ix and iy
     within_face = (
         (neighbor_ix >= 0) & (neighbor_ix < nside) & (neighbor_iy >= 0) & (neighbor_iy < nside)
-    )  # Shape: (8, N)
+    )  # Shape: (8, *batch)
 
     # For neighbors within face, convert directly to pixels
     valid_mask = within_face
@@ -2317,18 +2301,18 @@ def _handle_face_boundaries(
     nside : int
         HEALPix resolution parameter
     neighbor_ix, neighbor_iy : Array
-        Neighbor coordinates that may be outside face boundaries. Shape: (8, N)
+        Neighbor coordinates that may be outside face boundaries. Shape: (8, *batch)
     neighbor_face : Array
-        Face numbers for neighbors (initially same as original). Shape: (8, N)
+        Face numbers for neighbors (initially same as original). Shape: (8, *batch)
     original_face : Array
-        Original face numbers of input pixels. Shape: (N,)
+        Original face numbers of input pixels. Shape: (*batch,)
     nest : bool
         Whether to use NESTED ordering
 
     Returns
     -------
     corrected_neighbors : Array
-        Corrected neighbor pixel indices. Shape: (8, N)
+        Corrected neighbor pixel indices. Shape: (8, *batch)
         Returns -1 for invalid neighbors (outside map boundaries)
 
     Notes
@@ -2338,17 +2322,17 @@ def _handle_face_boundaries(
     (_NB_FACEARRAY, _NB_SWAPARRAY) encode the complex geometric relationships
     between HEALPix faces and handle all 12 face transitions correctly.
     """
-    n_pixels = original_face.shape[0]
+    batch_shape = original_face.shape
 
     # Initialize result with invalid neighbors
-    result = jnp.full((8, n_pixels), -1, dtype=_pixel_dtype_for(nside))
+    result = jnp.full((8,) + batch_shape, -1, dtype=_pixel_dtype_for(nside))
 
     # Process each neighbor direction individually
     for direction_idx in range(8):
         # Get coordinates for this direction across all pixels
-        ix = neighbor_ix[direction_idx, :]  # Shape: (n_pixels,)
-        iy = neighbor_iy[direction_idx, :]  # Shape: (n_pixels,)
-        orig_face = original_face  # Shape: (n_pixels,)
+        ix = neighbor_ix[direction_idx]  # Shape: (*batch,)
+        iy = neighbor_iy[direction_idx]  # Shape: (*batch,)
+        orig_face = original_face  # Shape: (*batch,)
 
         # Check boundary conditions - exact replication of original algorithm
         x_low = ix < 0
@@ -2413,7 +2397,7 @@ def _handle_face_boundaries(
         neighbor_pixels = xyf2pix(nside, corrected_ix, corrected_iy, corrected_face, nest=nest)
 
         # Update result for this direction - only valid crossings get neighbor pixels
-        result = result.at[direction_idx, :].set(jnp.where(valid_crossing, neighbor_pixels, -1))
+        result = result.at[direction_idx].set(jnp.where(valid_crossing, neighbor_pixels, -1))
 
     return result
 
