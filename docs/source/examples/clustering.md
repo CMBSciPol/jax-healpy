@@ -45,9 +45,9 @@ print(f"Number of valid pixels: {len(valid_indices)}")
 # We want to divide the valid pixels into 5 regions
 n_regions = 5
 clustered_map = find_kmeans_clusters(
-    mask, 
-    valid_indices, 
-    n_regions=n_regions, 
+    mask,
+    valid_indices,
+    n_regions=n_regions,
     key=key,
     max_centroids=10 # Maximum buffer for centroids (useful for JIT)
 )
@@ -62,8 +62,8 @@ After clustering, you might want to normalize the labels so they are contiguous 
 ```python
 # Normalize labels
 normalized_map = normalize_by_first_occurrence(
-    clustered_map, 
-    n_regions=n_regions, 
+    clustered_map,
+    n_regions=n_regions,
     max_centroids=10
 )
 
@@ -98,8 +98,8 @@ processed_cutout = cutout * 2.0
 # Put it back into the full map structure
 # Pixels not in the cutout will be filled with hp.UNSEEN
 reconstructed_map = get_fullmap_from_cutout(
-    processed_cutout, 
-    valid_indices, 
+    processed_cutout,
+    valid_indices,
     nside=nside
 )
 
@@ -124,8 +124,8 @@ cutout2 = jnp.array([1000., 2000., 3000.]) # Data for region 2
 # Combine them into a single map
 # Note: You need to provide the indices for each cutout
 combined_map = combine_masks(
-    [cutout1, cutout2], 
-    [indices1, indices2], 
+    [cutout1, cutout2],
+    [indices1, indices2],
     nside=nside
 )
 
@@ -142,4 +142,3 @@ print(f"Pixel 50 value (unseen): {combined_map[50]}") # Should be UNSEEN
     - **Exception**: `shuffle_labels` uses NumPy for randomization and is **not** JIT-compatible. It is primarily intended for visualization (e.g., to make contiguous clusters distinct in plots) rather than performance-critical loops.
 
 - **Static Arguments**: When JIT-compiling, ensure arguments like `nside` are marked as static if they affect array shapes.
-
