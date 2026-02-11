@@ -1521,6 +1521,12 @@ def vec2ang(vectors: ArrayLike, lonlat: bool = False) -> tuple[Array, Array]:
     ang2vec, rotator.vec2dir, rotator.dir2vec
     """
     vectors = jnp.asarray(vectors)
+    # Enforce documented shape (*batch, 3) to avoid silently ignoring components
+    if vectors.ndim == 0 or vectors.shape[-1] != 3:
+        raise ValueError(
+            f"`vec2ang` expects `vectors` with shape (*batch, 3); "
+            f"got array with shape {vectors.shape}"
+        )
     dnorm = jnp.sqrt(vectors[..., 0] ** 2 + vectors[..., 1] ** 2 + vectors[..., 2] ** 2)
     theta = jnp.arccos(vectors[..., 2] / dnorm)
     phi = jnp.arctan2(vectors[..., 1], vectors[..., 0])
