@@ -1424,9 +1424,8 @@ def pix2vec(nside: int, ipix: ArrayLike, nest: bool = False) -> Array:
 
     Returns
     -------
-    x, y, z : floats, scalar or array-like
-      The coordinates of vector corresponding to input pixels. Scalar if all input
-      are scalar, array otherwise. Usual numpy broadcasting rules apply.
+    vec : float, array
+      Array of shape (*input_shape, 3) containing the 3D position vectors.
 
     See Also
     --------
@@ -1523,10 +1522,7 @@ def vec2ang(vectors: ArrayLike, lonlat: bool = False) -> tuple[Array, Array]:
     vectors = jnp.asarray(vectors)
     # Enforce documented shape (*batch, 3) to avoid silently ignoring components
     if vectors.ndim == 0 or vectors.shape[-1] != 3:
-        raise ValueError(
-            f"`vec2ang` expects `vectors` with shape (*batch, 3); "
-            f"got array with shape {vectors.shape}"
-        )
+        raise ValueError(f'`vec2ang` expects `vectors` with shape (*batch, 3); got array with shape {vectors.shape}')
     dnorm = jnp.sqrt(vectors[..., 0] ** 2 + vectors[..., 1] ** 2 + vectors[..., 2] ** 2)
     theta = jnp.arccos(vectors[..., 2] / dnorm)
     phi = jnp.arctan2(vectors[..., 1], vectors[..., 0])
@@ -2276,7 +2272,7 @@ def _get_all_neighbors_xyf(nside: int, ix: Array, iy: Array, face_num: Array, ne
     # that handles the most common boundary cases
 
     # Apply face boundary corrections using lookup tables
-    corrected_neighbors = _handle_face_boundaries(nside, neighbor_ix, neighbor_iy, neighbor_face, face_num, nest)
+    corrected_neighbors = _handle_face_boundaries(nside, neighbor_ix, neighbor_iy, face_num, nest)
 
     # Use corrected neighbors where we have boundary crossings
     neighbors = jnp.where(boundary_mask, corrected_neighbors, neighbors)
@@ -2285,7 +2281,7 @@ def _get_all_neighbors_xyf(nside: int, ix: Array, iy: Array, face_num: Array, ne
 
 
 def _handle_face_boundaries(
-    nside: int, neighbor_ix: Array, neighbor_iy: Array, neighbor_face: Array, original_face: Array, nest: bool
+    nside: int, neighbor_ix: Array, neighbor_iy: Array, original_face: Array, nest: bool
 ) -> Array:
     """Handle neighbor pixels that cross face boundaries.
 
@@ -2308,8 +2304,6 @@ def _handle_face_boundaries(
         HEALPix resolution parameter
     neighbor_ix, neighbor_iy : Array
         Neighbor coordinates that may be outside face boundaries. Shape: (8, *batch)
-    neighbor_face : Array
-        Face numbers for neighbors (initially same as original). Shape: (8, *batch)
     original_face : Array
         Original face numbers of input pixels. Shape: (*batch,)
     nest : bool
