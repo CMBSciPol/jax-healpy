@@ -59,8 +59,6 @@ def synthesized_map(cla: np.ndarray) -> np.ndarray:
 def test_alm2cl_T(
     synthesized_map: np.ndarray, lmax: int | None, lmax_out: int | None, nspec: int | None, healpy_ordering: bool
 ) -> None:
-    nside = hp.npix2nside(synthesized_map.size)
-
     flm_to_test = hp.map2alm(synthesized_map, lmax=lmax, iter=0)
 
     c_ells_expected = hp.alm2cl(flm_to_test, lmax=lmax)
