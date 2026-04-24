@@ -1278,15 +1278,38 @@ def map2alm(
     if use_pixel_weights:
         raise NotImplementedError('Specifying use_pixel_weights is not implemented.')
 
+    maps = jnp.asarray(maps)
     if maps.ndim == 0:
         raise ValueError('The input map must have at least one dimension.')
     if maps.ndim > 2:
         raise ValueError('The input map has too many dimensions.')
 
-    # Handle batched input
+    # Polarized TQU branch: input is shape (3, npix), output is (alm_T, alm_E, alm_B).
+    if pol and maps.ndim == 2:
+        if maps.shape[0] != 3:
+            raise ValueError(f'pol=True requires maps with shape (3, npix) for T, Q, U; got shape {maps.shape}.')
+        nside = npix2nside(maps.shape[-1])
+        target_L = 3 * nside if lmax is None else lmax + 1
+        if target_L < 2 * nside:
+            raise NotImplementedError('map2alm requires lmax >= 2*nside - 1 for s2fft transforms.')
+        target_lmax = target_L - 1
+        if mmax is not None and mmax != target_lmax:
+            raise NotImplementedError('Specifying mmax != lmax is not implemented.')
+
+        alm_T = _map2alm_core(maps=maps[0], lmax=target_lmax, mmax=mmax, iter=iter, method=method, spin=0)
+        alm_E, alm_B = _map2alm_core(
+            maps=[maps[1], maps[2]], lmax=target_lmax, mmax=mmax, iter=iter, method=method, spin=2
+        )
+
+        if healpy_ordering:
+            alm_T = flm_2d_to_hp_fast(alm_T, target_L)
+            alm_E = flm_2d_to_hp_fast(alm_E, target_L)
+            alm_B = flm_2d_to_hp_fast(alm_B, target_L)
+
+        return (alm_T, alm_E, alm_B)
+
+    # Handle batched scalar input (pol=False, shape (n, npix))
     if maps.ndim > 1:
-        if pol:
-            raise NotImplementedError('TQU maps are not implemented.')
         return jax.vmap(map2alm, in_axes=(0,) + 11 * (None,))(
             maps,
             lmax,
@@ -1304,7 +1327,6 @@ def map2alm(
     elif maps.ndim > 3:
         raise ValueError('The input map has too many dimensions.')
 
-    maps = jnp.asarray(maps)
     nside = npix2nside(maps.shape[-1])
     target_L = 3 * nside if lmax is None else lmax + 1
     if target_L < 2 * nside:
@@ -1648,8 +1670,8 @@ def anafast(
         If True, return both power spectrum and alm coefficients.
         If False, return only power spectrum. Default: False
     pol : bool, optional
-        If True, assumes input maps are TQU (polarized).
-        Not supported yet. Raises NotImplementedError if True. Default: True
+        If True, input must be TQU maps with shape (3, npix). Returns 6 spectra
+        (TT, EE, BB, TE, EB, TB) as an array of shape (6, lmax+1). Default: True
     use_weights : bool, optional
         Enable ring weighting. Not supported. Raises NotImplementedError if True.
         Default: False
@@ -1669,9 +1691,11 @@ def anafast(
     Returns
     -------
     cl : array-like
-        Angular power spectrum, shape (lmax+1,)
+        Angular power spectrum. Shape (lmax+1,) for scalar input, or
+        (6, lmax+1) for pol=True in order (TT, EE, BB, TE, EB, TB).
     alm1 : array-like, optional
-        Alm coefficients of map1 in s2fft format (only if alm=True)
+        Alm coefficients of map1 in s2fft format (only if alm=True).
+        Shape (L, 2L-1) for scalar, (3, L, 2L-1) for pol=True (T, E, B stacked).
     alm2 : array-like, optional
         Alm coefficients of map2 in s2fft format (only if alm=True and map2 is provided)
 
@@ -1681,9 +1705,9 @@ def anafast(
         C_l = (1 / (2*l + 1)) * sum_m |a_lm|^2  (auto-spectrum)
         C_l = (1 / (2*l + 1)) * sum_m a_lm * conj(a'_lm)  (cross-spectrum)
 
-    This function matches the healpy.sphtfunc.anafast API but only supports
-    scalar (non-polarized) input maps. Several healpy parameters related to
-    weighting and polarization are not yet implemented.
+    This function matches the healpy.sphtfunc.anafast API. Several healpy parameters
+    related to map weighting (use_weights, datapath, gal_cut, use_pixel_weights) are
+    not yet implemented.
 
     Examples
     --------
@@ -1696,8 +1720,6 @@ def anafast(
     >>> cl_estimated = jhp.anafast(map_data, pol=False)
     """
     # Validate unsupported parameters
-    if pol:
-        raise NotImplementedError('pol=True (polarized input) is not supported yet')
     if use_weights:
         raise NotImplementedError('use_weights is not supported')
     if datapath is not None:
@@ -1708,6 +1730,61 @@ def anafast(
         raise NotImplementedError('use_pixel_weights is not supported')
 
     map1 = jnp.asarray(map1)
+
+    if pol:
+        if map1.ndim != 2 or map1.shape[0] != 3:
+            raise ValueError(f'pol=True requires map1 with shape (3, npix) for T, Q, U; got shape {map1.shape}.')
+        nside = npix2nside(map1.shape[-1])
+        if lmax is None:
+            lmax = 3 * nside - 1
+        L = lmax + 1
+
+        alm_T1, alm_E1, alm_B1 = map2alm(
+            map1, lmax=lmax, mmax=mmax, iter=iter, pol=True, healpy_ordering=False, method=method
+        )
+
+        if map2 is None:
+            # Auto: 6 spectra in healpy new=True order: (TT, EE, BB, TE, EB, TB)
+            spectra = (
+                _compute_cl(alm_T1, L),
+                _compute_cl(alm_E1, L),
+                _compute_cl(alm_B1, L),
+                _compute_cl(alm_T1, L, alm_E1),
+                _compute_cl(alm_E1, L, alm_B1),
+                _compute_cl(alm_T1, L, alm_B1),
+            )
+            cl = jnp.stack(spectra, axis=0)
+            if nspec is not None:
+                cl = cl[:nspec]
+            if alm:
+                return cl, jnp.stack([alm_T1, alm_E1, alm_B1], axis=0)
+            return cl
+
+        map2 = jnp.asarray(map2)
+        if map2.ndim != 2 or map2.shape[0] != 3:
+            raise ValueError(f'pol=True requires map2 with shape (3, npix) for T, Q, U; got shape {map2.shape}.')
+        alm_T2, alm_E2, alm_B2 = map2alm(
+            map2, lmax=lmax, mmax=mmax, iter=iter, pol=True, healpy_ordering=False, method=method
+        )
+        spectra = (
+            _compute_cl(alm_T1, L, alm_T2),
+            _compute_cl(alm_E1, L, alm_E2),
+            _compute_cl(alm_B1, L, alm_B2),
+            _compute_cl(alm_T1, L, alm_E2),
+            _compute_cl(alm_E1, L, alm_B2),
+            _compute_cl(alm_T1, L, alm_B2),
+        )
+        cl = jnp.stack(spectra, axis=0)
+        if nspec is not None:
+            cl = cl[:nspec]
+        if alm:
+            return (
+                cl,
+                jnp.stack([alm_T1, alm_E1, alm_B1], axis=0),
+                jnp.stack([alm_T2, alm_E2, alm_B2], axis=0),
+            )
+        return cl
+
     nside = npix2nside(map1.shape[-1])
 
     if lmax is None:

@@ -204,16 +204,6 @@ def test_anafast_nspec() -> None:
     np.testing.assert_allclose(cl_partial, cl_full[:4], atol=1e-15, rtol=1e-15)
 
 
-def test_anafast_pol_raises() -> None:
-    """Test that anafast raises NotImplementedError for pol=True."""
-    nside = 16
-    npix = hp.nside2npix(nside)
-    map_data = np.random.randn(npix)
-
-    with pytest.raises(NotImplementedError, match='pol=True.*is not supported'):
-        jhp.anafast(map_data, pol=True)
-
-
 def test_anafast_use_weights_raises() -> None:
     """Test that anafast raises NotImplementedError for use_weights=True."""
     nside = 16
@@ -476,3 +466,101 @@ def test_synalm_different_seeds() -> None:
 
     # Alms should be different
     assert not jnp.allclose(alm1, alm2)
+
+
+# anafast pol=True against healpy.
+#
+# Empirical agreement against hp.anafast(pol=True) for nside in {32,64,128}, lmax in {default, 2*nside-1, 3*nside-1}:
+#   TT: max_abs ~ 1e-17            (T goes through spin=0, matches to machine precision)
+#   EE: max_abs ~ 6e-6   rel ~5e-14 (spin=2 alms averaged over m; relative agreement is machine precision)
+#   BB: max_abs ~ 3e-6   rel ~1e-13
+#   TE: max_abs ~ 2e-5   rel ~2e-13
+#   EB: max_abs ~ 5e-6   rel ~2e-12
+#   TB: max_abs ~ 2e-5   rel ~2e-12
+# Per-spectrum atol is set ~5x above the worst observed max_abs across all configurations.
+_POL_SPECTRA_NAMES = ('TT', 'EE', 'BB', 'TE', 'EB', 'TB')
+_POL_ATOL = {'TT': 1e-14, 'EE': 3e-5, 'BB': 3e-5, 'TE': 1e-4, 'EB': 3e-5, 'TB': 1e-4}
+_POL_RTOL = {'TT': 1e-12, 'EE': 1e-10, 'BB': 1e-10, 'TE': 1e-10, 'EB': 1e-10, 'TB': 1e-10}
+
+
+def _assert_pol_cl_match(cl_jax: np.ndarray, cl_hp: np.ndarray) -> None:
+    assert cl_jax.shape == cl_hp.shape == (6, cl_hp.shape[1])
+    for i, name in enumerate(_POL_SPECTRA_NAMES):
+        np.testing.assert_allclose(
+            cl_jax[i], cl_hp[i], atol=_POL_ATOL[name], rtol=_POL_RTOL[name], err_msg=f'{name} spectrum'
+        )
+
+
+def test_anafast_pol_auto(synthesized_tqu_map: np.ndarray, lmax: int | None) -> None:
+    cl_jax = np.asarray(jhp.anafast(synthesized_tqu_map, lmax=lmax, iter=0, pol=True))
+    cl_hp = hp.anafast(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)
+    _assert_pol_cl_match(cl_jax, cl_hp)
+
+
+def test_anafast_pol_cross(synthesized_tqu_map: np.ndarray, lmax: int | None) -> None:
+    np.random.seed(7)
+    tqu2 = synthesized_tqu_map + 0.1 * np.random.randn(*synthesized_tqu_map.shape)
+
+    cl_jax = np.asarray(jhp.anafast(synthesized_tqu_map, tqu2, lmax=lmax, iter=0, pol=True))
+    cl_hp = hp.anafast(synthesized_tqu_map, tqu2, lmax=lmax, iter=0, pol=True)
+    _assert_pol_cl_match(cl_jax, cl_hp)
+
+
+def test_anafast_pol_nspec(synthesized_tqu_map: np.ndarray) -> None:
+    nside = hp.npix2nside(synthesized_tqu_map.shape[-1])
+    lmax = 3 * nside - 1
+
+    cl_full = jhp.anafast(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)
+    cl_partial = jhp.anafast(synthesized_tqu_map, lmax=lmax, iter=0, pol=True, nspec=4)
+
+    assert cl_full.shape == (6, lmax + 1)
+    assert cl_partial.shape == (4, lmax + 1)
+    np.testing.assert_array_equal(cl_partial, cl_full[:4])
+
+
+def test_anafast_pol_with_alm_return(synthesized_tqu_map: np.ndarray, lmax: int | None) -> None:
+    """alm=True returns (cl, alm_TEB) with alm_TEB of shape (3, L, 2L-1)."""
+    nside = hp.npix2nside(synthesized_tqu_map.shape[-1])
+    target_lmax = (3 * nside - 1) if lmax is None else lmax
+    L = target_lmax + 1
+
+    cl, alm_teb = jhp.anafast(synthesized_tqu_map, lmax=lmax, iter=0, pol=True, alm=True)
+
+    assert cl.shape == (6, L)
+    assert alm_teb.shape == (3, L, 2 * L - 1)
+
+    # The returned alms must match jhp.map2alm(pol=True) in the same ordering.
+    alm_T_ref, alm_E_ref, alm_B_ref = jhp.map2alm(
+        synthesized_tqu_map, lmax=lmax, iter=0, pol=True, healpy_ordering=False
+    )
+    np.testing.assert_allclose(alm_teb[0], alm_T_ref, atol=1e-14, rtol=1e-14)
+    np.testing.assert_allclose(alm_teb[1], alm_E_ref, atol=1e-14, rtol=1e-14)
+    np.testing.assert_allclose(alm_teb[2], alm_B_ref, atol=1e-14, rtol=1e-14)
+
+    # And cl must match the non-alm return path exactly.
+    cl_only = jhp.anafast(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)
+    np.testing.assert_array_equal(cl, cl_only)
+
+
+def test_anafast_pol_cross_with_alm_return(synthesized_tqu_map: np.ndarray) -> None:
+    nside = hp.npix2nside(synthesized_tqu_map.shape[-1])
+    lmax = 3 * nside - 1
+    L = lmax + 1
+
+    np.random.seed(7)
+    tqu2 = synthesized_tqu_map + 0.1 * np.random.randn(*synthesized_tqu_map.shape)
+
+    cl, alm1, alm2 = jhp.anafast(synthesized_tqu_map, tqu2, lmax=lmax, iter=0, pol=True, alm=True)
+
+    assert cl.shape == (6, L)
+    assert alm1.shape == (3, L, 2 * L - 1)
+    assert alm2.shape == (3, L, 2 * L - 1)
+
+
+def test_anafast_pol_requires_three_maps(synthesized_tqu_map: np.ndarray) -> None:
+    """pol=True requires maps with shape (3, npix)."""
+    with pytest.raises(ValueError, match=r'pol=True requires map1 with shape \(3, npix\)'):
+        jhp.anafast(synthesized_tqu_map[0], pol=True)
+
+    with pytest.raises(ValueError, match=r'pol=True requires map2 with shape \(3, npix\)'):
+        jhp.anafast(synthesized_tqu_map, synthesized_tqu_map[0], pol=True)

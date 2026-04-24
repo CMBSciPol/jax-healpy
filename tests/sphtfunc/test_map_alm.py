@@ -212,3 +212,63 @@ def test_alm2map_smoothing_sigma(flm_generator: Callable[[...], np.ndarray]) -> 
     map_smoothed_manual = jhp.alm2map(flm_smoothed, nside, lmax=lmax, healpy_ordering=False)
 
     np.testing.assert_allclose(map_smoothed, map_smoothed_manual, atol=1e-14)
+
+
+# map2alm pol=True (TQU -> TEB) against healpy.
+#
+# Empirical agreement against hp.map2alm(pol=True) for nside in {32,64,128}, lmax in {default, 2*nside-1, 3*nside-1}:
+#   alm_T: max_abs ~ 1e-14 to 1e-13 (scalar spin=0 path, essentially machine precision)
+#   alm_E: max_abs ~ 5e-4 to 2e-3  (spin=2 path, inherits s2fft vs healpy spin-2 floor)
+#   alm_B: max_abs ~ 3e-4 to 1e-3  (same)
+# The E/B floor is the same one validated by test_map2alm_spin_basic (atol=1e-2).
+@pytest.mark.parametrize('healpy_ordering', [False, True])
+def test_map2alm_pol(synthesized_tqu_map: np.ndarray, lmax: int | None, healpy_ordering: bool, nside: int) -> None:
+    alm_T_jax, alm_E_jax, alm_B_jax = jhp.map2alm(
+        synthesized_tqu_map, lmax=lmax, iter=0, pol=True, healpy_ordering=healpy_ordering
+    )
+
+    alm_T_hp, alm_E_hp, alm_B_hp = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)
+
+    if healpy_ordering:
+        expected_T, expected_E, expected_B = alm_T_hp, alm_E_hp, alm_B_hp
+    else:
+        L = (3 * nside) if lmax is None else (lmax + 1)
+        expected_T = flm_hp_to_2d(alm_T_hp, L)
+        expected_E = flm_hp_to_2d(alm_E_hp, L)
+        expected_B = flm_hp_to_2d(alm_B_hp, L)
+
+    np.testing.assert_allclose(alm_T_jax, expected_T, atol=1e-10, rtol=1e-10, err_msg='alm_T')
+    np.testing.assert_allclose(alm_E_jax, expected_E, atol=5e-3, rtol=1e-8, err_msg='alm_E')
+    np.testing.assert_allclose(alm_B_jax, expected_B, atol=5e-3, rtol=1e-8, err_msg='alm_B')
+
+
+def test_map2alm_pol_requires_three_maps(synthesized_tqu_map: np.ndarray) -> None:
+    """pol=True requires maps with shape (3, npix)."""
+    # Only 2 maps
+    with pytest.raises(ValueError, match=r'pol=True requires maps with shape \(3, npix\)'):
+        jhp.map2alm(synthesized_tqu_map[:2], pol=True)
+
+
+def test_map2alm_pol_returns_tuple(synthesized_tqu_map: np.ndarray, nside: int) -> None:
+    """pol=True returns a 3-tuple of alm arrays."""
+    result = jhp.map2alm(synthesized_tqu_map, lmax=3 * nside - 1, iter=0, pol=True, healpy_ordering=False)
+    assert isinstance(result, tuple)
+    assert len(result) == 3
+    L = 3 * nside
+    for alm in result:
+        assert alm.shape == (L, 2 * L - 1)
+
+
+@pytest.mark.parametrize('iter_val', [2, 3])
+def test_map2alm_pol_iter(synthesized_tqu_map: np.ndarray, iter_val: int) -> None:
+    """pol=True with iterative refinement still agrees with healpy."""
+    nside = hp.npix2nside(synthesized_tqu_map.shape[-1])
+    lmax = 3 * nside - 1
+    alm_T_jax, alm_E_jax, alm_B_jax = jhp.map2alm(
+        synthesized_tqu_map, lmax=lmax, iter=iter_val, pol=True, healpy_ordering=True
+    )
+    alm_T_hp, alm_E_hp, alm_B_hp = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=iter_val, pol=True)
+
+    np.testing.assert_allclose(alm_T_jax, alm_T_hp, atol=1e-10, rtol=1e-10, err_msg='alm_T')
+    np.testing.assert_allclose(alm_E_jax, alm_E_hp, atol=5e-3, rtol=1e-8, err_msg='alm_E')
+    np.testing.assert_allclose(alm_B_jax, alm_B_hp, atol=5e-3, rtol=1e-8, err_msg='alm_B')
