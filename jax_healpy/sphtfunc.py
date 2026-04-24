@@ -15,18 +15,14 @@
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
 import warnings
+from collections.abc import Callable
 from functools import partial, wraps
-from typing import Callable, ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar
 
-import healpy as hp
-import numpy as np
 import jax
-
-jax.config.update('jax_enable_x64', True)
-import jax.extend
-import jax.lax as jlax
 import jax.numpy as jnp
 import numpy as np
+from jax.scipy.linalg import sqrtm
 from jax.typing import ArrayLike
 from jaxtyping import PRNGKeyArray
 
@@ -49,6 +45,8 @@ __all__ = [
     'map2alm',
     'map2alm_spin',
     'pixwin',
+    'precompute_polarization_harmonic_transforms',
+    'precompute_temperature_harmonic_transforms',
     'smoothalm',
     'smoothing',
     'synalm',
@@ -76,249 +74,44 @@ def requires_s2fft(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnT
 
 
 @requires_s2fft
-def _inverse(
-    alms: ArrayLike,
-    L: int,
-    spin: int,
-    nside: int,
-    sampling: str,
-    reality: bool,
-    precomps: list,
-    fast_non_differentiable: bool = False,
-    spmd: bool = False,
-):
-    """
-    Wrapper over the spherical.inverse s2fft function, inverse spin-spherical harmonic transform
-    to obtain pixelized map from spherical harmonic coefficients.
-
-    Parameters
-    ----------
-    alms: complex, array or sequence of arrays
-      A complex array or a sequence of complex arrays.
-      Each array must have a size of the form: mmax * (2 * lmax + 1 - mmax) / 2 + lmax + 1
-    L: int
-      Harmonic band-limit, according to s2fft convention
-    spin: int
-      Harmonic spin
-    nside: int, scalar
-      The nside of the output map.
-    sampling: str
-      Sampling scheme, taken to be "healpix"
-    reality: bool
-      If the signal in the pixelized maps is real or not. If so, s2fft is able to reduce computational costs.
-    precomps: list[np.ndarray]
-      Precomputed list of recursion coefficients. At most of length, which is a minimal memory overhead.
-    fast_non_differentiable: bool
-      If the SHT is done in a faster jittable way, but not JAX-differentiable.
-    spmd: bool
-      Use the spmd option of s2fft, to map over multiple devies.
-
-    Returns
-    -------
-    Pixelized maps of the provided nside, containing the signal given by the alms
-
-    Notes
-    -------
-    This function uses the jax_healpy method of s2fft to compute the inverse spin-spherical harmonic transform
-    on CPU, and jax on GPU.
-    """
-
-    inverse_s2fft = lambda flm, method: spherical.inverse(
-        flm=flm,
-        L=L,
-        spin=spin,
-        nside=nside,
-        sampling=sampling,
-        method=method,
-        reality=reality,
-        precomps=precomps,
-        spmd=spmd,
-    )
-
-    if fast_non_differentiable:
-        lmax = L - 1
-
-        if alms.ndim == 3:
-            nstokes = alms.shape[0]
-        else:
-            nstokes = 1
-
-        npix = 12 * nside**2
-
-        # Wrapper for alm2map, to prepare the pure callback of JAX
-        def wrapper_alm2map(alm_, lmax=lmax, nside=nside):
-            alm_np = jax.tree.map(np.asarray, alm_).squeeze()
-            if nstokes == 2:
-                alm_np_extended = np.vstack([np.zeros_like(alm_np[0]), alm_np])
-            else:
-                alm_np_extended = alm_np
-            map_output = hp.alm2map(alm_np_extended, nside, lmax=lmax)
-            if len(map_output.shape) == 2:
-                return map_output[-nstokes:, ...]
-            return map_output.reshape((nstokes, npix))
-
-        @partial(jax.jit, static_argnums=(1, 2))
-        def pure_call_alm2map(alm_, lmax, nside):
-            alm_healpy = jax.vmap(partial(flm_2d_to_hp_fast, L=L), in_axes=(0,))(
-                alm_.reshape((nstokes,) + tuple(alm_.shape[-2:]))
-            )
-            shape_output = (nstokes, npix)
-            return jax.pure_callback(
-                wrapper_alm2map, jax.ShapeDtypeStruct(shape_output, np.float64), alm_healpy
-            ).squeeze()
-
-        inverse_cpu = partial(pure_call_alm2map, nside=nside, lmax=lmax)
-
-        # inverse_gpu = partial(inverse_s2fft, method='cuda')
-        def inverse_gpu(alms):
-            if 'gpu' in jax.extend.backend.get_backend().platform:
-                return inverse_s2fft(alms, method='cuda')
-            else:
-                return pure_call_alm2map(alms, nside=nside, lmax=lmax)
-
-    else:
-        inverse_cpu = partial(inverse_s2fft, method='jax')
-        inverse_gpu = partial(inverse_s2fft, method='jax')
-
-    return jlax.platform_dependent(alms, cpu=inverse_cpu, cuda=inverse_gpu, default=inverse_cpu)
-
-
-@requires_s2fft
-def _forward(
-    maps: ArrayLike,
-    L: int,
-    shape_alms: int,
-    spin: int,
-    nside: int,
-    sampling: str,
-    reality: bool,
-    precomps: list,
-    iter: int = 0,
-    fast_non_differentiable: bool = False,
-    spmd: bool = False,
-):
-    """
-    Wrapper over the spherical.forward s2fft function, forward spin-spherical harmonic transform
-    to obtain spherical harmonic coefficients from a pixelized map.
-
-    Parameters
-    ----------
-    map: complex, array or sequence of arrays
-      Pixelized maps of the provided nside
-    L: int
-      Harmonic band-limit, according to s2fft convention
-    spin: int
-      Harmonic spin
-    nside: int, scalar
-      The nside of the output map.
-    sampling: str
-      Sampling scheme, taken to be "healpix"
-    reality: bool
-      If the signal in the pixelized maps is real or not. If so, s2fft is able to reduce computational costs.
-    precomps: list[np.ndarray]
-      Precomputed list of recursion coefficients. At most of length, which is a minimal memory overhead.
-    iter: int, scalar, optional
-      Number of spherical harmonics iteration for regularisation, only relevant if fast_non_differentiable and on CPU (default: 0)
-    fast_non_differentiable: bool
-      If the SHT is done in a faster jittable way, but not JAX-differentiable.
-    spmd: bool
-      Use the spmd option of s2fft, to map over multiple devies.
-
-    Returns
-    -------
-    Spherical harmonic coefficients
-
-    Notes
-    -------
-    This function uses the jax_healpy method of s2fft to compute the inverse spin-spherical harmonic transform
-    on CPU, and jax on GPU.
-    """
-
-    forward_s2fft = lambda maps, method: spherical.forward(
-        f=maps,
-        L=L,
-        spin=spin,
-        nside=nside,
-        sampling=sampling,
-        method=method,
-        reality=reality,
-        precomps=precomps,
-        spmd=spmd,
-        iter=iter,
-    )
-
-    if fast_non_differentiable:
-        lmax = L - 1
-
-        if maps.squeeze().ndim == 2:
-            nstokes = maps.squeeze().shape[0]
-        else:
-            nstokes = 1
-
-        # Wrapper for map2alm, to prepare the pure callback of JAX
-        def wrapper_map2alm(maps_, lmax=lmax, iter=iter, nside=nside):
-            maps_np = jax.tree.map(np.asarray, maps_).reshape((nstokes, 12 * nside**2))
-            if nstokes == 2:
-                maps_np_extended = np.vstack([np.zeros_like(maps_np[0]), maps_np])
-            else:
-                maps_np_extended = maps_np
-            alms = np.array(hp.map2alm(maps_np_extended, lmax=lmax, iter=iter))
-            if len(alms.shape) == 2:
-                return alms[-nstokes:, ...]
-            return alms.reshape((nstokes, shape_alms))
-
-        # Pure call back of map2alm, to be used with JAX for JIT compilation
-        @partial(jax.jit, static_argnums=(1, 2))
-        def pure_call_map2alm(maps_, lmax, nside):
-            shape_output = (nstokes, shape_alms)
-            alm_hp = jax.pure_callback(
-                wrapper_map2alm,
-                jax.ShapeDtypeStruct(shape_output, np.complex128),
-                maps_.ravel(),
-            )  #
-            return (jax.vmap(partial(flm_hp_to_2d_fast, L=lmax + 1), in_axes=(0,))(alm_hp)).squeeze()
-            # return flm_hp_to_2d_fast(alm_hp, lmax+1)
-
-        forward_cpu = partial(pure_call_map2alm, nside=nside, lmax=lmax)
-
-        # forward_gpu = partial(forward_s2fft, method='cuda')
-        def forward_gpu(alms):
-            if 'gpu' in jax.extend.backend.get_backend().platform:
-                result = forward_s2fft(alms, method='cuda')
-            else:
-                result = pure_call_map2alm(alms, nside=nside, lmax=lmax)
-            return result
-
-    else:
-        forward_cpu = partial(forward_s2fft, method='jax')
-        forward_gpu = partial(forward_s2fft, method='jax')
-
-    return jlax.platform_dependent(maps, cpu=forward_cpu, cuda=forward_gpu, default=forward_cpu)
-
-
 def precompute_temperature_harmonic_transforms(
     nside: int, lmax: int = None, sampling: str = 'healpix', pix2harm: bool = False
 ):
-    """
-    Pre-compute recursion coefficient for s2fft functions when they are used with spin = 0,
-    so for transforms involving the intensity maps or harmonic coefficients. Only relevant if the "jax" method is used.
+    """Pre-compute recursion coefficients for s2fft temperature transforms (spin=0).
+
+    Only relevant when using the 'jax' method with s2fft. Pre-computing these
+    coefficients can significantly speed up repeated calls to map2alm/alm2map.
+
+    .. note::
+        These coefficients are **not yet consumed** by :func:`map2alm` / :func:`alm2map`
+        (those functions do not currently accept a ``precomps`` argument and recompute
+        the coefficients internally). This helper is provided for direct use with s2fft
+        and is reserved for a future ``precomps`` plumbing through the transforms.
 
     Parameters
     ----------
-    nside: int, scalar
-      nside of the output map.
-    lmax: int, scalar
-      maximum multipole for spherical harmonic computations
-    sampling: str
-      Sampling scheme, taken to be "healpix"
-    pix2harm: bool
-      if coefficients are computed for a forward operation (map2alm) or an inverse operation (alm2map), default False
+    nside : int
+        HEALPix nside parameter for the maps
+    lmax : int, optional
+        Maximum multipole moment. If None, uses 3*nside - 1
+    sampling : str, optional
+        Sampling scheme. Default: 'healpix'
+    pix2harm : bool, optional
+        If True, compute coefficients for forward transform (map2alm).
+        If False, compute for inverse transform (alm2map). Default: False
 
     Returns
     -------
-    List of pre-computed coefficients for spin = 0 stored as np.ndarray
-    """
+    list
+        Pre-computed recursion coefficients for spin=0 transforms
 
+    Examples
+    --------
+    >>> import jax_healpy as jhp
+    >>> # Precompute for inverse transforms at nside=128
+    >>> precomps = jhp.precompute_temperature_harmonic_transforms(128, lmax=383)
+    >>> # Reserved for future use; alm2map/map2alm do not accept ``precomps`` yet.
+    """
     if lmax is None:
         L = 3 * nside
     else:
@@ -327,27 +120,45 @@ def precompute_temperature_harmonic_transforms(
     return generate_precomputes_jax(L, spin=0, sampling=sampling, nside=nside, forward=pix2harm)
 
 
+@requires_s2fft
 def precompute_polarization_harmonic_transforms(
     nside: int, lmax: int = None, sampling: str = 'healpix', pix2harm: bool = False
 ):
-    """
-    Pre-compute recursion coefficient for s2fft functions when they are used with spin = 2 or -2,
-    so for transforms involving the polarization maps or harmonic coefficients. Only relevant if the "jax" method is used.
+    """Pre-compute recursion coefficients for s2fft polarization transforms (spin=±2).
+
+    Only relevant when using the 'jax' method with s2fft. Pre-computing these
+    coefficients can significantly speed up repeated calls to polarization transforms.
+
+    .. note::
+        These coefficients are **not yet consumed** by the polarized :func:`map2alm` /
+        :func:`alm2map` (those functions do not currently accept a ``precomps`` argument
+        and recompute the coefficients internally). This helper is provided for direct use
+        with s2fft and is reserved for a future ``precomps`` plumbing through the transforms.
 
     Parameters
     ----------
-    nside: int, scalar
-      nside of the output map.
-    lmax: int, scalar
-      maximum multipole for spherical harmonic computations
-    sampling: str
-      Sampling scheme, taken to be "healpix"
-    pix2harm: bool
-      if coefficients are computed for a forward operation (map2alm) or an inverse operation (alm2map), default False
+    nside : int
+        HEALPix nside parameter for the maps
+    lmax : int, optional
+        Maximum multipole moment. If None, uses 3*nside - 1
+    sampling : str, optional
+        Sampling scheme. Default: 'healpix'
+    pix2harm : bool, optional
+        If True, compute coefficients for forward transform (map2alm).
+        If False, compute for inverse transform (alm2map). Default: False
 
     Returns
     -------
-    Tuple of the two list of pre-computed coefficients, respectively for spin = 2 and spin = -2, stored as np.ndarray
+    tuple
+        Tuple of (precomps_spin2, precomps_spinm2) containing pre-computed
+        recursion coefficients for spin=+2 and spin=-2 transforms
+
+    Examples
+    --------
+    >>> import jax_healpy as jhp
+    >>> # Precompute for polarization transforms at nside=128
+    >>> precomps_p2, precomps_m2 = jhp.precompute_polarization_harmonic_transforms(128, lmax=383)
+    >>> # Reserved for future use; alm2map/map2alm do not accept ``precomps`` yet.
     """
     if lmax is None:
         L = 3 * nside
@@ -357,175 +168,6 @@ def precompute_polarization_harmonic_transforms(
     precomps_plus2 = generate_precomputes_jax(L, spin=2, sampling=sampling, nside=nside, forward=pix2harm)
     precomps_minus2 = generate_precomputes_jax(L, spin=-2, sampling=sampling, nside=nside, forward=pix2harm)
     return precomps_plus2, precomps_minus2
-
-
-@partial(
-    jax.jit,
-    static_argnames=[
-        'nside',
-        'lmax',
-        'mmax',
-        'pixwin',
-        'fwhm',
-        'sigma',
-        'inplace',
-        'verbose',
-        'healpy_ordering',
-        'fast_non_differentiable',
-    ],
-)
-@requires_s2fft
-def _alm2map_pol(
-    alms: ArrayLike,
-    nside: int,
-    lmax: int = None,
-    mmax: int = None,
-    pixwin: bool = False,
-    fwhm: float = 0.0,
-    sigma: float = None,
-    inplace: bool = False,
-    verbose: bool = True,
-    healpy_ordering: bool = False,
-    precomps_polar: list = None,
-    fast_non_differentiable: bool = False,
-):
-    """Computes a Healpix map given the alm.
-
-    The alm are given as a complex array. You can specify lmax
-    and mmax, or they will be computed from array size (assuming
-    lmax==mmax).
-
-    Parameters
-    ----------
-    alms: complex, array or sequence of arrays
-      A complex array or a sequence of complex arrays.
-      Each array must have a size of the form: mmax * (2 * lmax + 1 - mmax) / 2 + lmax + 1
-    nside: int, scalar
-      The nside of the output map.
-    lmax: None or int, scalar, optional
-      Explicitly define lmax (needed if mmax!=lmax)
-    mmax: None or int, scalar, optional
-      Explicitly define mmax (needed if mmax!=lmax)
-    pixwin: bool, optional
-      Smooth the alm using the pixel window functions. Default: False.
-    fwhm: float, scalar, optional
-      The fwhm of the Gaussian used to smooth the map (applied on alm)
-      [in radians]
-    sigma: float, scalar, optional
-      The sigma of the Gaussian used to smooth the map (applied on alm)
-      [in radians]
-    inplace: bool, optional
-      If True, input alms may be modified by pixel window function and beam
-      smoothing (if alm(s) are complex128 contiguous arrays).
-      Otherwise, input alms are not modified. A copy is made if needed to
-      apply beam smoothing or pixel window.
-    healpy ordering: bool, optional
-      True if the input alms follow the healpy ordering. By default, the s2fft
-      ordering is assumed.
-    precomps_polar: list of np.ndarray, optional
-      Precomputed coefficients for the forward or inverse harmonic transform.
-    fast_non_differentiable: bool, optional
-      If the SHT is done in a faster jittable way, but not JAX-differentiable.
-
-    Returns
-    -------
-    maps: array or list of arrays
-      A Healpix map in RING scheme at nside or a list of T,Q,U maps (if
-      polarized input)
-
-    Notes
-    -----
-    Running map2alm then alm2map will not return exactly the same map if the discretized field you construct on the
-    sphere is not band-limited (for example, if you have a map containing pixel-based noise rather than beam-smoothed
-    noise). If you need a band-limited map, you have to start with random numbers in lm space and transform these via
-    alm2map. With such an input, the accuracy of map2alm->alm2map should be quite good, depending on your choices
-    of lmax, mmax and nside (for some typical values, see e.g., section 5.1 of https://arxiv.org/pdf/1010.2084).
-    """
-
-    # if mmax is not None:
-    #     raise NotImplementedError('Specifying mmax is not implemented.')
-    if pixwin:
-        raise NotImplementedError('Specifying pixwin is not implemented.')
-    if fwhm != 0:
-        raise NotImplementedError('Specifying fwhm is not implemented.')
-    if sigma is not None:
-        raise NotImplementedError('Specifying sigma is not implemented.')
-    alms = jnp.asarray(alms)
-    if alms.ndim == 0:
-        raise ValueError('Input alms must have at least one dimension.')
-    expected_ndim = 2 if healpy_ordering else 3
-    if alms.ndim > expected_ndim + 1:
-        raise ValueError('Input alms have too many dimensions.')
-    if alms.ndim == expected_ndim + 1:
-        return jax.vmap(_alm2map_pol, in_axes=(0,) + 10 * (None,))(
-            alms, nside, lmax, mmax, pixwin, fwhm, sigma, inplace, healpy_ordering
-        )
-    # if alms.ndim > expected_ndim:
-    # only happens if pol=True
-    # raise NotImplementedError('TEB alms are not implemented.')
-
-    if lmax is None:
-        L = 3 * nside
-        lmax = L - 1
-    else:
-        L = lmax + 1
-
-    if mmax is None:
-        mmax = lmax
-
-    if healpy_ordering:
-        alms = jax.vmap(partial(flm_hp_to_2d_fast, L=L), in_axes=(0,))(alms)
-
-    spmd = False
-
-    if precomps_polar is not None:
-        precomps_plus2 = precomps_polar[0]
-        precomps_minus2 = precomps_polar[1]
-    else:
-        precomps_plus2, precomps_minus2 = None, None
-
-    if not fast_non_differentiable or 'gpu' in jax.extend.backend.get_backend().platform:
-        map_plus2 = _inverse(
-            -(alms[0, ...] + 1j * alms[1, ...]),
-            L,
-            spin=2,
-            nside=nside,
-            sampling='healpix',
-            reality=False,
-            precomps=precomps_plus2,
-            fast_non_differentiable=fast_non_differentiable,
-            spmd=spmd,
-        )
-        map_minus2 = _inverse(
-            -(alms[0, ...] - 1j * alms[1, ...]),
-            L,
-            spin=-2,
-            nside=nside,
-            sampling='healpix',
-            reality=False,
-            precomps=precomps_minus2,
-            fast_non_differentiable=fast_non_differentiable,
-            spmd=spmd,
-        )
-
-        map_Q = (map_plus2 + map_minus2) / 2
-        map_U = -1j * (map_plus2 - map_minus2) / 2
-    else:
-        map_QU = _inverse(
-            alms,
-            L,
-            spin=None,
-            nside=nside,
-            sampling='healpix',
-            reality=False,
-            precomps=precomps_plus2,
-            fast_non_differentiable=fast_non_differentiable,
-            spmd=spmd,
-        )
-        map_Q = map_QU[0]
-        map_U = map_QU[1]
-
-    return jnp.vstack([map_Q, map_U])
 
 
 def _compute_beam_window(lmax: int, fwhm: float = 0.0, sigma: float | None = None) -> ArrayLike:
@@ -539,6 +181,11 @@ def _compute_beam_window(lmax: int, fwhm: float = 0.0, sigma: float | None = Non
     return jnp.exp(-ell * (ell + 1) * sigma**2 / 2.0)
 
 
+def _lmax_from_nalm(nalm: int) -> int:
+    """Invert ``nalm = (lmax+1)*(lmax+2)/2`` for the healpy 1D alm layout (mmax == lmax)."""
+    return int((-1 + np.sqrt(1 + 8 * (nalm - 1))) / 2)
+
+
 def _compute_cl(alms: ArrayLike, L: int, alms2: ArrayLike | None = None) -> ArrayLike:
     """Compute C_l from one or two alm grids in s2fft layout."""
     m_vals = jnp.arange(-L + 1, L)
@@ -548,19 +195,16 @@ def _compute_cl(alms: ArrayLike, L: int, alms2: ArrayLike | None = None) -> Arra
 
     alm_prod = jnp.abs(alms) ** 2 if alms2 is None else alms * jnp.conj(alms2)
     alm_prod_masked = alm_prod * valid_mask
+    # For ell=0 only m=0 is valid and the divisor is 1, so the masked sum already gives C_0.
     cl = alm_prod_masked.sum(axis=1) / (2 * ell_vals + 1)
-    cl = cl.at[0].set(alm_prod_masked[0, L - 1])
     # Cross-spectra should be real-valued
     if alms2 is not None:
         cl = jnp.real(cl)
     return cl
 
 
-def _generate_random_alm(cl: ArrayLike, lmax: int, mmax: int | None, prng_key: PRNGKeyArray) -> ArrayLike:
-    """Draw random alm with healpy reality convention."""
-    if mmax is None:
-        mmax = lmax
-
+def _generate_random_alm(cl: ArrayLike, lmax: int, prng_key: PRNGKeyArray) -> ArrayLike:
+    """Draw random alm with healpy reality convention (mmax == lmax)."""
     L = lmax + 1
     cl = jnp.asarray(cl)
     if cl.shape[0] < L:
@@ -575,7 +219,7 @@ def _generate_random_alm(cl: ArrayLike, lmax: int, mmax: int | None, prng_key: P
     m_vals = jnp.arange(-L + 1, L)
     ell_vals = jnp.arange(L)
     ell_grid, m_grid = jnp.meshgrid(ell_vals, m_vals, indexing='ij')
-    valid_mask = (jnp.abs(m_grid) <= ell_grid) & (jnp.abs(m_grid) <= mmax)
+    valid_mask = jnp.abs(m_grid) <= ell_grid
 
     cl_grid = jnp.broadcast_to(cl[:, None], (L, 2 * L - 1))
     scale = jnp.sqrt(cl_grid / 2.0)
@@ -595,6 +239,54 @@ def _generate_random_alm(cl: ArrayLike, lmax: int, mmax: int | None, prng_key: P
     left_half = conj_right_flipped * valid_left
 
     return jnp.concatenate([left_half, alms[:, L - 1 : L], right_half], axis=1)
+
+
+def _getn(k: int) -> int:
+    """Return n such that n*(n+1)/2 == k, or -1 if k is not triangular.
+
+    Mirrors ``healpy.sphtfunc._sphtools._getn``; used to map a flat list of
+    n(n+1)/2 cross-spectra to the number of underlying fields n.
+    """
+    n = int(round((np.sqrt(8 * k + 1) - 1) / 2))
+    return n if n * (n + 1) // 2 == k else -1
+
+
+def _as_spectra_list(cls):
+    """Classify ``cls`` as scalar or multi-spectra input.
+
+    Returns ``(is_multi, payload)``. ``payload`` is a 1D array for the scalar
+    case, or a Python list of per-field spectra (1D arrays / ``None``) for the
+    multi-spectra (polarization) case. Mirrors healpy's ``is_seq_of_seq`` rule:
+    a sequence whose elements are themselves arrays is treated as multi-spectra.
+    """
+    if isinstance(cls, (list, tuple)):
+        is_multi = any(c is not None and jnp.ndim(c) >= 1 for c in cls)
+        if is_multi:
+            return True, list(cls)
+        return False, jnp.asarray(cls)
+    arr = jnp.asarray(cls)
+    if arr.ndim >= 2:
+        return True, [arr[i] for i in range(arr.shape[0])]
+    return False, arr
+
+
+def _new_to_old_spectra_order(cls_new_order: list) -> list:
+    """Reorder cls from new (by diagonal) to old (by row) order.
+
+    Pure-Python reorder mirroring ``healpy.sphtfunc.new_to_old_spectra_order``.
+    Example (n=3): ``TT, EE, BB, TE, EB, TB`` -> ``TT, TE, TB, EE, EB, BB``.
+    """
+    n = _getn(len(cls_new_order))
+    if n < 0:
+        raise ValueError('Input must be a list of n(n+1)/2 arrays')
+    cls_old_order = []
+    for i in range(n):
+        for j in range(i, n):
+            p = j - i
+            q = i
+            idx_new = p * (2 * n + 1 - p) // 2 + q
+            cls_old_order.append(cls_new_order[idx_new])
+    return cls_old_order
 
 
 def _alm2map_core(
@@ -701,7 +393,7 @@ def _alm2map_core(
             spmd=spmd,
         )
 
-        return f_complex
+        return jnp.real(f_complex)
 
 
 def _map2alm_core(
@@ -844,7 +536,7 @@ def alm2map(
     pixwin=False,
     fwhm=0.0,
     sigma=None,
-    pol: bool = False,
+    pol: bool = True,
     inplace: bool | None = None,
     verbose=True,
     healpy_ordering: bool = False,
@@ -859,8 +551,10 @@ def alm2map(
     Parameters
     ----------
     alms : complex, array or sequence of arrays
-      A complex array or a sequence of complex arrays.
-      Each array must have a size of the form: mmax * (2 * lmax + 1 - mmax) / 2 + lmax + 1
+      A complex array of spherical harmonic coefficients (size
+      ``mmax * (2 * lmax + 1 - mmax) / 2 + lmax + 1`` in healpy ordering), or,
+      when ``pol=True``, a stack of ``n`` such arrays with ``n in {1, 2, 3}``
+      (T / E,B / T,E,B — see ``pol``).
     nside : int, scalar
       The nside of the output map.
     lmax : None or int, scalar, optional
@@ -876,9 +570,25 @@ def alm2map(
       The sigma of the Gaussian used to smooth the map (applied on alm)
       [in radians]
     pol : bool, optional
-      Polarized TEB inputs are not supported yet. Must remain False.
+      If True, the leading axis selects polarization components and the output
+      is the corresponding stack of maps:
+
+      - ``1`` -> ``[alm_T]`` -> T map
+      - ``2`` -> ``[alm_E, alm_B]`` -> ``(2, npix)`` Q, U maps (spin-2 only, no
+        temperature). **This is a deliberate change of behavior vs healpy**,
+        whose polarized ``alm2map`` only accepts the 3-component TEB input.
+      - ``3`` -> ``[alm_T, alm_E, alm_B]`` -> ``(3, npix)`` T, Q, U maps
+
+      Input shape is ``(n, nalm)`` for ``healpy_ordering=True`` or
+      ``(n, L, 2L-1)`` for ``healpy_ordering=False``. A single (non-stacked) alm is
+      always treated as a scalar field regardless of ``pol``. Gaussian smoothing
+      (``fwhm``/``sigma``) is supported and applies the spin-2 beam correction to
+      E/B; ``pixwin`` is not supported. Default: True (matches healpy).
     inplace : bool, optional
       Ignored in the JAX backend. Any truthy value will emit a warning.
+    verbose : bool, optional
+      Accepted to match healpy's signature but ignored (the JAX backend is not
+      verbose). Default: True.
     healpy ordering : bool, optional
       True if the input alms follow the healpy ordering. By default, the s2fft
       ordering is assumed.
@@ -887,9 +597,9 @@ def alm2map(
 
     Returns
     -------
-    maps : array or list of arrays
-      A Healpix map in RING scheme at nside or a list of T,Q,U maps (if
-      polarized input)
+    maps : array
+      A single Healpix map in RING scheme at ``nside`` (shape ``(npix,)``), or a
+      stacked ``(n, npix)`` array of T/Q/U maps for polarized input.
 
     Notes
     -----
@@ -906,15 +616,66 @@ def alm2map(
     if alms.ndim > expected_ndim + 1 + pol:
         raise ValueError('Input alms have too many dimensions.')
 
-    if pol:
-        raise NotImplementedError('Polarized alm2map (pol=True) is not implemented yet.')
-
     if inplace not in (None, False):
         warnings.warn('alm2map ignores inplace=True under JAX; arrays are immutable.', UserWarning)
     inplace_flag = False
 
     if pixwin:
         raise NotImplementedError('Pixel-window smoothing is not implemented; set pixwin=False.')
+
+    # Polarized branch: input is shape (n, ...) with n in {1, 2, 3}.
+    #   n == 1 -> T        -> T map                 (spin 0)
+    #   n == 2 -> E, B     -> (Q, U) maps           (spin 2; not possible in healpy)
+    #   n == 3 -> T, E, B  -> (T, Q, U) maps
+    if pol and alms.ndim == expected_ndim + 1:
+        n = alms.shape[0]
+        if n not in (1, 2, 3):
+            raise ValueError(f'pol=True requires alms with shape (n, ...), n in (1, 2, 3); got shape {alms.shape}.')
+
+        target_L = 3 * nside if lmax is None else lmax + 1
+        target_lmax = target_L - 1
+        if mmax is not None and mmax != target_lmax:
+            raise NotImplementedError('Specifying mmax != lmax is not implemented.')
+
+        # Optional Gaussian smoothing with the spin-2 beam correction on E/B.
+        if fwhm != 0 or sigma is not None:
+            alms = smoothalm(alms, fwhm=fwhm, sigma=sigma, pol=True, mmax=mmax, healpy_ordering=healpy_ordering)
+
+        if n == 2:
+            # E, B -> Q, U (spin-2 only, no temperature)
+            Q_map, U_map = _alm2map_core(
+                alms=[alms[0], alms[1]],
+                nside=nside,
+                lmax=target_lmax,
+                mmax=mmax,
+                method=method,
+                spin=2,
+                healpy_ordering=healpy_ordering,
+            )
+            return jnp.stack([Q_map, U_map], axis=0)
+
+        # leading alm is temperature (n == 1 -> T; n == 3 -> T, E, B)
+        T_map = _alm2map_core(
+            alms=alms[0],
+            nside=nside,
+            lmax=target_lmax,
+            mmax=mmax,
+            method=method,
+            spin=0,
+            healpy_ordering=healpy_ordering,
+        )
+        if n == 1:
+            return T_map
+        Q_map, U_map = _alm2map_core(
+            alms=[alms[1], alms[2]],
+            nside=nside,
+            lmax=target_lmax,
+            mmax=mmax,
+            method=method,
+            spin=2,
+            healpy_ordering=healpy_ordering,
+        )
+        return jnp.stack([T_map, Q_map, U_map], axis=0)
 
     # Handle batched input
     if alms.ndim == expected_ndim + 1 + pol:
@@ -939,7 +700,6 @@ def alm2map(
 
     if lmax is None:
         L = 3 * nside
-        lmax = L - 1
     else:
         L = lmax + 1
 
@@ -947,16 +707,9 @@ def alm2map(
         if lmax is None or mmax != lmax:
             raise NotImplementedError('Specifying mmax != lmax (or without lmax) is not implemented.')
 
-    # Apply smoothing if requested
+    # Apply smoothing if requested (scalar spin-0 beam; mirrors the polarized branch above).
     if fwhm != 0 or sigma is not None:
-        # Need to smooth the alms before transforming
-        # Create filter function
-        fl = jnp.ones(L)
-        fl = fl * _compute_beam_window(L - 1, fwhm, sigma)
-
-        # Apply filter
-        alms_smoothed = almxfl(alms, fl, mmax=mmax, inplace=inplace_flag, healpy_ordering=healpy_ordering)
-        alms = alms_smoothed
+        alms = smoothalm(alms, fwhm=fwhm, sigma=sigma, pol=False, mmax=mmax, healpy_ordering=healpy_ordering)
 
     # Call core function
     f = _alm2map_core(
@@ -964,205 +717,6 @@ def alm2map(
     )
 
     return f
-
-    if pol:
-        # return jnp.concatenate([map_temperature, maps_polarization], axis=-2)
-        return jnp.vstack([map_temperature, maps_polarization])
-    return map_temperature
-
-
-@partial(
-    jax.jit,
-    static_argnames=[
-        'lmax',
-        'mmax',
-        'iter',
-        'use_weights',
-        'datapath',
-        'gal_cut',
-        'use_pixel_weights',
-        'verbose',
-        'healpy_ordering',
-        'fast_non_differentiable',
-    ],
-)
-@requires_s2fft
-def _map2alm_pol(
-    maps: ArrayLike,
-    lmax: int = None,
-    mmax: int = None,
-    iter: int = 0,
-    use_weights: bool = False,
-    datapath: str = None,
-    gal_cut: float = 0,
-    use_pixel_weights: bool = False,
-    verbose: bool = True,
-    healpy_ordering: bool = False,
-    precomps_polar: list = None,
-    fast_non_differentiable: bool = False,
-):
-    """Computes the alm of a Healpix map. The input polarization maps must all be
-    in ring ordering.
-
-    Maps are assumed to be given as polarization maps, indexed with Q, U Stokes parameters
-    in the second last dimension, and pixel as last dimension.
-
-    For recommendations about how to set `lmax`, `iter`, and weights, see the
-    `Anafast documentation <https://healpix.sourceforge.io/html/fac_anafast.htm>`_
-
-    Pixel values are weighted before applying the transform:
-
-    * when you don't specify any weights, the uniform weight value 4*pi/n_pix is used
-    * with ring weights enabled (use_weights=True), pixels in every ring
-      are weighted with a uniform value similar to the one above, ring weights are
-      included in healpy
-    * with pixel weights (use_pixel_weights=True), every pixel gets an individual weight
-
-    Pixel weights provide the most accurate transform, so you should always use them if
-    possible. However they are not included in healpy and will be automatically downloaded
-    and cached in ~/.astropy the first time you compute a trasform at a specific nside.
-
-    If datapath is specified, healpy will first check that local folder before downloading
-    the weights.
-    The easiest way to setup the folder is to clone the healpy-data repository:
-
-    git clone --depth 1 https://github.com/healpy/healpy-data
-    cd healpy-data
-    bash download_weights_8192.sh
-
-    and set datapath to the root of the repository.
-
-    Parameters
-    ----------
-    maps: array-like, shape (Npix,) or (n, Npix)
-      The input map or a list of n input maps. Must be in ring ordering.
-    lmax: int, scalar, optional
-      Maximum l of the power spectrum. Default: 3*nside-1
-    mmax: int, scalar, optional
-      Maximum m of the alm. Default: lmax
-    iter: int, scalar, optional
-      Number of iteration (default: 0)
-    use_weights: bool, scalar, optional
-      If True, use the ring weighting. Default: False.
-    datapath: None or str, optional
-      If given, the directory where to find the pixel weights.
-      See in the docstring above details on how to set it up.
-    gal_cut: float [degrees]
-      pixels at latitude in [-gal_cut;+gal_cut] are not taken into account
-    use_pixel_weights: bool, optional
-      If True, use pixel by pixel weighting, healpy will automatically download the weights, if needed
-    verbose: bool, optional
-      Deprecated, has not effect.
-    healpy_ordering: bool, optional
-      By default, we follow the s2fft ordering for the alms. To use healpy
-      ordering, set it to True.
-    precomps_polar: list of np.ndarray, optional
-      Precomputed coefficients for the forward harmonic transform.
-    fast_non_differentiable: bool, optional
-      If the SHT is done in a faster jittable way, but not JAX-differentiable.
-
-    Returns
-    -------
-    alms: array or tuple of array
-      alm or a tuple of 3 alm (almT, almE, almB) if polarized input.
-
-    Notes
-    -----
-    The pixels which have the special `UNSEEN` value are replaced by zeros
-    before spherical harmonic transform. They are converted back to `UNSEEN`
-    value, so that the input maps are not modified. Each map have its own,
-    independent mask.
-    """
-    # if mmax is not None:
-    #     raise NotImplementedError('Specifying mmax is not implemented.')
-    # if iter != 0:
-    #     raise NotImplementedError('Specifying iter > 0 is not implemented')
-    if use_weights:
-        raise NotImplementedError('Specifying use_weights is not implemented.')
-    if datapath is not None:
-        raise NotImplementedError('Specifying datapath is not implemented.')
-    if gal_cut != 0:
-        raise NotImplementedError('Specifying gal_cut is not implemented.')
-    if use_pixel_weights:
-        raise NotImplementedError('Specifying use_pixel_weights is not implemented.')
-    if maps.ndim == 0:
-        raise ValueError('The input map must have at least one dimension.')
-    if maps.ndim > 2:
-        raise ValueError('The input map has too many dimensions.')
-    if maps.shape[-2] != 2:
-        raise ValueError('Input maps must have 2 Stokes parameters, Q and U.')
-
-    maps = jnp.asarray(maps)
-    nside = npix2nside(maps.shape[-1])
-    if lmax is None:
-        L = 3 * nside
-        lmax = L - 1
-    else:
-        L = lmax + 1
-
-    if mmax is None:
-        mmax = lmax
-
-    spmd = False
-
-    if precomps_polar is not None:
-        precomps_plus2 = precomps_polar[0]
-        precomps_minus2 = precomps_polar[1]
-    else:
-        precomps_plus2, precomps_minus2 = None, None
-
-    shape_alms = mmax * (2 * lmax + 1 - mmax) // 2 + lmax + 1
-
-    if not fast_non_differentiable or 'gpu' in jax.extend.backend.get_backend().platform:
-        flm_spin_plus2 = _forward(
-            maps[..., 0, :] + 1j * maps[..., 1, :],
-            L,
-            shape_alms=shape_alms,
-            spin=2,
-            nside=nside,
-            sampling='healpix',
-            reality=False,
-            precomps=precomps_plus2,
-            iter=iter,
-            spmd=spmd,
-            fast_non_differentiable=fast_non_differentiable,
-        )
-        flm_spin_minus2 = _forward(
-            maps[..., 0, :] - 1j * maps[..., 1, :],
-            L,
-            shape_alms=shape_alms,
-            spin=-2,
-            nside=nside,
-            sampling='healpix',
-            reality=False,
-            precomps=precomps_minus2,
-            iter=iter,
-            spmd=spmd,
-            fast_non_differentiable=fast_non_differentiable,
-        )
-
-        flm_E = -(flm_spin_plus2 + flm_spin_minus2) / 2
-        flm_B = 1j * (flm_spin_plus2 - flm_spin_minus2) / 2
-
-    else:
-        flm_EB = _forward(
-            maps,
-            L,
-            spin=None,
-            shape_alms=shape_alms,
-            nside=nside,
-            sampling='healpix',
-            reality=True,
-            precomps=precomps_plus2,
-            iter=iter,
-            spmd=spmd,
-            fast_non_differentiable=True,
-        )
-        flm_E, flm_B = flm_EB[..., 0, :, :], flm_EB[..., 1, :, :]
-
-    if healpy_ordering:
-        return flm_2d_to_hp_fast(flm_E, L), flm_2d_to_hp_fast(flm_B, L)
-    return flm_E, flm_B
 
 
 @partial(
@@ -1183,16 +737,16 @@ def _map2alm_pol(
 )
 @requires_s2fft
 def map2alm(
-    maps: ArrayLike,
-    lmax: int = None,
-    mmax: int = None,
-    iter: int = 0,
-    pol: bool = True,
-    use_weights: bool = False,
-    datapath: str = None,
-    gal_cut: int = 0,
-    use_pixel_weights: bool = False,
-    verbose: bool = True,
+    maps,
+    lmax=None,
+    mmax=None,
+    iter=3,
+    pol=True,
+    use_weights=False,
+    datapath=None,
+    gal_cut=0,
+    use_pixel_weights=False,
+    verbose=True,
     healpy_ordering: bool = False,
     method: str = 'jax',
 ):
@@ -1233,13 +787,19 @@ def map2alm(
     mmax : int, scalar, optional
       Maximum m of the alm. Default: lmax
     iter : int, scalar, optional
-      Number of iteration (default: 0)
+      Number of iteration (default: 3)
     pol : bool, optional
-      If True, assumes input maps are TQU. Output will be TEB alm's.
-      (input must be 1 or 3 maps)
-      If False, apply spin 0 harmonic transform to each map.
-      (input can be any number of maps)
-      If there is only one input map, it has no effect. Default: True.
+      If True, the leading axis selects polarization components and the output is the
+      corresponding stack of alms (accepts 1, 2, or 3 maps):
+
+      - ``1`` -> ``[I]``        -> ``alm_T``                  (spin 0)
+      - ``2`` -> ``[Q, U]``     -> ``(alm_E, alm_B)``         (spin-2 only, no temperature;
+        a deliberate extension vs healpy, whose polarized ``map2alm`` requires I, Q, U)
+      - ``3`` -> ``[I, Q, U]``  -> ``(alm_T, alm_E, alm_B)``
+
+      A single 1-D map is always transformed as a scalar field regardless of ``pol``.
+      If False, apply a spin-0 harmonic transform to each map (input can be any number of
+      maps). Default: True.
     use_weights: bool, scalar, optional
       If True, use the ring weighting. Default: False.
     datapath : None or str, optional
@@ -1259,8 +819,10 @@ def map2alm(
 
     Returns
     -------
-    alms : array or tuple of array
-      alm or a tuple of 3 alm (almT, almE, almB) if polarized input.
+    alms : array
+      A single alm array, or a stacked ``(n, ...)`` array of alm for polarized
+      input (e.g. ``[almT, almE, almB]`` for 3 maps), matching healpy's array
+      return -- not a tuple.
 
     Notes
     -----
@@ -1278,15 +840,55 @@ def map2alm(
     if use_pixel_weights:
         raise NotImplementedError('Specifying use_pixel_weights is not implemented.')
 
+    maps = jnp.asarray(maps)
     if maps.ndim == 0:
         raise ValueError('The input map must have at least one dimension.')
     if maps.ndim > 2:
         raise ValueError('The input map has too many dimensions.')
 
-    # Handle batched input
+    # Polarized branch: input is shape (n, npix) with n in {1, 2, 3}.
+    #   n == 1 -> I        -> alm_T                 (spin 0)
+    #   n == 2 -> Q, U     -> (alm_E, alm_B)        (spin 2; not possible in healpy)
+    #   n == 3 -> I, Q, U  -> (alm_T, alm_E, alm_B)
+    if pol and maps.ndim == 2:
+        n = maps.shape[0]
+        if n not in (1, 2, 3):
+            raise ValueError(
+                f'pol=True requires 1 (I), 2 (Q, U), or 3 (I, Q, U) maps of shape (n, npix); got shape {maps.shape}.'
+            )
+        nside = npix2nside(maps.shape[-1])
+        target_L = 3 * nside if lmax is None else lmax + 1
+        if target_L < 2 * nside:
+            raise NotImplementedError('map2alm requires lmax >= 2*nside - 1 for s2fft transforms.')
+        target_lmax = target_L - 1
+        if mmax is not None and mmax != target_lmax:
+            raise NotImplementedError('Specifying mmax != lmax is not implemented.')
+
+        if n == 2:
+            # Q, U -> E, B (spin-2 only, no temperature)
+            alm_E, alm_B = _map2alm_core(
+                maps=[maps[0], maps[1]], lmax=target_lmax, mmax=mmax, iter=iter, method=method, spin=2
+            )
+            out = [alm_E, alm_B]
+        else:
+            # leading map is temperature (n == 1 -> I; n == 3 -> I, Q, U)
+            alm_T = _map2alm_core(maps=maps[0], lmax=target_lmax, mmax=mmax, iter=iter, method=method, spin=0)
+            out = [alm_T]
+            if n == 3:
+                alm_E, alm_B = _map2alm_core(
+                    maps=[maps[1], maps[2]], lmax=target_lmax, mmax=mmax, iter=iter, method=method, spin=2
+                )
+                out += [alm_E, alm_B]
+
+        if healpy_ordering:
+            out = [flm_2d_to_hp_fast(a, target_L) for a in out]
+
+        # A single I map collapses to a bare temperature alm (scalar semantics);
+        # otherwise return a stacked (n, ...) array, matching healpy (not a tuple).
+        return out[0] if n == 1 else jnp.stack(out, axis=0)
+
+    # Handle batched scalar input (pol=False, shape (n, npix))
     if maps.ndim > 1:
-        if pol:
-            raise NotImplementedError('TQU maps are not implemented.')
         return jax.vmap(map2alm, in_axes=(0,) + 11 * (None,))(
             maps,
             lmax,
@@ -1301,10 +903,7 @@ def map2alm(
             healpy_ordering,
             method,
         )
-    elif maps.ndim > 3:
-        raise ValueError('The input map has too many dimensions.')
 
-    maps = jnp.asarray(maps)
     nside = npix2nside(maps.shape[-1])
     target_L = 3 * nside if lmax is None else lmax + 1
     if target_L < 2 * nside:
@@ -1324,17 +923,16 @@ def map2alm(
         spin=0,
     )
 
-
     if healpy_ordering:
         flm = flm_2d_to_hp_fast(flm, target_L)
 
-    if pol:
-        return flm, flm_E, flm_B
     return flm
 
 
 @partial(jax.jit, static_argnames=['mmax', 'inplace', 'healpy_ordering'])
-def almxfl(alm: ArrayLike, fl: ArrayLike, mmax: int | None = None, inplace: bool = False, healpy_ordering: bool = True):
+def almxfl(
+    alm: ArrayLike, fl: ArrayLike, mmax: int | None = None, inplace: bool = False, healpy_ordering: bool = False
+):
     """Multiply alm by a filter function fl.
 
     Parameters
@@ -1349,7 +947,7 @@ def almxfl(alm: ArrayLike, fl: ArrayLike, mmax: int | None = None, inplace: bool
     inplace : bool, optional
         If True, modify alm in place (currently ignored for JAX arrays)
     healpy_ordering : bool, optional
-        If True, alm uses healpy 1D format. If False, uses s2fft 2D format.
+        If True, alm uses healpy 1D format. If False, uses s2fft 2D format. Default: False
 
     Returns
     -------
@@ -1396,7 +994,7 @@ def almxfl(alm: ArrayLike, fl: ArrayLike, mmax: int | None = None, inplace: bool
         return flm_2d_to_hp_fast(alm_filtered, L)
     else:
         # s2fft 2D format: directly broadcast fl over m dimension
-        fl_2d = fl[:, None]
+        fl_2d = fl[..., None]
         return alm * fl_2d
 
 
@@ -1415,13 +1013,15 @@ def gauss_beam(fwhm: float, lmax: int = 512, pol: bool = False) -> ArrayLike:
     lmax : int, optional
         Maximum multipole moment l. Default: 512
     pol : bool, optional
-        If True, returns polarization beam components.
-        Not supported yet. Raises NotImplementedError if True. Default: False
+        If True, returns polarization beam components as an array of shape
+        ``(lmax+1, 4)`` with columns [temperature, E (grad), B (curl), TE],
+        following healpy (Challinor et al. 2000). Default: False
 
     Returns
     -------
     beam : array-like
-        Beam window function, shape (lmax+1,)
+        Beam window function. Shape ``(lmax+1,)`` for the temperature beam, or
+        ``(lmax+1, 4)`` [T, E, B, TE] if ``pol=True``.
         Values represent B_l = exp(-l(l+1)*sigma²/2) where sigma = fwhm/sqrt(8*ln(2))
 
     Notes
@@ -1440,10 +1040,15 @@ def gauss_beam(fwhm: float, lmax: int = 512, pol: bool = False) -> ArrayLike:
     >>> fwhm_rad = jnp.radians(fwhm_arcmin / 60.0)
     >>> beam = jhp.gauss_beam(fwhm_rad, lmax=2048)
     """
-    if pol:
-        raise NotImplementedError('pol=True (polarization beam components) is not supported yet')
+    g = _compute_beam_window(lmax, fwhm=fwhm, sigma=None)
+    if not pol:
+        return g
 
-    return _compute_beam_window(lmax, fwhm=fwhm, sigma=None)
+    # Polarization beam assuming a perfectly co-polarized beam (Challinor et al. 2000).
+    # Columns: [temperature, E (grad), B (curl), TE], with factors exp([0, 2σ², 2σ², σ²]).
+    sigma2 = (fwhm / jnp.sqrt(8.0 * jnp.log(2.0))) ** 2
+    pol_factor = jnp.exp(jnp.stack([jnp.zeros_like(sigma2), 2.0 * sigma2, 2.0 * sigma2, sigma2]))
+    return g[:, None] * pol_factor
 
 
 @partial(jax.jit, static_argnames=['lmax', 'mmax', 'lmax_out', 'nspec', 'healpy_ordering'])
@@ -1454,7 +1059,7 @@ def alm2cl(
     mmax: int | None = None,
     lmax_out: int | None = None,
     nspec: int | None = None,
-    healpy_ordering: bool = True,
+    healpy_ordering: bool = False,
 ) -> ArrayLike | tuple[ArrayLike, ...]:
     """Compute power spectra from spherical harmonic coefficients.
 
@@ -1474,19 +1079,22 @@ def alm2cl(
     mmax : int, optional
         Maximum m value of input alm. Default: lmax
     lmax_out : int, optional
-        Maximum l value in output spectra. If None, uses lmax from input.
-        Note: Currently must equal lmax if provided.
+        Maximum l of the returned spectra. If None, uses lmax from input.
+        Otherwise each returned spectrum is truncated to lmax_out+1 multipoles.
     nspec : int, optional
-        Number of spectra to return. If None, returns all.
+        Number of leading entries to keep, matching healpy: ``cl[:nspec]``.
+        For multiple alms this selects the first nspec spectra; for a single
+        alm it slices the multipole axis. If None, returns all.
     healpy_ordering : bool, optional
         If True, input alms use healpy 1D format. If False, uses s2fft 2D format.
-        Default: True
+        Default: False
 
     Returns
     -------
     cl : array-like or tuple of arrays
-        Power spectrum/spectra. Shape (lmax+1,) for single spectrum.
-        For multiple alms: tuple of n(n+1)/2 spectra in order: (11, 12, 22, 13, 23, 33, ...)
+        A single 1-D array of shape (lmax+1,) when there is only one spectrum
+        (single alm, or a single retained entry). For multiple alms: a tuple of
+        n(n+1)/2 spectra in diagonal order (11, 22, 33, 12, 23, 13, ...).
 
     Notes
     -----
@@ -1501,24 +1109,24 @@ def alm2cl(
     --------
     Compute auto-spectrum from a single alm:
 
+    >>> import jax
     >>> import jax.numpy as jnp
     >>> import jax_healpy as jhp
-    >>> alm = jnp.array([...])  # Your alm coefficients
-    >>> cl = jhp.alm2cl(alm)
+    >>> lmax = 16
+    >>> cl_in = 1.0 / (jnp.arange(lmax + 1) + 1.0)
+    >>> alm1 = jhp.synalm(jax.random.PRNGKey(0), cl_in, lmax=lmax)
+    >>> cl = jhp.alm2cl(alm1)
 
     Compute cross-spectrum between two alms:
 
+    >>> alm2 = jhp.synalm(jax.random.PRNGKey(1), cl_in, lmax=lmax)
     >>> cl_cross = jhp.alm2cl(alm1, alm2)
 
     Compute all spectra from multiple alms:
 
-    >>> alms = [alm1, alm2, alm3]
-    >>> cl_tuple = jhp.alm2cl(alms)  # Returns (cl11, cl12, cl22, cl13, cl23, cl33)
+    >>> alm3 = jhp.synalm(jax.random.PRNGKey(2), cl_in, lmax=lmax)
+    >>> cl_tuple = jhp.alm2cl([alm1, alm2, alm3])  # (cl11, cl22, cl33, cl12, cl23, cl13)
     """
-    # Check if lmax_out is provided and different from lmax
-    if lmax_out is not None and lmax is not None and lmax_out != lmax:
-        raise ValueError(f'lmax_out ({lmax_out}) must equal lmax ({lmax}) if both provided')
-
     # Handle multiple alms case
     if isinstance(alms1, (list, tuple)):
         alms1_list = [jnp.asarray(a) for a in alms1]
@@ -1527,8 +1135,7 @@ def alm2cl(
         # Infer lmax from first alm if not provided
         if lmax is None:
             if healpy_ordering:
-                nalm = alms1_list[0].shape[0]
-                lmax = int((-1 + np.sqrt(1 + 8 * (nalm - 1))) / 2)
+                lmax = _lmax_from_nalm(alms1_list[0].shape[0])
             else:
                 lmax = alms1_list[0].shape[0] - 1
 
@@ -1554,7 +1161,11 @@ def alm2cl(
                 cl = _compute_cl(alms1_list[i], L, alms1_list[j])
                 spectra.append(cl)
 
-        # Apply nspec if requested
+        # Truncate multipoles to lmax_out if requested (matches healpy)
+        if lmax_out is not None:
+            spectra = [s[: lmax_out + 1] for s in spectra]
+
+        # Apply nspec if requested (selects the first nspec spectra)
         if nspec is not None:
             spectra = spectra[:nspec]
 
@@ -1566,8 +1177,7 @@ def alm2cl(
     # Infer lmax if not provided
     if lmax is None:
         if healpy_ordering:
-            nalm = alms1.shape[0]
-            lmax = int((-1 + np.sqrt(1 + 8 * (nalm - 1))) / 2)
+            lmax = _lmax_from_nalm(alms1.shape[0])
         else:
             lmax = alms1.shape[0] - 1
 
@@ -1587,7 +1197,11 @@ def alm2cl(
             alms2 = flm_hp_to_2d_fast(alms2, L)
         cl = _compute_cl(alms1, L, alms2)
 
-    # Apply nspec if requested
+    # Truncate multipoles to lmax_out if requested (matches healpy)
+    if lmax_out is not None:
+        cl = cl[: lmax_out + 1]
+
+    # Apply nspec if requested (healpy slices the multipole axis for a single alm)
     if nspec is not None:
         cl = cl[:nspec]
 
@@ -1603,7 +1217,6 @@ def alm2cl(
         'alm',
         'nspec',
         'pol',
-        'only_pol',
         'use_weights',
         'datapath',
         'gal_cut',
@@ -1648,8 +1261,11 @@ def anafast(
         If True, return both power spectrum and alm coefficients.
         If False, return only power spectrum. Default: False
     pol : bool, optional
-        If True, assumes input maps are TQU (polarized).
-        Not supported yet. Raises NotImplementedError if True. Default: True
+        If True, input is a stack of maps. With ``(3, npix)`` I, Q, U input it
+        returns 6 spectra ``(TT, EE, BB, TE, EB, TB)`` of shape ``(6, lmax+1)``.
+        As a **deviation from healpy** (which requires I, Q, U), ``(2, npix)`` Q, U
+        input is also accepted and returns the 3 spin-2 spectra
+        ``(EE, BB, EB)`` of shape ``(3, lmax+1)``. Default: True
     use_weights : bool, optional
         Enable ring weighting. Not supported. Raises NotImplementedError if True.
         Default: False
@@ -1669,9 +1285,12 @@ def anafast(
     Returns
     -------
     cl : array-like
-        Angular power spectrum, shape (lmax+1,)
+        Angular power spectrum. Shape (lmax+1,) for scalar input,
+        (6, lmax+1) for pol=True with I, Q, U in order (TT, EE, BB, TE, EB, TB),
+        or (3, lmax+1) for pol=True with Q, U only in order (EE, BB, EB).
     alm1 : array-like, optional
-        Alm coefficients of map1 in s2fft format (only if alm=True)
+        Alm coefficients of map1 in s2fft format (only if alm=True).
+        Shape (L, 2L-1) for scalar, (3, L, 2L-1) for pol=True (T, E, B stacked).
     alm2 : array-like, optional
         Alm coefficients of map2 in s2fft format (only if alm=True and map2 is provided)
 
@@ -1681,23 +1300,24 @@ def anafast(
         C_l = (1 / (2*l + 1)) * sum_m |a_lm|^2  (auto-spectrum)
         C_l = (1 / (2*l + 1)) * sum_m a_lm * conj(a'_lm)  (cross-spectrum)
 
-    This function matches the healpy.sphtfunc.anafast API but only supports
-    scalar (non-polarized) input maps. Several healpy parameters related to
-    weighting and polarization are not yet implemented.
+    This function matches the healpy.sphtfunc.anafast API. Several healpy parameters
+    related to map weighting (use_weights, datapath, gal_cut, use_pixel_weights) are
+    not yet implemented.
 
     Examples
     --------
     Compute auto-spectrum of a map:
 
-    >>> import healpy as hp
+    >>> import jax
+    >>> import jax.numpy as jnp
     >>> import jax_healpy as jhp
-    >>> nside = 32
-    >>> map_data = hp.synfast(cl, nside)  # Generate test map
-    >>> cl_estimated = jhp.anafast(map_data, pol=False)
+    >>> nside = 8
+    >>> lmax = 2 * nside - 1
+    >>> cl_in = 1.0 / (jnp.arange(lmax + 1) + 1.0)
+    >>> map_data = jhp.synfast(jax.random.PRNGKey(0), cl_in, nside, lmax=lmax, pol=False)
+    >>> cl_estimated = jhp.anafast(map_data, lmax=lmax, pol=False)
     """
     # Validate unsupported parameters
-    if pol:
-        raise NotImplementedError('pol=True (polarized input) is not supported yet')
     if use_weights:
         raise NotImplementedError('use_weights is not supported')
     if datapath is not None:
@@ -1708,6 +1328,75 @@ def anafast(
         raise NotImplementedError('use_pixel_weights is not supported')
 
     map1 = jnp.asarray(map1)
+
+    # A 1-D map is always a scalar field; pol only applies to a (n, npix) stack. This
+    # matches healpy, which returns the scalar auto-spectrum for a single map even with
+    # pol=True (and mirrors the 1-D fall-through in map2alm).
+    if pol and map1.ndim == 2:
+        if map1.shape[0] not in (2, 3):
+            raise ValueError(
+                f'pol=True requires map1 with shape (3, npix) for I, Q, U or (2, npix) for Q, U; got {map1.shape}.'
+            )
+        nside = npix2nside(map1.shape[-1])
+        if lmax is None:
+            lmax = 3 * nside - 1
+        L = lmax + 1
+        ncomp = map1.shape[0]
+
+        # alm1 is a stacked (ncomp, L, 2L-1) array: (T, E, B) for 3 maps or (E, B) for 2.
+        alm1 = map2alm(map1, lmax=lmax, mmax=mmax, iter=iter, pol=True, healpy_ordering=False, method=method)
+
+        if map2 is None:
+            if ncomp == 3:
+                # 6 spectra in healpy order: (TT, EE, BB, TE, EB, TB)
+                alm_T1, alm_E1, alm_B1 = alm1
+                spectra = (
+                    _compute_cl(alm_T1, L),
+                    _compute_cl(alm_E1, L),
+                    _compute_cl(alm_B1, L),
+                    _compute_cl(alm_T1, L, alm_E1),
+                    _compute_cl(alm_E1, L, alm_B1),
+                    _compute_cl(alm_T1, L, alm_B1),
+                )
+            else:
+                # Q, U only -> 3 spectra (EE, BB, EB). Deviation from healpy (no temperature).
+                alm_E1, alm_B1 = alm1
+                spectra = (_compute_cl(alm_E1, L), _compute_cl(alm_B1, L), _compute_cl(alm_E1, L, alm_B1))
+            cl = jnp.stack(spectra, axis=0)
+            if nspec is not None:
+                cl = cl[:nspec]
+            if alm:
+                return cl, alm1
+            return cl
+
+        map2 = jnp.asarray(map2)
+        if map2.ndim != 2 or map2.shape[0] != ncomp:
+            raise ValueError(
+                f'pol=True cross-spectrum requires map2 with the same shape as map1 ({ncomp}, npix); got {map2.shape}.'
+            )
+        alm2 = map2alm(map2, lmax=lmax, mmax=mmax, iter=iter, pol=True, healpy_ordering=False, method=method)
+        if ncomp == 3:
+            alm_T1, alm_E1, alm_B1 = alm1
+            alm_T2, alm_E2, alm_B2 = alm2
+            spectra = (
+                _compute_cl(alm_T1, L, alm_T2),
+                _compute_cl(alm_E1, L, alm_E2),
+                _compute_cl(alm_B1, L, alm_B2),
+                _compute_cl(alm_T1, L, alm_E2),
+                _compute_cl(alm_E1, L, alm_B2),
+                _compute_cl(alm_T1, L, alm_B2),
+            )
+        else:
+            alm_E1, alm_B1 = alm1
+            alm_E2, alm_B2 = alm2
+            spectra = (_compute_cl(alm_E1, L, alm_E2), _compute_cl(alm_B1, L, alm_B2), _compute_cl(alm_E1, L, alm_B2))
+        cl = jnp.stack(spectra, axis=0)
+        if nspec is not None:
+            cl = cl[:nspec]
+        if alm:
+            return cl, alm1, alm2
+        return cl
+
     nside = npix2nside(map1.shape[-1])
 
     if lmax is None:
@@ -1748,7 +1437,7 @@ def smoothalm(
     mmax: int | None = None,
     verbose: bool = True,
     inplace: bool = True,
-    healpy_ordering: bool = True,
+    healpy_ordering: bool = False,
 ) -> ArrayLike:
     """Smooth spherical harmonic coefficients with a Gaussian beam.
 
@@ -1765,8 +1454,11 @@ def smoothalm(
     beam_window : array-like, optional
         Custom beam window function (supersedes both fwhm and sigma). Default: None
     pol : bool, optional
-        If True, expects TEB coefficients.
-        Not supported yet. Raises NotImplementedError if True. Default: True
+        If True and ``alms`` is a stack of ``n`` components (n in {1, 2, 3}), the
+        temperature component uses the spin-0 beam and E/B use the spin-2 beam
+        (an extra ``exp(2σ²)`` factor), matching healpy. 1 -> [T], 2 -> [E, B],
+        3 -> [T, E, B]. A single (non-stacked) alm is always smoothed as a scalar
+        field regardless of ``pol`` (also matching healpy). Default: True
     mmax : int, optional
         Maximum m value for alm coefficients. Default: lmax (inferred from alm size)
     verbose : bool, optional
@@ -1774,7 +1466,7 @@ def smoothalm(
     inplace : bool, optional
         If True, modifies input in-place. Ignored in JAX (arrays are immutable). Default: True
     healpy_ordering : bool, optional
-        If True, input/output use healpy 1D format. If False, s2fft 2D format. Default: True
+        If True, input/output use healpy 1D format. If False, s2fft 2D format. Default: False
 
     Returns
     -------
@@ -1783,14 +1475,16 @@ def smoothalm(
 
     Examples
     --------
+    >>> import jax
+    >>> import numpy as np
     >>> import jax.numpy as jnp
     >>> import jax_healpy as jhp
-    >>> alm = jnp.array([...])  # Your alm coefficients
-    >>> fwhm_rad = jnp.radians(5.0 / 60.0)  # 5 arcmin
+    >>> lmax = 16
+    >>> cl_in = 1.0 / (jnp.arange(lmax + 1) + 1.0)
+    >>> alm = jhp.synalm(jax.random.PRNGKey(0), cl_in, lmax=lmax)
+    >>> fwhm_rad = float(np.radians(5.0 / 60.0))  # 5 arcmin (static, must be a float)
     >>> alm_smooth = jhp.smoothalm(alm, fwhm=fwhm_rad, pol=False)
     """
-    if pol:
-        raise NotImplementedError('pol=True (polarized alm) is not supported yet')
     if inplace not in (None, True):
         warnings.warn('smoothalm ignores inplace parameter; JAX arrays are immutable', UserWarning)
     if verbose not in (None, True):
@@ -1798,14 +1492,45 @@ def smoothalm(
 
     alms = jnp.asarray(alms)
 
-    # Determine lmax from alm size
-    if healpy_ordering:
-        nalm = alms.shape[0]
-        lmax = int((-1 + np.sqrt(1 + 8 * (nalm - 1))) / 2)
-    else:
-        lmax = alms.shape[0] - 1
+    def _lmax_of(component: ArrayLike) -> int:
+        if healpy_ordering:
+            return _lmax_from_nalm(component.shape[0])
+        return component.shape[0] - 1
 
-    # Get or create beam window
+    # A single alm (no stacked component axis) is always smoothed as a scalar field,
+    # matching healpy; pol only applies to a stacked (n, ...) input.
+    expected_ndim = 1 if healpy_ordering else 2
+
+    # Polarized branch: per-component beam (temperature spin 0, E/B spin 2).
+    if pol and alms.ndim == expected_ndim + 1:
+        n = alms.shape[0]
+        # Per-component spin weights: 1 -> [T]; 2 -> [E, B]; 3 -> [T, E, B].
+        if n == 1:
+            spins = (0,)
+        elif n == 2:
+            spins = (2, 2)
+        elif n == 3:
+            spins = (0, 2, 2)
+        else:
+            raise ValueError('smoothalm pol supports 1 (T), 2 (E, B), or 3 (T, E, B) components')
+        lmax = _lmax_of(alms[0])
+        ell = jnp.arange(lmax + 1)
+        if sigma is None:
+            sigma_val = fwhm / np.sqrt(8.0 * np.log(2.0))
+        else:
+            sigma_val = sigma
+        smoothed = []
+        for i in range(n):
+            if beam_window is not None:
+                fact = jnp.asarray(beam_window)
+            else:
+                # healpy: fact = exp(-0.5 * (l(l+1) - s^2) * sigma^2), s = 2 for E/B.
+                fact = jnp.exp(-0.5 * (ell * (ell + 1) - spins[i] ** 2) * sigma_val**2)
+            smoothed.append(almxfl(alms[i], fact, mmax=mmax, inplace=False, healpy_ordering=healpy_ordering))
+        return jnp.stack(smoothed, axis=0)
+
+    # Scalar branch.
+    lmax = _lmax_of(alms)
     if beam_window is not None:
         bl = jnp.asarray(beam_window)
     else:
@@ -1813,7 +1538,6 @@ def smoothalm(
 
     # Apply smoothing using almxfl
     return almxfl(alms, bl, mmax=mmax, inplace=False, healpy_ordering=healpy_ordering)
-
 
 
 @partial(
@@ -1864,8 +1588,9 @@ def smoothing(
     beam_window : array-like, optional
         Custom beam window function (supersedes fwhm and sigma). Default: None
     pol : bool, optional
-        If True, handles polarization (T,Q,U maps).
-        Not supported yet. Raises NotImplementedError if True. Default: True
+        If True and ``map_in`` is a stack of maps, treat them as polarized:
+        1 -> [I], 2 -> [Q, U], 3 -> [I, Q, U]; E/B receive the spin-2 beam.
+        A single map (1D input) is always smoothed as a scalar. Default: True
     iter : int, optional
         Number of iterations for map2alm. Default: 3
     lmax : int, optional
@@ -1895,14 +1620,17 @@ def smoothing(
 
     Examples
     --------
-    >>> import jax_healpy as jhp
+    >>> import jax
+    >>> import numpy as np
     >>> import jax.numpy as jnp
-    >>> map_in = jnp.array([...])  # Your HEALPix map
-    >>> fwhm_rad = jnp.radians(10.0)  # 10 degrees
+    >>> import jax_healpy as jhp
+    >>> nside = 8
+    >>> lmax = 2 * nside - 1
+    >>> cl_in = 1.0 / (jnp.arange(lmax + 1) + 1.0)
+    >>> map_in = jhp.synfast(jax.random.PRNGKey(0), cl_in, nside, lmax=lmax, pol=False)
+    >>> fwhm_rad = float(np.radians(10.0))  # 10 degrees (static, must be a float)
     >>> map_smooth = jhp.smoothing(map_in, fwhm=fwhm_rad, pol=False)
     """
-    if pol:
-        raise NotImplementedError('pol=True (polarized maps) is not supported yet')
     if nest:
         raise NotImplementedError('nest=True is not supported; only RING ordering accepted')
     if use_weights:
@@ -1915,19 +1643,25 @@ def smoothing(
         warnings.warn('verbose parameter is ignored in JAX implementation', UserWarning)
 
     map_in = jnp.asarray(map_in)
+    # A single map (1D) is always scalar; pol only applies to a stack of maps.
+    pol_active = pol and map_in.ndim == 2
 
-    # Transform to alm
+    if pol_active:
+        nside = npix2nside(map_in.shape[-1])
+        alms = jnp.asarray(map2alm(map_in, lmax=lmax, mmax=mmax, iter=iter, pol=True, healpy_ordering=False))
+        if alms.ndim == 2:  # single component (1 map) -> add the component axis
+            alms = alms[None, ...]
+        alms_smooth = smoothalm(
+            alms, fwhm=fwhm, sigma=sigma, beam_window=beam_window, pol=True, mmax=mmax, healpy_ordering=False
+        )
+        return alm2map(alms_smooth, nside=nside, lmax=lmax, mmax=mmax, pol=True, healpy_ordering=False)
+
+    # Scalar branch (single map).
     alms = map2alm(map_in, lmax=lmax, mmax=mmax, iter=iter, pol=False, healpy_ordering=False)
-
-    # Smooth alms
     alms_smooth = smoothalm(
         alms, fwhm=fwhm, sigma=sigma, beam_window=beam_window, pol=False, mmax=mmax, healpy_ordering=False
     )
-
-    # Transform back to map
-    map_out = alm2map(alms_smooth, nside=npix2nside(map_in.shape[0]), lmax=lmax, mmax=mmax, healpy_ordering=False)
-
-    return map_out
+    return alm2map(alms_smooth, nside=npix2nside(map_in.shape[-1]), lmax=lmax, mmax=mmax, healpy_ordering=False)
 
 
 @partial(jax.jit, static_argnames=['lmax', 'mmax', 'new', 'verbose', 'healpy_ordering'])
@@ -1938,7 +1672,7 @@ def synalm(
     mmax: int | None = None,
     new: bool = False,
     verbose: bool = True,
-    healpy_ordering: bool = True,
+    healpy_ordering: bool = False,
 ) -> ArrayLike | tuple[ArrayLike, ...]:
     """Generate random spherical harmonic coefficients from power spectrum.
 
@@ -1949,36 +1683,43 @@ def synalm(
     ----------
     prng_key : PRNGKeyArray
         JAX random number generator key (required first argument)
-    cls : array-like or tuple of arrays
+    cls : array-like or sequence of arrays
         Power spectrum data. Can be:
-        - Single 1D array for scalar (temperature-only) case
-        - Tuple of 4 arrays (TT, EE, BB, TE) for polarization
-        - Tuple of 6 arrays (TT, EE, BB, TE, EB, TB) for full correlations
+        - Single 1D array for the scalar (temperature-only) case
+        - Sequence of 4 arrays for polarization (ordering set by ``new``)
+        - Sequence of n(n+1)/2 arrays for full field correlations
+          (entries may be ``None`` to omit a cross-spectrum)
     lmax : int, optional
-        Maximum multipole moment. If None, uses max(len(cls)-1, 2*nside-1 if nside given)
+        Maximum multipole moment. If None, inferred from the longest spectrum.
     mmax : int, optional
-        Maximum azimuthal order. Default: lmax
+        Maximum azimuthal order. Only ``mmax == lmax`` is supported; any other
+        value raises NotImplementedError.
     new : bool, optional
-        Ordering convention for input spectra. Default: False
-        Note: Currently only default (False) ordering is fully supported.
+        Ordering convention for a sequence of input spectra (matches healpy):
+        - True: by diagonal, e.g. ``TT, EE, BB, TE, EB, TB`` (or ``TT, EE, BB, TE``)
+        - False (default): by row, e.g. ``TT, TE, TB, EE, EB, BB`` (or ``TT, TE, EE, BB``)
+        Ignored for a single input spectrum.
     verbose : bool, optional
         Verbosity control. Ignored. Default: True
     healpy_ordering : bool, optional
-        If True, output uses healpy 1D format. If False, s2fft 2D format. Default: True
+        If True, output uses healpy 1D format. If False, s2fft 2D format. Default: False
 
     Returns
     -------
-    alms : array-like or tuple of arrays
-        Generated spherical harmonic coefficients.
-        Single array for scalar case, tuple of 3 arrays (T, E, B) for polarization.
+    alms : array-like
+        Generated spherical harmonic coefficients. A single array for the scalar
+        case, or a stacked ``(n, ...)`` array of T, E, B coefficients for the
+        polarization case.
 
     Notes
     -----
-    For scalar case:
+    For the scalar case:
     - m=0: a_l0 is real, drawn from N(0, C_l)
     - m>0: a_lm is complex, real and imag parts drawn from N(0, C_l/2)
 
-    Polarization (TEB) case is not yet fully implemented.
+    For the polarization case the per-multipole field covariance matrix is built
+    from the input (cross-)spectra and its matrix square root mixes independent
+    unit-variance realizations, reproducing cross-spectra such as TE exactly.
 
     Examples
     --------
@@ -1992,25 +1733,77 @@ def synalm(
     >>> cl = 1.0 / (ell + 10)**2
     >>> alm = jhp.synalm(key, cl, lmax=64)
     """
-    if new:
-        warnings.warn('new parameter ordering convention not fully implemented', UserWarning)
     if verbose not in (None, True):
         warnings.warn('verbose parameter is ignored in JAX implementation', UserWarning)
 
-    # Check if cls is a tuple (polarization case)
-    if isinstance(cls, (tuple, list)):
-        raise NotImplementedError(
-            'Full TEB polarization support not yet implemented. Only scalar (single power spectrum) case supported.'
-        )
+    is_multi, payload = _as_spectra_list(cls)
+
+    # Polarization / multi-spectra case: draw correlated alms whose per-multipole
+    # field covariance matches the input (cross-)spectra, including cross-spectra
+    # (e.g. CMB TE) that a per-field sqrt(C_l) scaling cannot capture.
+    if is_multi:
+        cls_list = [None if c is None else jnp.asarray(c) for c in payload]
+        if lmax is None:
+            lmax = max(c.shape[0] for c in cls_list if c is not None) - 1
+        if mmax is not None and mmax != lmax:
+            raise NotImplementedError('Specifying mmax != lmax is not implemented.')
+        L = lmax + 1
+
+        def pad_cl(cl):
+            if cl is None:
+                return jnp.zeros(L, dtype=jnp.float64)
+            cl = jnp.asarray(cl)
+            if cl.shape[0] < L:
+                return jnp.pad(cl, (0, L - cl.shape[0]), constant_values=0)
+            return cl[:L]
+
+        # Normalize the spectra into healpy "old" (by-row) order with n(n+1)/2 entries.
+        k = len(cls_list)
+        if k == 4:
+            # healpy: 4 cls always map to n=3 (T, E, B) with EB = TB = 0.
+            if new:  # new input order: TT, EE, BB, TE
+                row_order = _new_to_old_spectra_order([cls_list[0], cls_list[1], cls_list[2], cls_list[3], None, None])
+            else:  # old input order: TT, TE, EE, BB
+                row_order = [cls_list[0], cls_list[1], None, cls_list[2], None, cls_list[3]]
+            n = 3
+        else:
+            n = _getn(k)
+            if n < 0:
+                raise ValueError('cls must contain 1, 4, or n(n+1)/2 spectra')
+            row_order = _new_to_old_spectra_order(cls_list) if new else cls_list
+
+        # Build the symmetric per-ell covariance matrix cov[l, i, j].
+        cols = [pad_cl(c) for c in row_order]
+        rows = [[None] * n for _ in range(n)]
+        idx = 0
+        for i in range(n):
+            for j in range(i, n):
+                rows[i][j] = cols[idx]
+                rows[j][i] = cols[idx]
+                idx += 1
+        cov = jnp.stack([jnp.stack(rows[i], axis=-1) for i in range(n)], axis=-2)  # (L, n, n)
+
+        # Real symmetric matrix square root (principal sqrt of a symmetric PSD matrix
+        # is symmetric PSD, so R @ R == cov, incl. the singular low-ell blocks; sqrtm
+        # returns complex -> take real part), then mix n independent unit-variance draws.
+        sqrt_cov = jnp.real(jax.vmap(sqrtm)(cov))  # (L, n, n)
+        keys = jax.random.split(prng_key, n)
+        ones = jnp.ones(L, dtype=jnp.float64)
+        unit = jnp.stack([_generate_random_alm(ones, lmax, keys[i]) for i in range(n)], axis=0)  # (n, L, 2L-1)
+        alms = jnp.einsum('lij,jlm->ilm', sqrt_cov, unit)  # (n, L, 2L-1)
+
+        if healpy_ordering:
+            alms = jnp.stack([flm_2d_to_hp_fast(alms[i], L) for i in range(n)], axis=0)
+        return alms
 
     # Scalar case - use existing _generate_random_alm
-    cls = jnp.asarray(cls)
-
+    cls = jnp.asarray(payload)
     if lmax is None:
         lmax = cls.shape[0] - 1
+    if mmax is not None and mmax != lmax:
+        raise NotImplementedError('Specifying mmax != lmax is not implemented.')
 
-    # Generate random alms
-    alms = _generate_random_alm(cls, lmax, mmax, prng_key)
+    alms = _generate_random_alm(cls, lmax, prng_key)
 
     # Convert to healpy ordering if requested
     if healpy_ordering:
@@ -2084,8 +1877,13 @@ def synfast(
 
     Parameters
     ----------
-    cls : array-like
-        Input power spectrum C_l, shape (lmax+1,) or longer
+    prng_key : PRNGKeyArray
+        JAX random number generator key (required first argument). Build it from
+        an integer seed with ``jax.random.PRNGKey(seed)``.
+    cls : array-like or sequence of arrays
+        Input power spectrum/spectra. A single 1D array for the scalar case, or a
+        sequence of 4 or n(n+1)/2 spectra for polarization (ordering set by
+        ``new``; see :func:`synalm`).
     nside : int
         HEALPix nside parameter for output map
     lmax : int, optional
@@ -2095,88 +1893,93 @@ def synfast(
         ``ValueError`` is raised if the requested or derived ``lmax`` falls
         below that threshold.
     mmax : int, optional
-        Maximum m. Default: lmax
+        Maximum m. Only ``mmax == lmax`` is supported; any other value raises
+        NotImplementedError.
     alm : bool, optional
         If True, return both the map and the alm coefficients used to generate it.
         If False, return only the map. Default: False
     pol : bool, optional
-        If True, assumes polarized output (TQU or TEB maps).
-        Not supported yet. Raises NotImplementedError if True. Default: True
+        If True and several spectra are given, assume they are TEB (auto- and
+        cross-) spectra and return TQU maps stacked as ``(3, npix)``. With a
+        single input spectrum ``pol`` has no effect (scalar output), matching
+        healpy. Default: True
     pixwin : bool, optional
         Apply pixel window function. Not supported yet.
         Raises NotImplementedError if True. Default: False
     fwhm : float, optional
         Gaussian beam FWHM in radians for smoothing. Default: 0.0
+        For polarized output the spin-2 beam correction is applied to E/B.
     sigma : float, optional
         Gaussian beam sigma in radians. If specified, overrides fwhm.
     new : bool, optional
-        If True, uses JAX PRNG with seed parameter.
-        If False, uses numpy random state (not recommended for JAX).
-        Default: False (to match healpy)
+        Ordering convention for a sequence of input spectra (matches healpy):
+        True for the new by-diagonal order, False (default) for the old by-row
+        order. Ignored for a single input spectrum. See :func:`synalm`.
     verbose : bool, optional
         Verbosity flag. Accepted for API compatibility but ignored with a warning.
         Default: True
     method : str, optional
         Transform method ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'
         JAX-specific parameter not present in healpy.
-    seed : int, optional
-        Random seed for reproducibility (only used if new=True). Default: 0
-        JAX-specific parameter not present in healpy.
 
     Returns
     -------
     map : array-like
-        Random HEALPix map in RING scheme, shape (npix,)
+        Random HEALPix map in RING scheme, shape ``(npix,)`` for scalar input or
+        ``(3, npix)`` (T, Q, U) for polarized input.
     alm : array-like, optional
-        Spherical harmonic coefficients in s2fft format (only if alm=True)
+        Spherical harmonic coefficients in s2fft format (only if alm=True).
 
     Notes
     -----
-    This function generates random alm coefficients from the input power spectrum,
-    then transforms them to a map using alm2map with optional smoothing.
-
-    For each (l,m):
-    - m=0: a_l0 is real, drawn from N(0, C_l)
-    - m>0: a_lm is complex, real and imag parts drawn from N(0, C_l/2)
-
-    This function matches the healpy.sphtfunc.synfast API but only supports
-    scalar (non-polarized) output maps. Polarization and pixel window
-    functionality are not yet implemented.
+    This function generates random alm coefficients from the input power
+    spectrum/spectra (see :func:`synalm`), then transforms them to a map using
+    :func:`alm2map`. For polarization the per-multipole field covariance is built
+    from the (cross-)spectra and its matrix square root is used so that
+    cross-spectra such as TE are reproduced exactly. Pixel window functionality
+    is not yet implemented.
 
     Examples
     --------
-    Generate a random map from a power spectrum:
+    Generate a random scalar map from a power spectrum:
 
+    >>> import jax
     >>> import jax.numpy as jnp
     >>> import jax_healpy as jhp
-    >>> lmax = 64
+    >>> nside = 32
+    >>> lmax = 3 * nside - 1
     >>> ell = jnp.arange(lmax + 1)
     >>> cl = 1.0 / (ell + 10)**2  # Simple power-law spectrum
-    >>> nside = 32
-    >>> random_map = jhp.synfast(cl, nside, new=True, seed=42, pol=False)
+    >>> key = jax.random.PRNGKey(42)
+    >>> random_map = jhp.synfast(key, cl, nside, lmax=lmax, pol=False)
 
     Generate a map and get the alm coefficients:
 
-    >>> random_map, alm_coeffs = jhp.synfast(cl, nside, alm=True, new=True, seed=42, pol=False)
+    >>> random_map, alm_coeffs = jhp.synfast(key, cl, nside, lmax=lmax, alm=True, pol=False)
     """
     # Validate unsupported parameters
-    if pol:
-        raise NotImplementedError('pol=True (polarized output) is not supported yet')
     if pixwin:
         raise NotImplementedError('pixwin=True is not supported yet')
     if verbose not in (None, True):
         warnings.warn('verbose parameter is ignored in JAX implementation', UserWarning)
-    if new is True:
-        warnings.warn('new parameter is ignored in JAX implementation', UserWarning)
 
-    cls = jnp.asarray(cls)
-    cls_lmax = cls.shape[0] - 1
+    is_multi, payload = _as_spectra_list(cls)
+    # healpy: a single input spectrum means pol has no effect.
+    pol_active = pol and is_multi
+
+    # Resolve lmax following healpy: min(longest spectrum - 1, 3 * nside - 1).
+    if is_multi:
+        cls_lmax = max(jnp.asarray(c).shape[0] for c in payload if c is not None) - 1
+    else:
+        cls_lmax = jnp.asarray(payload).shape[0] - 1
 
     if lmax is None or lmax < 0:
-        healpy_default = min(cls_lmax, 3 * nside - 1)
-        resolved_lmax = healpy_default
+        resolved_lmax = min(cls_lmax, 3 * nside - 1)
     else:
         resolved_lmax = int(lmax)
+
+    if mmax is not None and mmax != resolved_lmax:
+        raise NotImplementedError('Specifying mmax != lmax is not implemented.')
 
     min_supported_lmax = 2 * nside - 1
     if resolved_lmax < min_supported_lmax:
@@ -2186,15 +1989,16 @@ def synfast(
             'larger lmax (you can zero-pad the spectrum) before calling synfast.'
         )
 
-    alms = _generate_random_alm(cls, resolved_lmax, mmax, prng_key=prng_key)
-
-    # Transform to map with optional smoothing
+    # Like healpy: draw the alms (correlated TEB for several spectra, scalar otherwise)
+    # then transform. pol_active drives whether E/B map to Q, U (spin-2) or to
+    # independent spin-0 maps.
+    alms = synalm(prng_key, cls, lmax=resolved_lmax, mmax=mmax, new=new, healpy_ordering=False)
     map_synth = alm2map(
         alms,
         nside,
         lmax=resolved_lmax,
-        mmax=mmax,
         pixwin=pixwin,
+        pol=pol_active,
         fwhm=fwhm,
         sigma=sigma,
         healpy_ordering=False,
@@ -2206,10 +2010,16 @@ def synfast(
     return map_synth
 
 
-@partial(jax.jit, static_argnames=['spin', 'lmax', 'mmax', 'method', 'healpy_ordering'])
+@partial(jax.jit, static_argnames=['spin', 'lmax', 'mmax', 'iter', 'method', 'healpy_ordering'])
 @requires_s2fft
 def map2alm_spin(
-    maps, spin: int, lmax: int | None = None, mmax: int | None = None, method: str = 'jax', healpy_ordering: bool = True
+    maps,
+    spin: int,
+    lmax: int | None = None,
+    mmax: int | None = None,
+    iter: int = 0,
+    method: str = 'jax',
+    healpy_ordering: bool = False,
 ):
     """Compute spin-weighted spherical harmonic coefficients from HEALPix maps.
 
@@ -2224,10 +2034,14 @@ def map2alm_spin(
         Maximum multipole l. Default: 3*nside - 1
     mmax : int, optional
         Maximum m. Default: lmax
+    iter : int, optional
+        Number of iterative refinement iterations in the forward transform.
+        Unlike healpy's ``map2alm_spin`` (which has no ``iter``), this is exposed
+        here. Default: 0 (no iteration, matching healpy's behavior).
     method : str, optional
         Transform method ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'
     healpy_ordering : bool, optional
-        If True, return alms in healpy format. If False, s2fft format. Default: True
+        If True, return alms in healpy format. If False, s2fft format. Default: False
 
     Returns
     -------
@@ -2243,12 +2057,14 @@ def map2alm_spin(
     --------
     Compute E and B modes from Q and U maps:
 
-    >>> import healpy as hp
+    >>> import jax
     >>> import jax_healpy as jhp
-    >>> nside = 32
-    >>> Q_map = hp.synfast(..., nside)
-    >>> U_map = hp.synfast(..., nside)
-    >>> E_lm, B_lm = jhp.map2alm_spin([Q_map, U_map], spin=2)
+    >>> nside = 8
+    >>> lmax = 2 * nside - 1
+    >>> npix = 12 * nside**2
+    >>> Q_map = jax.random.normal(jax.random.PRNGKey(0), (npix,))
+    >>> U_map = jax.random.normal(jax.random.PRNGKey(1), (npix,))
+    >>> E_lm, B_lm = jhp.map2alm_spin([Q_map, U_map], spin=2, lmax=lmax)
     """
     if spin != 0:
         # For spin != 0, expect list of 2 maps
@@ -2269,16 +2085,15 @@ def map2alm_spin(
     if mmax is not None and mmax != lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
 
-    # Call core function (iter=0 for spin transforms, no iteration support yet)
+    # Call core function
     flm = _map2alm_core(
         maps=maps,
         lmax=target_L - 1,
         mmax=mmax,
-        iter=0,
+        iter=iter,
         method=method,
         spin=spin,
     )
-
 
     if healpy_ordering:
         if spin != 0:
@@ -2286,8 +2101,6 @@ def map2alm_spin(
         else:
             flm = flm_2d_to_hp_fast(flm, target_L)
 
-    if pol:
-          return flm, flm_E, flm_B
     return flm
 
 
@@ -2300,7 +2113,7 @@ def alm2map_spin(
     lmax: int | None = None,
     mmax: int | None = None,
     method: str = 'jax',
-    healpy_ordering: bool = True,
+    healpy_ordering: bool = False,
 ):
     """Compute HEALPix maps from spin-weighted spherical harmonic coefficients.
 
@@ -2320,7 +2133,7 @@ def alm2map_spin(
     method : str, optional
         Transform method ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'
     healpy_ordering : bool, optional
-        If True, input alms are in healpy format. If False, s2fft format. Default: True
+        If True, input alms are in healpy format. If False, s2fft format. Default: False
 
     Returns
     -------
@@ -2352,11 +2165,8 @@ def alm2map_spin(
         # Infer lmax from shape
         if lmax is None:
             if healpy_ordering:
-                # For healpy format: nalm = mmax*(2*lmax+1-mmax)/2 + lmax+1
-                # Simplest case: mmax=lmax => nalm = lmax*(lmax+2)/2 + 1
-                # Solve: lmax = (-1 + sqrt(1 + 8*(nalm-1))) / 2
-                nalm = alms[0].shape[0]
-                lmax = int((-1 + jnp.sqrt(1 + 8 * (nalm - 1))) / 2)
+                # healpy 1D layout (mmax == lmax): nalm = (lmax+1)*(lmax+2)/2
+                lmax = _lmax_from_nalm(alms[0].shape[0])
             else:
                 # For s2fft format: shape is (L, 2L-1)
                 lmax = alms[0].shape[0] - 1
@@ -2364,8 +2174,7 @@ def alm2map_spin(
         alms = jnp.asarray(alms)
         if lmax is None:
             if healpy_ordering:
-                nalm = alms.shape[0]
-                lmax = int((-1 + jnp.sqrt(1 + 8 * (nalm - 1))) / 2)
+                lmax = _lmax_from_nalm(alms.shape[0])
             else:
                 lmax = alms.shape[0] - 1
 

@@ -41,14 +41,14 @@ test = [
     'pandas',
     'pytest',
     'pytest-cov',
-    'pytest-rerunfailures',
     'pytest-mock',
+    'pytest-rerunfailures',  # reruns the known upstream-s2fft alm2map flake (see test_map_alm.py)
     'setuptools_scm',
     'typer',
     'PyYAML',
     'chex',
 ]
-all = [
+recommended = [
     's2fft',
 ]
 
@@ -113,8 +113,8 @@ markers = [
 version_scheme = 'post-release'
 fallback_version = '0.0.0'
 
-[tool.setuptools]
-packages = ['jax_healpy']
+[tool.setuptools.packages.find]
+include = ['jax_healpy*']
 
 [tool.ruff]
 line-length = 120

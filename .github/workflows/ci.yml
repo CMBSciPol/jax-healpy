@@ -48,11 +48,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install git+https://github.com/astro-informatics/s2fft.git@ASKabalan
+          pip install git+https://github.com/astro-informatics/s2fft.git
           pip install .[test]
 
       - name: Run tests
         run: |
           pip list | grep -E "numpy|healpy|jax|s2fft"
-          pytest -v -m "not slow" --tb=short 2>&1 || true
-          pytest -v tests/sphtfunc/test_spin_transforms.py::test_map2alm_spin_different_spins -x --tb=long
+          pytest -v -m "not slow"
