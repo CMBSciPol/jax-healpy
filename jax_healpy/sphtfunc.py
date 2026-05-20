@@ -504,7 +504,11 @@ def alm2map(
       The sigma of the Gaussian used to smooth the map (applied on alm)
       [in radians]
     pol : bool, optional
-      Polarized TEB inputs are not supported yet. Must remain False.
+      If True, treat input alms as [alm_T, alm_E, alm_B] and return TQU maps
+      stacked as a (3, npix) array. Input must have shape (3, nalm) for
+      healpy_ordering=True or (3, L, 2L-1) for healpy_ordering=False.
+      Polarized smoothing (fwhm/sigma) and pixwin are not supported in this
+      mode yet. Default: False.
     inplace : bool, optional
       Ignored in the JAX backend. Any truthy value will emit a warning.
     healpy ordering : bool, optional
@@ -534,15 +538,51 @@ def alm2map(
     if alms.ndim > expected_ndim + 1 + pol:
         raise ValueError('Input alms have too many dimensions.')
 
-    if pol:
-        raise NotImplementedError('Polarized alm2map (pol=True) is not implemented yet.')
-
     if inplace not in (None, False):
         warnings.warn('alm2map ignores inplace=True under JAX; arrays are immutable.', UserWarning)
     inplace_flag = False
 
     if pixwin:
         raise NotImplementedError('Pixel-window smoothing is not implemented; set pixwin=False.')
+
+    # Polarized TEB -> TQU branch: input is shape (3, ...), output is (3, npix).
+    if pol:
+        expected_pol_ndim = expected_ndim + 1  # (3, nalm) or (3, L, 2L-1)
+        if alms.ndim != expected_pol_ndim:
+            raise ValueError(
+                f'pol=True requires alms with shape (3, ...); got ndim={alms.ndim}, healpy_ordering={healpy_ordering}.'
+            )
+        if alms.shape[0] != 3:
+            raise ValueError(f'pol=True requires alms with shape (3, ...) for T, E, B; got shape {alms.shape}.')
+        if fwhm != 0 or sigma is not None:
+            # Polarized beam smoothing requires the spin-2 correction in the
+            # beam window function; not implemented yet (see PR review M2/M14).
+            raise NotImplementedError('Polarized smoothing (pol=True with fwhm/sigma) is not implemented yet.')
+
+        target_L = 3 * nside if lmax is None else lmax + 1
+        target_lmax = target_L - 1
+        if mmax is not None and mmax != target_lmax:
+            raise NotImplementedError('Specifying mmax != lmax is not implemented.')
+
+        T_map = _alm2map_core(
+            alms=alms[0],
+            nside=nside,
+            lmax=target_lmax,
+            mmax=mmax,
+            method=method,
+            spin=0,
+            healpy_ordering=healpy_ordering,
+        )
+        Q_map, U_map = _alm2map_core(
+            alms=[alms[1], alms[2]],
+            nside=nside,
+            lmax=target_lmax,
+            mmax=mmax,
+            method=method,
+            spin=2,
+            healpy_ordering=healpy_ordering,
+        )
+        return jnp.stack([T_map, Q_map, U_map], axis=0)
 
     # Handle batched input
     if alms.ndim == expected_ndim + 1 + pol:
@@ -841,7 +881,7 @@ def almxfl(alm: ArrayLike, fl: ArrayLike, mmax: int | None = None, inplace: bool
         return flm_2d_to_hp_fast(alm_filtered, L)
     else:
         # s2fft 2D format: directly broadcast fl over m dimension
-        fl_2d = fl[:, None]
+        fl_2d = fl[..., None]
         return alm * fl_2d
 
 
