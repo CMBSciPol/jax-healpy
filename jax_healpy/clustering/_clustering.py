@@ -18,6 +18,7 @@ from functools import partial
 
 import jax
 import numpy as np
+from jax import core
 from jax import numpy as jnp
 from jaxtyping import Array, PRNGKeyArray
 
@@ -268,6 +269,9 @@ def shuffle_labels(arr: Array) -> Array:
         >>> shuffle_labels(arr)
         array([2, 2, 0, 0, 1, hp.UNSEEN])  # result will vary
     """
+    if not core.is_concrete(arr):
+        raise ValueError('shuffle_labels is not compatible with JIT.')
+
     unique_vals = np.unique(arr[arr != UNSEEN])
     shuffled_vals = np.random.permutation(unique_vals)
 
