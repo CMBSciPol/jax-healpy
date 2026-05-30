@@ -47,7 +47,23 @@ from .pixelfunc import (
     vec2pix,
     xyf2pix,
 )
-from .sphtfunc import alm2map, map2alm
+from .sphtfunc import (
+    alm2cl,
+    alm2map,
+    alm2map_spin,
+    almxfl,
+    anafast,
+    gauss_beam,
+    map2alm,
+    map2alm_spin,
+    pixwin,
+    precompute_polarization_harmonic_transforms,
+    precompute_temperature_harmonic_transforms,
+    smoothalm,
+    smoothing,
+    synalm,
+    synfast,
+)
 
 __all__ = [
     'pix2ang',
@@ -92,8 +108,21 @@ __all__ = [
     'query_disc',
     'estimate_disc_pixel_count',
     'estimate_disc_radius',
+    'alm2cl',
     'alm2map',
+    'alm2map_spin',
+    'almxfl',
+    'anafast',
+    'gauss_beam',
     'map2alm',
+    'map2alm_spin',
+    'pixwin',
+    'precompute_polarization_harmonic_transforms',
+    'precompute_temperature_harmonic_transforms',
+    'smoothalm',
+    'smoothing',
+    'synalm',
+    'synfast',
 ]
 
 _config.update('jax_enable_x64', True)

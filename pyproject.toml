@@ -47,13 +47,14 @@ test = [
     'pandas',
     'pytest',
     'pytest-cov',
+    'pytest-rerunfailures',
     'pytest-mock',
     'setuptools_scm',
     'typer',
     'PyYAML',
     'chex',
 ]
-recommended = [
+all = [
     's2fft',
 ]
 
@@ -83,6 +84,9 @@ markers = [
 [tool.setuptools_scm]
 version_scheme = 'post-release'
 fallback_version = '0.0.0'
+
+[tool.setuptools]
+packages = ['jax_healpy']
 
 [tool.ruff]
 line-length = 120
