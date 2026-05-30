@@ -10,6 +10,47 @@ import jax_healpy as jhp
 jax.config.update('jax_enable_x64', True)
 
 
+@pytest.fixture
+def synthetic_teb():
+    """Factory for reproducible TT, EE, BB, TE spectra (healpy 'new' ordering).
+
+    Monopole/dipole are zero (as for the CMB) so the low-ell covariance blocks
+    are singular, exercising the matrix-square-root path. TE is kept well below
+    sqrt(TT*EE) so the field covariance stays positive semi-definite.
+    """
+
+    def _make(lmax: int) -> np.ndarray:
+        ell = np.arange(lmax + 1)
+        tt = np.zeros(lmax + 1)
+        tt[2:] = 1.0 / (ell[2:] + 10.0) ** 2
+        return np.array([tt, 0.1 * tt, 0.01 * tt, 0.05 * tt])
+
+    return _make
+
+
+@pytest.fixture
+def power_law_cl():
+    """Factory for a simple band-limited power-law C_l, ``1 / (ell + 10)^2``."""
+
+    def _make(lmax: int) -> np.ndarray:
+        ell = np.arange(lmax + 1)
+        return 1.0 / (ell + 10.0) ** 2
+
+    return _make
+
+
+@pytest.fixture
+def pol_nside() -> int:
+    """Small, fixed nside for the polarization/ensemble tests (keeps them fast)."""
+    return 16
+
+
+@pytest.fixture
+def pol_lmax(pol_nside: int) -> int:
+    """Supported s2fft band-limit for ``pol_nside`` (2 * nside - 1)."""
+    return 2 * pol_nside - 1
+
+
 def test_anafast_basic(synthesized_map: np.ndarray, lmax: int) -> None:
     """Test basic anafast auto-spectrum computation."""
     cl_jax = jhp.anafast(synthesized_map, lmax=lmax, iter=0, pol=False)
@@ -140,42 +181,32 @@ def test_synfast_with_smoothing(cla: np.ndarray, nside: int) -> None:
     assert jnp.std(map_smooth) < jnp.std(map_no_smooth)
 
 
-def test_synfast_roundtrip(nside: int) -> None:
-    """Test synfast -> anafast roundtrip recovers input spectrum."""
-    seed = 12345
+def test_synfast_roundtrip(nside: int, power_law_cl) -> None:
+    """synfast alms -> map -> map2alm recovers the alms element-wise (with iteration).
 
-    lmax = 3 * nside - 1
+    At lmax = 2*nside - 1 the field is band-limited well inside the healpix Nyquist
+    limit, so map2alm o alm2map converges to the identity: with enough iterations the
+    recovered alms match the synfast alms to ~machine precision. (At lmax = 3*nside - 1
+    aliasing near the Nyquist edge prevents convergence, so this uses the supported
+    minimum band-limit.)
+    """
+    lmax = 2 * nside - 1
+    cl_input = power_law_cl(lmax)
 
-    # Generate a synthetic power spectrum with the correct lmax
-    ell = jnp.arange(lmax + 1)
-    cl_input = 1.0 / (ell + 10) ** 2
+    # synfast returns the s2fft-layout alms it drew along with the map.
+    map_synth, alms = jhp.synfast(jax.random.PRNGKey(12345), cl_input, nside, lmax=lmax, pol=False, alm=True)
 
-    # Generate map from this spectrum
-    map_synth = jhp.synfast(jax.random.PRNGKey(seed), cl_input, nside, lmax=lmax, pol=False)
+    # Invert the map back to alms; iteration drives the roundtrip to machine precision.
+    alms_recovered = jhp.map2alm(np.asarray(map_synth), lmax=lmax, iter=10, pol=False, healpy_ordering=False)
 
-    # Recover spectrum
-    cl_recovered = jhp.anafast(map_synth, lmax=lmax, iter=3, pol=False)
-
-    target_cl = cl_input
-
-    rel_error = jnp.abs(cl_recovered - target_cl) / (target_cl + 1e-20)
-    a_error = jnp.abs(cl_recovered - target_cl)
-
-    # Most multipoles should have reasonable accuracy (within ~20% for single realization)
-    # Exclude l<2 which can be noisy
-    # Absolute error threshold accounts for cosmic variance in single realizations
-    print(f'jnp.median(rel_error[2:]) = {jnp.median(rel_error[2:])}')
-    print(f'jnp.median(a_error[2:]) = {jnp.median(a_error[2:])}')
-    assert jnp.median(rel_error[2:]) < 0.2
-    assert jnp.median(a_error[2:]) < 1e-3
+    np.testing.assert_allclose(np.asarray(alms_recovered), np.asarray(alms), atol=1e-8, rtol=1e-8)
 
 
-def test_synfast_different_seeds() -> None:
+def test_synfast_different_seeds(power_law_cl) -> None:
     """Test that synfast with different seeds produces different maps."""
     nside = 16
     lmax = 31
-    ell = jnp.arange(lmax + 1)
-    cl = 1.0 / (ell + 10) ** 2
+    cl = power_law_cl(lmax)
 
     map1 = jhp.synfast(jax.random.PRNGKey(42), cl, nside, lmax=lmax, pol=False)
     map2 = jhp.synfast(jax.random.PRNGKey(43), cl, nside, lmax=lmax, pol=False)
@@ -184,76 +215,210 @@ def test_synfast_different_seeds() -> None:
     assert not jnp.allclose(map1, map2)
 
 
-# Parameter validation tests for anafast
-def test_anafast_nspec() -> None:
+def test_anafast_nspec(synthesized_map: np.ndarray, lmax: int | None) -> None:
     """Test that anafast nspec parameter works correctly."""
-    nside = 16
-    npix = hp.nside2npix(nside)
-    lmax = 31
-    np.random.seed(42)
-    map_data = np.random.randn(npix)
+    cl_full = jhp.anafast(synthesized_map, lmax=lmax, pol=False)
+    cl_partial = jhp.anafast(synthesized_map, lmax=lmax, nspec=4, pol=False)
 
-    # Get full spectrum
-    cl_full = jhp.anafast(map_data, lmax=lmax, pol=False)
-
-    # Get only first 4 spectra
-    cl_partial = jhp.anafast(map_data, lmax=lmax, nspec=4, pol=False)
-
-    # Should match the first 4 elements
+    # nspec keeps the first 4 multipoles of the single spectrum (matches healpy slicing).
     assert cl_partial.shape == (4,)
     np.testing.assert_allclose(cl_partial, cl_full[:4], atol=1e-15, rtol=1e-15)
 
 
-def test_anafast_use_weights_raises() -> None:
+def test_anafast_use_weights_raises(synthesized_map: np.ndarray) -> None:
     """Test that anafast raises NotImplementedError for use_weights=True."""
-    nside = 16
-    npix = hp.nside2npix(nside)
-    map_data = np.random.randn(npix)
-
     with pytest.raises(NotImplementedError, match='use_weights is not supported'):
-        jhp.anafast(map_data, use_weights=True, pol=False)
+        jhp.anafast(synthesized_map, use_weights=True, pol=False)
 
 
-def test_anafast_datapath_raises() -> None:
+def test_anafast_datapath_raises(synthesized_map: np.ndarray) -> None:
     """Test that anafast raises NotImplementedError for datapath."""
-    nside = 16
-    npix = hp.nside2npix(nside)
-    map_data = np.random.randn(npix)
-
     with pytest.raises(NotImplementedError, match='datapath is not supported'):
-        jhp.anafast(map_data, datapath='/some/path', pol=False)
+        jhp.anafast(synthesized_map, datapath='/some/path', pol=False)
 
 
-def test_anafast_gal_cut_raises() -> None:
+def test_anafast_gal_cut_raises(synthesized_map: np.ndarray) -> None:
     """Test that anafast raises NotImplementedError for gal_cut != 0."""
-    nside = 16
-    npix = hp.nside2npix(nside)
-    map_data = np.random.randn(npix)
-
     with pytest.raises(NotImplementedError, match='gal_cut is not supported'):
-        jhp.anafast(map_data, gal_cut=10, pol=False)
+        jhp.anafast(synthesized_map, gal_cut=10, pol=False)
 
 
-def test_anafast_use_pixel_weights_raises() -> None:
+def test_anafast_use_pixel_weights_raises(synthesized_map: np.ndarray) -> None:
     """Test that anafast raises NotImplementedError for use_pixel_weights=True."""
-    nside = 16
-    npix = hp.nside2npix(nside)
-    map_data = np.random.randn(npix)
-
     with pytest.raises(NotImplementedError, match='use_pixel_weights is not supported'):
-        jhp.anafast(map_data, use_pixel_weights=True, pol=False)
+        jhp.anafast(synthesized_map, use_pixel_weights=True, pol=False)
 
 
-# Parameter validation tests for synfast
-def test_synfast_pol_raises() -> None:
-    """Test that synfast raises NotImplementedError for pol=True."""
+# Polarization (pol=True) tests for synfast / synalm
+def test_synfast_pol_shape_and_consistency(pol_nside, pol_lmax, synthetic_teb) -> None:
+    """synfast pol=True returns TQU maps consistent with alm2map(pol=True)."""
+    nside, lmax = pol_nside, pol_lmax
+    cls = synthetic_teb(lmax)
+
+    map_synth, alms = jhp.synfast(jax.random.PRNGKey(0), cls, nside, lmax=lmax, new=True, pol=True, alm=True)
+
+    npix = hp.nside2npix(nside)
+    assert map_synth.shape == (3, npix)
+    assert alms.shape == (3, lmax + 1, 2 * lmax + 1)
+    assert np.all(np.isfinite(np.asarray(map_synth)))
+
+    # The returned map must be exactly alm2map(pol=True) of the returned alms.
+    map_from_alm = jhp.alm2map(alms, nside, lmax=lmax, pol=True, healpy_ordering=False)
+    np.testing.assert_allclose(np.asarray(map_synth), np.asarray(map_from_alm), atol=1e-12)
+
+
+def test_synfast_pol_new_vs_old_ordering(pol_nside, pol_lmax, synthetic_teb) -> None:
+    """new=True (TT,EE,BB,TE) and new=False (TT,TE,EE,BB) must agree for one key."""
+    nside, lmax = pol_nside, pol_lmax
+    tt, ee, bb, te = synthetic_teb(lmax)
+    cls_new = np.array([tt, ee, bb, te])  # diagonal order
+    cls_old = np.array([tt, te, ee, bb])  # row order
+
+    key = jax.random.PRNGKey(11)
+    map_new = jhp.synfast(key, cls_new, nside, lmax=lmax, new=True, pol=True)
+    map_old = jhp.synfast(key, cls_old, nside, lmax=lmax, new=False, pol=True)
+    np.testing.assert_allclose(np.asarray(map_new), np.asarray(map_old), atol=1e-12)
+
+
+def test_synfast_pol_recovers_input_spectra(pol_nside, pol_lmax, synthetic_teb) -> None:
+    """Ensemble-averaged anafast of synfast pol maps recovers the input TEB spectra."""
+    nside, lmax = pol_nside, pol_lmax
+    tt, ee, bb, te = synthetic_teb(lmax)
+    cls = np.array([tt, ee, bb, te])
+    ell = np.arange(lmax + 1)
+    m = ell >= 2
+
+    n_real = 80
+    acc = np.zeros((6, lmax + 1))
+    for i in range(n_real):
+        map_synth = jhp.synfast(jax.random.PRNGKey(7000 + i), cls, nside, lmax=lmax, new=True, pol=True)
+        acc += np.asarray(jhp.anafast(np.asarray(map_synth), lmax=lmax, pol=True))  # TT,EE,BB,TE,EB,TB
+    acc /= n_real
+
+    # Auto- and TE cross-spectra recover the input (healpy synfast contract).
+    for idx, ref in [(0, tt), (1, ee), (2, bb), (3, te)]:
+        rel = np.median(np.abs(acc[idx][m] - ref[m]) / (np.abs(ref[m]) + 1e-30))
+        assert rel < 0.2, f'spectrum {idx}: median rel error {rel}'
+    # EB, TB have no input correlation -> consistent with zero.
+    bound = 0.1 * np.mean(np.sqrt(tt[m] * ee[m]))
+    assert np.mean(np.abs(acc[4][m])) < bound  # EB
+    assert np.mean(np.abs(acc[5][m])) < bound  # TB
+
+
+def test_synfast_pol_false_recovers_input_spectra(pol_nside, pol_lmax, synthetic_teb) -> None:
+    """pol=False with several spectra transforms the correlated alms as independent
+    spin-0 maps; the recovered auto- and TE cross-spectra still match the input.
+
+    Physical counterpart to the pol=True recovery test: here the 3 returned maps are
+    the T, E, B fields themselves (not Q, U), so a scalar anafast on each recovers
+    TT/EE/BB and a scalar cross of the T and E maps recovers TE.
+    """
+    nside, lmax = pol_nside, pol_lmax
+    tt, ee, bb, te = synthetic_teb(lmax)
+    cls = np.array([tt, ee, bb, te])
+    ell = np.arange(lmax + 1)
+    m = ell >= 2
+
+    n_real = 80
+    acc_tt = np.zeros(lmax + 1)
+    acc_ee = np.zeros(lmax + 1)
+    acc_bb = np.zeros(lmax + 1)
+    acc_te = np.zeros(lmax + 1)
+    for i in range(n_real):
+        maps = np.asarray(jhp.synfast(jax.random.PRNGKey(8000 + i), cls, nside, lmax=lmax, new=True, pol=False))
+        assert maps.shape == (3, hp.nside2npix(nside))
+        t_map, e_map, b_map = maps
+        acc_tt += np.asarray(jhp.anafast(t_map, lmax=lmax, pol=False))
+        acc_ee += np.asarray(jhp.anafast(e_map, lmax=lmax, pol=False))
+        acc_bb += np.asarray(jhp.anafast(b_map, lmax=lmax, pol=False))
+        acc_te += np.asarray(jhp.anafast(t_map, e_map, lmax=lmax, pol=False))
+    acc_tt /= n_real
+    acc_ee /= n_real
+    acc_bb /= n_real
+    acc_te /= n_real
+
+    for rec, ref in [(acc_tt, tt), (acc_ee, ee), (acc_bb, bb), (acc_te, te)]:
+        rel = np.median(np.abs(rec[m] - ref[m]) / (np.abs(ref[m]) + 1e-30))
+        assert rel < 0.2, f'median rel error {rel}'
+
+
+def test_synalm_pol_recovers_input_spectra(pol_lmax, synthetic_teb) -> None:
+    """Ensemble-averaged alm2cl of synalm pol coefficients recovers the input spectra."""
+    lmax = pol_lmax
+    tt, ee, bb, te = synthetic_teb(lmax)
+    cls = np.array([tt, ee, bb, te])
+    ell = np.arange(lmax + 1)
+    m = ell >= 2
+
+    n_real = 300
+    acc = {k: np.zeros(lmax + 1) for k in ('TT', 'EE', 'BB', 'TE', 'TB', 'EB')}
+    for i in range(n_real):
+        alm = jhp.synalm(jax.random.PRNGKey(3000 + i), cls, lmax=lmax, new=True, healpy_ordering=False)
+        assert alm.shape == (3, lmax + 1, 2 * lmax + 1)
+        acc['TT'] += np.asarray(jhp.alm2cl(alm[0], healpy_ordering=False))
+        acc['EE'] += np.asarray(jhp.alm2cl(alm[1], healpy_ordering=False))
+        acc['BB'] += np.asarray(jhp.alm2cl(alm[2], healpy_ordering=False))
+        acc['TE'] += np.asarray(jhp.alm2cl(alm[0], alm[1], healpy_ordering=False))
+        acc['TB'] += np.asarray(jhp.alm2cl(alm[0], alm[2], healpy_ordering=False))
+        acc['EB'] += np.asarray(jhp.alm2cl(alm[1], alm[2], healpy_ordering=False))
+    for k in acc:
+        acc[k] /= n_real
+
+    for name, ref in [('TT', tt), ('EE', ee), ('BB', bb), ('TE', te)]:
+        rel = np.median(np.abs(acc[name][m] - ref[m]) / (np.abs(ref[m]) + 1e-30))
+        assert rel < 0.2, f'{name}: median rel error {rel}'
+    bound = 0.1 * np.mean(np.sqrt(tt[m] * ee[m]))
+    assert np.mean(np.abs(acc['TB'][m])) < bound
+    assert np.mean(np.abs(acc['EB'][m])) < bound
+
+
+def test_synalm_pol_default_healpy_ordering(pol_lmax, synthetic_teb) -> None:
+    """synalm pol with the default healpy_ordering=True returns stacked 1D alms."""
+    lmax = pol_lmax
+    cls = synthetic_teb(lmax)  # (4, lmax+1) ndarray, new ordering
+
+    alm = jhp.synalm(jax.random.PRNGKey(0), cls, lmax=lmax, new=True)  # healpy_ordering=True (default)
+    nalm = hp.Alm.getsize(lmax)
+    assert alm.shape == (3, nalm)
+    assert np.all(np.isfinite(np.asarray(alm)))
+
+
+def test_synalm_pol_six_cl_and_none_match_four_cl(pol_lmax, synthetic_teb) -> None:
+    """6-cl input (TT,EE,BB,TE,EB,TB) with None cross-terms matches the 4-cl promotion.
+
+    Exercises the n(n+1)/2 branch of synalm's covariance build, the list-with-None
+    path of _as_spectra_list, and _new_to_old_spectra_order for n=3.
+    """
+    lmax = pol_lmax
+    tt, ee, bb, te = synthetic_teb(lmax)
+    cls_four = np.array([tt, ee, bb, te])  # new order, promoted internally to EB=TB=0
+    cls_six = [tt, ee, bb, te, None, None]  # new diagonal order with EB, TB omitted
+
+    key = jax.random.PRNGKey(5)
+    alm_four = jhp.synalm(key, cls_four, lmax=lmax, new=True, healpy_ordering=False)
+    alm_six = jhp.synalm(key, cls_six, lmax=lmax, new=True, healpy_ordering=False)
+    np.testing.assert_allclose(np.asarray(alm_four), np.asarray(alm_six), atol=1e-12)
+
+
+def test_synfast_mmax_raises() -> None:
+    """synfast raises NotImplementedError when mmax != lmax."""
     nside = 16
+    lmax = 2 * nside - 1
+    ell = jnp.arange(lmax + 1)
+    cl = 1.0 / (ell + 10) ** 2
+
+    with pytest.raises(NotImplementedError, match='mmax'):
+        jhp.synfast(jax.random.PRNGKey(42), cl, nside, lmax=lmax, mmax=lmax - 1, pol=False)
+
+
+def test_synalm_mmax_raises() -> None:
+    """synalm raises NotImplementedError when mmax != lmax."""
     lmax = 31
     ell = jnp.arange(lmax + 1)
     cl = 1.0 / (ell + 10) ** 2
 
-    with pytest.raises(NotImplementedError, match='pol=True.*is not supported'):
-        jhp.synfast(jax.random.PRNGKey(42), cl, nside, pol=True)
+    with pytest.raises(NotImplementedError, match='mmax'):
+        jhp.synalm(jax.random.PRNGKey(42), cl, lmax=lmax, mmax=lmax - 1)
 
 
 def test_synfast_pixwin_raises() -> None:
@@ -530,12 +695,9 @@ def test_anafast_pol_with_alm_return(synthesized_tqu_map: np.ndarray, lmax: int 
     assert alm_teb.shape == (3, L, 2 * L - 1)
 
     # The returned alms must match jhp.map2alm(pol=True) in the same ordering.
-    alm_T_ref, alm_E_ref, alm_B_ref = jhp.map2alm(
-        synthesized_tqu_map, lmax=lmax, iter=0, pol=True, healpy_ordering=False
-    )
-    np.testing.assert_allclose(alm_teb[0], alm_T_ref, atol=1e-14, rtol=1e-14)
-    np.testing.assert_allclose(alm_teb[1], alm_E_ref, atol=1e-14, rtol=1e-14)
-    np.testing.assert_allclose(alm_teb[2], alm_B_ref, atol=1e-14, rtol=1e-14)
+    alm_ref = jhp.map2alm(synthesized_tqu_map, lmax=lmax, iter=0, pol=True, healpy_ordering=False)
+    assert alm_teb.shape == alm_ref.shape
+    np.testing.assert_allclose(np.asarray(alm_teb), np.asarray(alm_ref), atol=1e-14, rtol=1e-14)
 
     # And cl must match the non-alm return path exactly.
     cl_only = jhp.anafast(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)
@@ -557,10 +719,32 @@ def test_anafast_pol_cross_with_alm_return(synthesized_tqu_map: np.ndarray) -> N
     assert alm2.shape == (3, L, 2 * L - 1)
 
 
-def test_anafast_pol_requires_three_maps(synthesized_tqu_map: np.ndarray) -> None:
-    """pol=True requires maps with shape (3, npix)."""
-    with pytest.raises(ValueError, match=r'pol=True requires map1 with shape \(3, npix\)'):
-        jhp.anafast(synthesized_tqu_map[0], pol=True)
+def test_anafast_pol_qu_only_matches_healpy_iqu(synthesized_tqu_map: np.ndarray, lmax: int | None) -> None:
+    """anafast on Q, U only (2 maps) returns (EE, BB, EB), matching healpy's IQU spectra.
 
-    with pytest.raises(ValueError, match=r'pol=True requires map2 with shape \(3, npix\)'):
-        jhp.anafast(synthesized_tqu_map, synthesized_tqu_map[0], pol=True)
+    Deviation from healpy (which requires I, Q, U). E/B depend only on Q, U, so EE, BB, EB
+    match healpy's IQU values at indices 1, 2, 4 of (TT, EE, BB, TE, EB, TB).
+    """
+    nside = hp.npix2nside(synthesized_tqu_map.shape[-1])
+    target_lmax = (3 * nside - 1) if lmax is None else lmax
+
+    cl_qu = np.asarray(jhp.anafast(synthesized_tqu_map[1:], lmax=lmax, iter=0, pol=True))  # (3, L): EE, BB, EB
+    cl_iqu_hp = hp.anafast(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)  # (6, L)
+
+    assert cl_qu.shape == (3, target_lmax + 1)
+    expected = np.stack([cl_iqu_hp[1], cl_iqu_hp[2], cl_iqu_hp[4]])  # EE, BB, EB
+    np.testing.assert_allclose(cl_qu, expected, atol=1e-4, rtol=1e-10)
+
+
+def test_anafast_pol_invalid_count_raises(synthesized_tqu_map: np.ndarray) -> None:
+    """pol=True accepts (3, npix) or (2, npix); other shapes raise."""
+    # A single (1-D) map is not a valid polarized input.
+    with pytest.raises(ValueError, match=r'pol=True requires map1 with shape'):
+        jhp.anafast(synthesized_tqu_map[0], pol=True)
+    # 4 components is not valid.
+    four = np.concatenate([synthesized_tqu_map, synthesized_tqu_map[:1]], axis=0)
+    with pytest.raises(ValueError, match=r'pol=True requires map1 with shape'):
+        jhp.anafast(four, pol=True)
+    # Cross-spectrum: map2 must have the same component count as map1.
+    with pytest.raises(ValueError, match=r'map2 with the same shape'):
+        jhp.anafast(synthesized_tqu_map[1:], synthesized_tqu_map, pol=True)  # QU vs IQU

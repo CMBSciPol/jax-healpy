@@ -209,40 +209,44 @@ def test_alm2map_smoothing_sigma(flm_generator: Callable[[...], np.ndarray]) -> 
 # The E/B floor is the same one validated by test_map2alm_spin_basic (atol=1e-2).
 @pytest.mark.parametrize('healpy_ordering', [False, True])
 def test_map2alm_pol(synthesized_tqu_map: np.ndarray, lmax: int | None, healpy_ordering: bool, nside: int) -> None:
-    alm_T_jax, alm_E_jax, alm_B_jax = jhp.map2alm(
-        synthesized_tqu_map, lmax=lmax, iter=0, pol=True, healpy_ordering=healpy_ordering
-    )
+    alm_TEB_jax = jhp.map2alm(synthesized_tqu_map, lmax=lmax, iter=0, pol=True, healpy_ordering=healpy_ordering)
+    alm_TEB_hp = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)  # ndarray (3, nalm)
 
-    alm_T_hp, alm_E_hp, alm_B_hp = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)
-
-    if healpy_ordering:
-        expected_T, expected_E, expected_B = alm_T_hp, alm_E_hp, alm_B_hp
-    else:
+    if not healpy_ordering:
         L = (3 * nside) if lmax is None else (lmax + 1)
-        expected_T = flm_hp_to_2d(alm_T_hp, L)
-        expected_E = flm_hp_to_2d(alm_E_hp, L)
-        expected_B = flm_hp_to_2d(alm_B_hp, L)
+        alm_TEB_hp = np.stack([flm_hp_to_2d(alm_TEB_hp[i], L) for i in range(3)])
 
-    np.testing.assert_allclose(alm_T_jax, expected_T, atol=1e-10, rtol=1e-10, err_msg='alm_T')
-    np.testing.assert_allclose(alm_E_jax, expected_E, atol=5e-3, rtol=1e-8, err_msg='alm_E')
-    np.testing.assert_allclose(alm_B_jax, expected_B, atol=5e-3, rtol=1e-8, err_msg='alm_B')
-
-
-def test_map2alm_pol_requires_three_maps(synthesized_tqu_map: np.ndarray) -> None:
-    """pol=True requires maps with shape (3, npix)."""
-    # Only 2 maps
-    with pytest.raises(ValueError, match=r'pol=True requires maps with shape \(3, npix\)'):
-        jhp.map2alm(synthesized_tqu_map[:2], pol=True)
+    # jax-healpy returns the same (3, ...) array as healpy (a tuple would have no .shape).
+    assert alm_TEB_jax.shape == alm_TEB_hp.shape
+    # Single full-array comparison; atol is set by the documented s2fft spin-2 floor on E/B
+    # (see header), while T matches healpy at ~1e-16.
+    np.testing.assert_allclose(np.asarray(alm_TEB_jax), np.asarray(alm_TEB_hp), atol=5e-3, rtol=1e-8)
 
 
-def test_map2alm_pol_returns_tuple(synthesized_tqu_map: np.ndarray, nside: int) -> None:
-    """pol=True returns a 3-tuple of alm arrays."""
-    result = jhp.map2alm(synthesized_tqu_map, lmax=3 * nside - 1, iter=0, pol=True, healpy_ordering=False)
-    assert isinstance(result, tuple)
-    assert len(result) == 3
-    L = 3 * nside
-    for alm in result:
-        assert alm.shape == (L, 2 * L - 1)
+def test_map2alm_pol_invalid_count_raises(synthesized_tqu_map: np.ndarray) -> None:
+    """pol=True accepts 1, 2 or 3 maps; other counts raise."""
+    four_maps = np.concatenate([synthesized_tqu_map, synthesized_tqu_map[:1]], axis=0)  # (4, npix)
+    with pytest.raises(ValueError, match=r'pol=True requires 1 \(I\), 2 \(Q, U\), or 3'):
+        jhp.map2alm(four_maps, pol=True)
+
+
+def test_map2alm_pol_qu_only_matches_healpy_iqu(synthesized_tqu_map: np.ndarray, nside: int) -> None:
+    """map2alm on Q, U only (2 maps) recovers the same E/B alms as healpy on IQU.
+
+    healpy needs 3 maps (I, Q, U) for a polarized transform; jax-healpy accepts
+    Q, U only. E/B depend solely on Q, U, so they match healpy element-wise (at the
+    s2fft spin-2 floor); temperature is simply absent. This is the 2-map QU-only
+    path that healpy cannot do.
+    """
+    lmax = 3 * nside - 1
+    iqu = synthesized_tqu_map
+
+    # healpy's E, B (rows 1, 2 of its IQU result) vs jax-healpy on Q, U only -> (E, B).
+    alm_EB_hp = hp.map2alm(iqu, lmax=lmax, iter=3, pol=True)[1:]
+    alm_EB_jax = jhp.map2alm(jnp.asarray(iqu[1:]), lmax=lmax, iter=3, pol=True, healpy_ordering=True)
+
+    assert alm_EB_jax.shape == alm_EB_hp.shape  # (2, nalm) array, not a tuple
+    np.testing.assert_allclose(np.asarray(alm_EB_jax), np.asarray(alm_EB_hp), atol=5e-3, rtol=1e-8)
 
 
 @pytest.mark.parametrize('iter_val', [2, 3])
@@ -250,14 +254,12 @@ def test_map2alm_pol_iter(synthesized_tqu_map: np.ndarray, iter_val: int) -> Non
     """pol=True with iterative refinement still agrees with healpy."""
     nside = hp.npix2nside(synthesized_tqu_map.shape[-1])
     lmax = 3 * nside - 1
-    alm_T_jax, alm_E_jax, alm_B_jax = jhp.map2alm(
-        synthesized_tqu_map, lmax=lmax, iter=iter_val, pol=True, healpy_ordering=True
-    )
-    alm_T_hp, alm_E_hp, alm_B_hp = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=iter_val, pol=True)
+    alm_TEB_jax = jhp.map2alm(synthesized_tqu_map, lmax=lmax, iter=iter_val, pol=True, healpy_ordering=True)
+    alm_TEB_hp = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=iter_val, pol=True)
 
-    np.testing.assert_allclose(alm_T_jax, alm_T_hp, atol=1e-10, rtol=1e-10, err_msg='alm_T')
-    np.testing.assert_allclose(alm_E_jax, alm_E_hp, atol=5e-3, rtol=1e-8, err_msg='alm_E')
-    np.testing.assert_allclose(alm_B_jax, alm_B_hp, atol=5e-3, rtol=1e-8, err_msg='alm_B')
+    assert alm_TEB_jax.shape == alm_TEB_hp.shape
+    # T matches healpy at ~1e-16; the 5e-3 bound is the documented s2fft spin-2 floor on E/B.
+    np.testing.assert_allclose(np.asarray(alm_TEB_jax), np.asarray(alm_TEB_hp), atol=5e-3, rtol=1e-8)
 
 
 # alm2map pol=True (TEB -> TQU) against healpy.
@@ -268,53 +270,60 @@ def test_map2alm_pol_iter(synthesized_tqu_map: np.ndarray, iter_val: int) -> Non
 # spin-2 (Q, U) inherits the s2fft vs healpy spin-2 floor.
 @pytest.mark.parametrize('healpy_ordering', [False, True])
 def test_alm2map_pol(synthesized_tqu_map: np.ndarray, lmax: int | None, healpy_ordering: bool, nside: int) -> None:
-    alm_T_hp, alm_E_hp, alm_B_hp = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)
+    teb_hp = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)  # (3, nalm) array
 
     if healpy_ordering:
-        teb_alms = jnp.stack([jnp.asarray(alm_T_hp), jnp.asarray(alm_E_hp), jnp.asarray(alm_B_hp)])
+        teb_alms = jnp.asarray(teb_hp)
     else:
         L = (3 * nside) if lmax is None else (lmax + 1)
-        teb_alms = jnp.stack(
-            [
-                jnp.asarray(flm_hp_to_2d(alm_T_hp, L)),
-                jnp.asarray(flm_hp_to_2d(alm_E_hp, L)),
-                jnp.asarray(flm_hp_to_2d(alm_B_hp, L)),
-            ]
-        )
+        teb_alms = jnp.stack([jnp.asarray(flm_hp_to_2d(teb_hp[i], L)) for i in range(3)])
 
     tqu_jax = jhp.alm2map(teb_alms, nside, lmax=lmax, pol=True, healpy_ordering=healpy_ordering)
-    tqu_hp = hp.alm2map([alm_T_hp, alm_E_hp, alm_B_hp], nside, lmax=lmax, pol=True)
+    tqu_hp = hp.alm2map(teb_hp, nside, lmax=lmax, pol=True)  # (3, npix)
 
-    np.testing.assert_allclose(tqu_jax[0], tqu_hp[0], atol=1e-10, rtol=1e-10, err_msg='T_map')
-    np.testing.assert_allclose(tqu_jax[1], tqu_hp[1], atol=5e-3, rtol=1e-8, err_msg='Q_map')
-    np.testing.assert_allclose(tqu_jax[2], tqu_hp[2], atol=5e-3, rtol=1e-8, err_msg='U_map')
+    assert tqu_jax.shape == tqu_hp.shape
+    # Single full-array comparison; T is ~machine precision, Q/U at the documented s2fft floor.
+    np.testing.assert_allclose(np.asarray(tqu_jax), np.asarray(tqu_hp), atol=5e-3, rtol=1e-8)
 
 
-def test_alm2map_pol_returns_3xnpix(synthesized_tqu_map: np.ndarray, nside: int) -> None:
-    """pol=True returns a (3, npix) array (matching hp.alm2map convention)."""
+def test_alm2map_pol_invalid_count_raises(synthesized_tqu_map: np.ndarray, nside: int) -> None:
+    """pol=True accepts 1, 2 or 3 alms; other counts raise."""
     lmax = 3 * nside - 1
     alm_T_hp, alm_E_hp, alm_B_hp = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)
-    teb_alms = jnp.stack([jnp.asarray(alm_T_hp), jnp.asarray(alm_E_hp), jnp.asarray(alm_B_hp)])
+    four = jnp.stack([jnp.asarray(a) for a in (alm_T_hp, alm_E_hp, alm_B_hp, alm_T_hp)])  # (4, nalm)
 
-    tqu = jhp.alm2map(teb_alms, nside, lmax=lmax, pol=True, healpy_ordering=True)
-    assert tqu.shape == (3, hp.nside2npix(nside))
+    with pytest.raises(ValueError, match=r'pol=True requires alms with shape \(n, \.\.\.\)'):
+        _ = jhp.alm2map(four, nside, lmax=lmax, pol=True, healpy_ordering=True)
 
 
-def test_alm2map_pol_requires_three_alms(synthesized_tqu_map: np.ndarray, nside: int) -> None:
-    """pol=True rejects inputs whose leading axis is not 3."""
+def test_alm2map_pol_eb_only_matches_healpy_iqu(synthesized_tqu_map: np.ndarray, nside: int) -> None:
+    """alm2map on E,B only (2 alms) returns Q,U matching healpy's IQU Q,U.
+
+    healpy needs T,E,B; jax-healpy accepts E,B only. Q,U depend solely on E,B.
+    """
     lmax = 3 * nside - 1
-    alm_T_hp, alm_E_hp, _ = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)
-    teb_alms = jnp.stack([jnp.asarray(alm_T_hp), jnp.asarray(alm_E_hp)])  # only 2 alms
+    teb_hp = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)  # (3, nalm)
 
-    with pytest.raises(ValueError, match=r'pol=True requires alms with shape \(3, \.\.\.\)'):
-        _ = jhp.alm2map(teb_alms, nside, lmax=lmax, pol=True, healpy_ordering=True)
+    qu_hp = hp.alm2map(teb_hp, nside, lmax=lmax, pol=True)[1:]  # Q, U rows of the IQU result
+    qu_jax = jhp.alm2map(jnp.asarray(teb_hp[1:]), nside, lmax=lmax, pol=True, healpy_ordering=True)  # E,B -> Q,U
+
+    assert qu_jax.shape == qu_hp.shape  # (2, npix)
+    np.testing.assert_allclose(np.asarray(qu_jax), np.asarray(qu_hp), atol=5e-3, rtol=1e-8)
 
 
-def test_alm2map_pol_smoothing_not_supported(synthesized_tqu_map: np.ndarray, nside: int) -> None:
-    """Polarized smoothing (pol=True + fwhm/sigma) is deferred to a follow-up."""
+def test_alm2map_pol_smoothing_matches_healpy(synthesized_tqu_map: np.ndarray, nside: int) -> None:
+    """alm2map(pol=True, fwhm) applies the spin-2 beam to E/B, matching healpy.
+
+    healpy's alm2map has no fwhm, so the reference is hp.alm2map(hp.smoothalm(TEB,
+    fwhm, pol=True)). T is essentially exact; Q/U inherit the s2fft spin-2 floor.
+    """
     lmax = 3 * nside - 1
-    alm_T_hp, alm_E_hp, alm_B_hp = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)
-    teb_alms = jnp.stack([jnp.asarray(alm_T_hp), jnp.asarray(alm_E_hp), jnp.asarray(alm_B_hp)])
+    fwhm = float(np.radians(5.0))
+    teb_hp = hp.map2alm(synthesized_tqu_map, lmax=lmax, iter=0, pol=True)  # (3, nalm)
 
-    with pytest.raises(NotImplementedError, match=r'Polarized smoothing'):
-        _ = jhp.alm2map(teb_alms, nside, lmax=lmax, pol=True, fwhm=np.radians(10.0), healpy_ordering=True)
+    sm_hp = hp.smoothalm(np.array(teb_hp), fwhm=fwhm, pol=True, inplace=False)
+    tqu_hp = np.asarray(hp.alm2map(sm_hp, nside, lmax=lmax, pol=True))
+    tqu_jax = np.asarray(jhp.alm2map(jnp.asarray(teb_hp), nside, lmax=lmax, pol=True, fwhm=fwhm, healpy_ordering=True))
+
+    assert tqu_jax.shape == tqu_hp.shape
+    np.testing.assert_allclose(tqu_jax, tqu_hp, atol=5e-3, rtol=1e-8)

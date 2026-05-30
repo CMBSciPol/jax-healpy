@@ -7,17 +7,8 @@ from s2fft.sampling.reindex import flm_hp_to_2d_fast
 
 import jax_healpy as jhp
 
-# TODO: '_map2alm_pol',
-# '_alm2map_pol',
-# 'almxfl',
-# 'alm2cl',
-# 'synalm',
-# 'synfast'
-
 # TODO: test that precompute is faster?     'precompute_temperature_harmonic_transforms',
 # 'precompute_polarization_harmonic_transforms',
-
-data_path = Path(jhp.__file__).parent.parent / 'tests/data'
 
 
 @pytest.fixture(scope='session')
@@ -61,10 +52,14 @@ def test_alm2cl_T(
 ) -> None:
     flm_to_test = hp.map2alm(synthesized_map, lmax=lmax, iter=0)
 
-    c_ells_expected = hp.alm2cl(flm_to_test, lmax=lmax)
+    # Mirror the exact lmax_out/nspec arguments so the comparison is meaningful.
+    c_ells_expected = hp.alm2cl(flm_to_test, lmax=lmax, lmax_out=lmax_out, nspec=nspec)
+
+    # Resolve L from the alm size when lmax is not provided.
+    resolved_lmax = lmax if lmax is not None else hp.Alm.getlmax(flm_to_test.size)
 
     if not healpy_ordering:
-        flm_to_test = flm_hp_to_2d_fast(flm_to_test, lmax + 1)
+        flm_to_test = flm_hp_to_2d_fast(flm_to_test, resolved_lmax + 1)
 
     actual_c_ells = jhp.alm2cl(flm_to_test, lmax=lmax, lmax_out=lmax_out, nspec=nspec, healpy_ordering=healpy_ordering)
     np.testing.assert_allclose(actual_c_ells, c_ells_expected, atol=1e-14)

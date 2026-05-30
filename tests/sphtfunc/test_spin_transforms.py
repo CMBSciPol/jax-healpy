@@ -9,6 +9,22 @@ from s2fft.sampling.reindex import flm_hp_to_2d_fast
 import jax_healpy as jhp
 
 
+def test_map2alm_spin_iter(nside: int, lmax: int) -> None:
+    """map2alm_spin exposes an iter option (unlike healpy); it runs and changes the result."""
+    if lmax is None:
+        lmax = 3 * nside - 1
+    npix = hp.nside2npix(nside)
+    rng = np.random.RandomState(7)
+    q = rng.randn(npix)
+    u = rng.randn(npix)
+
+    e0, b0 = jhp.map2alm_spin([q, u], spin=2, lmax=lmax, iter=0)
+    e3, b3 = jhp.map2alm_spin([q, u], spin=2, lmax=lmax, iter=3)
+
+    assert np.all(np.isfinite(np.asarray(e3))) and np.all(np.isfinite(np.asarray(b3)))
+    assert not np.allclose(np.asarray(e0), np.asarray(e3))
+
+
 @pytest.mark.parametrize('healpy_ordering', [True, False])
 def test_map2alm_spin_basic(
     flm_generator: Callable[[...], np.ndarray], nside: int, lmax: int, healpy_ordering: bool
@@ -119,9 +135,6 @@ def test_alm2map_spin_basic(flm_generator: Callable[[...], np.ndarray], nside: i
     # but maintains good overall accuracy as measured by MSE
     np.testing.assert_allclose(result_jax[0], result_hp[0], atol=0.15, rtol=1e-8)
     np.testing.assert_allclose(result_jax[1], result_hp[1], atol=0.15, rtol=1e-8)
-
-
-2
 
 
 def test_map2alm_spin_validation(nside: int, lmax: int) -> None:
