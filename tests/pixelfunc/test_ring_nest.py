@@ -20,7 +20,9 @@ from jax_healpy.pixelfunc import MAX_NSIDE
         (MAX_NSIDE, MAX_NSIDE - 1, MAX_NSIDE - 1, MAX_NSIDE**2 - 1),
     ],
 )
-def test_xy_to_fpix(nside, x, y, expected_fpix):
+def test_xy_to_fpix(nside, x, y, expected_fpix, x64):
+    if not x64 and expected_fpix > np.iinfo(np.int32).max:
+        pytest.skip('fpix exceeds int32 range; requires 64-bit precision')
     fpix = hp.pixelfunc._xy2fpix(nside, x, y)
     assert_array_equal(fpix, expected_fpix)
 
@@ -37,7 +39,9 @@ def test_xy_to_fpix(nside, x, y, expected_fpix):
         (MAX_NSIDE, MAX_NSIDE**2 - 1, MAX_NSIDE - 1, MAX_NSIDE - 1),
     ],
 )
-def test_fpix_to_xy(nside, fpix, expected_x, expected_y):
+def test_fpix_to_xy(nside, fpix, expected_x, expected_y, x64):
+    if not x64 and fpix > np.iinfo(np.int32).max:
+        pytest.skip('fpix exceeds int32 range; requires 64-bit precision')
     x, y = hp.pixelfunc._fpix2xy(nside, fpix)
     assert_array_equal(x, expected_x)
     assert_array_equal(y, expected_y)
@@ -45,7 +49,9 @@ def test_fpix_to_xy(nside, fpix, expected_x, expected_y):
 
 @pytest.mark.parametrize('order', range(30))
 @pytest.mark.parametrize('nest', [True, False])
-def test_pix_to_xyf_to_pix(order: int, nest: bool) -> None:
+def test_pix_to_xyf_to_pix(order: int, nest: bool, x64: bool) -> None:
+    if not x64 and order >= 14:
+        pytest.skip('npix exceeds int32 range; requires 64-bit precision')
     nside = hp.order2nside(order)
     npix = hp.nside2npix(nside)
     maxpix = 1_000
@@ -127,23 +133,70 @@ def test_nest2ring(nside: int, ipix_nest: int, expected_ipix_ring: int):
     assert_array_equal(hp.nest2ring(nside, ipix_nest), expected_ipix_ring)
 
 
+def test_no_implicit_int_widening_under_x64():
+    """Under x64, small-nside pixel functions stay int32."""
+    nside = 512  # _pixel_dtype_for(512) == int32
+    pix = jnp.arange(10, dtype=jnp.int32)
+    theta, phi = (a.astype(jnp.float32) for a in hp.pix2ang(nside, pix))
+    vec = jnp.asarray(hp.pix2vec(nside, pix), dtype=jnp.float32)
+    x, y, f = hp.pix2xyf(nside, pix)
+    outputs = {
+        'ring2nest': hp.ring2nest(nside, pix),
+        'nest2ring': hp.nest2ring(nside, pix),
+        'pix2xyf': x,
+        'xyf2pix': hp.xyf2pix(nside, x, y, f),
+        'ang2pix': hp.ang2pix(nside, theta, phi),
+        'vec2pix': hp.vec2pix(nside, vec[..., 0], vec[..., 1], vec[..., 2]),
+        'get_all_neighbours': hp.get_all_neighbours(nside, pix, nest=False),
+    }
+    for name, out in outputs.items():
+        assert out.dtype == jnp.int32, f'{name} widened to {out.dtype} under x64 for nside={nside}'
+
+
+def test_no_implicit_float_widening_under_x64():
+    """Under x64, functions taking float32 input return float32 (no silent 32->64 widening)."""
+    nside = 512
+    pix = jnp.arange(10, dtype=jnp.int32)
+    theta, phi = (a.astype(jnp.float32) for a in hp.pix2ang(nside, pix))
+    vec = hp.ang2vec(theta, phi)  # float32 (10, 3)
+    m = jnp.arange(hp.nside2npix(nside), dtype=jnp.float32)
+    outputs = {
+        'ang2vec': vec,
+        'vec2ang theta': hp.vec2ang(vec)[0],
+        'get_interp_val': hp.get_interp_val(m, theta, phi),
+        'get_interp_weights weights': hp.get_interp_weights(nside, theta, phi)[1],
+    }
+    for name, out in outputs.items():
+        assert out.dtype == jnp.float32, f'{name} widened to {out.dtype} under x64'
+
+
 @pytest.mark.parametrize('func_name', ['ring2nest', 'nest2ring'])
-def test_ring_nest_dtypes(func_name: str):
+def test_ring_nest_dtypes(func_name: str, x64: bool):
     small_nside = 512
     large_nside = 16384
     pix32 = jnp.zeros(10, dtype=jnp.int32)
-    pix64 = jnp.zeros(10, dtype=jnp.int64)
     func = getattr(hp, func_name)
     assert func(small_nside, pix32).dtype == jnp.int32  # input is int32, so should be output
-    assert func(small_nside, pix64).dtype == jnp.int64  # input is int64, so should be output
-    assert func(large_nside, pix32).dtype == jnp.int64  # nside is large so output is int64
-    assert func(large_nside, pix64).dtype == jnp.int64  # nside is large so output is int64
+    if x64:
+        pix64 = jnp.zeros(10, dtype=jnp.int64)
+        assert func(small_nside, pix64).dtype == jnp.int64  # input is int64, so should be output
+        assert func(large_nside, pix32).dtype == jnp.int64  # nside is large so output is int64
+        assert func(large_nside, pix64).dtype == jnp.int64  # nside is large so output is int64
+    else:
+        # large nside needs 64-bit pixel indices, unavailable under 32-bit:
+        # _pixel_dtype_for warns and the computation overflows int32
+        with pytest.warns(UserWarning, match='64-bit'):
+            hp.pixelfunc._pixel_dtype_for(large_nside)
+        with pytest.raises(OverflowError):
+            func(large_nside, pix32)
 
 
 @pytest.mark.parametrize(
     'order', list(range(29)) + [pytest.param(30, marks=pytest.mark.xfail(reason='overflow somewhere?'))]
 )
-def test_roundtrip_max_pixel(order):
+def test_roundtrip_max_pixel(order, x64):
+    if not x64 and order >= 14:
+        pytest.skip('npix exceeds int32 range; requires 64-bit precision')
     nside = hp.order2nside(order)
     npix = hp.nside2npix(nside)
     max_pix = npix - 1
