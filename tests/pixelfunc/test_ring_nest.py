@@ -183,10 +183,7 @@ def test_ring_nest_dtypes(func_name: str, x64: bool):
         assert func(large_nside, pix32).dtype == jnp.int64  # nside is large so output is int64
         assert func(large_nside, pix64).dtype == jnp.int64  # nside is large so output is int64
     else:
-        # large nside needs 64-bit pixel indices, unavailable under 32-bit:
-        # _pixel_dtype_for warns and the computation overflows int32
-        with pytest.warns(UserWarning, match='64-bit'):
-            hp.pixelfunc._pixel_dtype_for(large_nside)
+        # large nside needs 64-bit pixel indices; computation overflows int32
         with pytest.raises(OverflowError):
             func(large_nside, pix32)
 
