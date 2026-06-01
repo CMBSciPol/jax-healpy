@@ -117,7 +117,7 @@ class KMeans:
         return KMeansState(
             ra_dec=ra_dec,
             centroids=centroids,
-            labels=jnp.zeros(ra_dec.shape[0], dtype=jnp.int64),
+            labels=jnp.zeros(ra_dec.shape[0], dtype=int),
             mean_distance=jnp.inf,
             previous_mean_distance=0.0,
             count=0,
@@ -154,7 +154,7 @@ class KMeans:
             distances = cdist_radec(ra_dec, state.centroids)
             if self.max_centroids is not None:
                 distances = jnp.where(centroid_mask[None, :], distances, jnp.inf)
-            labels = distances.argmin(axis=1).astype(jnp.int64)
+            labels = distances.argmin(axis=1).astype(int)
 
             distances = distances[indices, labels]
             mean_distance = distances.mean()
