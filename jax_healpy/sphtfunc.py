@@ -14,8 +14,9 @@
 # You should have received a copy of the GNU General Public License
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
-from functools import partial, wraps
-from typing import Callable, ParamSpec, TypeVar
+from collections.abc import Callable
+from functools import wraps
+from typing import ParamSpec, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -55,8 +56,7 @@ def requires_s2fft(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnT
     return deferred_func
 
 
-@partial(
-    jax.jit,
+@jax.jit(
     static_argnames=[
         'nside',
         'lmax',
@@ -197,8 +197,7 @@ def alm2map(
     return f
 
 
-@partial(
-    jax.jit,
+@jax.jit(
     static_argnames=[
         'lmax',
         'mmax',

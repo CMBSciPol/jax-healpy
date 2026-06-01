@@ -14,8 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
-import sys
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Self
 
 import numpy as np
 from jax import lax
@@ -23,12 +22,6 @@ from jax import numpy as jnp
 from jax import random as jr
 from jax.numpy import arccos, arctan2, cos, deg2rad, newaxis, pi, rad2deg, sin, sqrt
 from jaxtyping import Array, PRNGKeyArray
-
-if sys.version_info < (3, 11):
-    from typing_extensions import Self
-else:
-    from typing import Self
-
 
 _TOL_DEF = 1.0e-5
 _MAXITER_DEF = 100
@@ -61,7 +54,7 @@ class KMeans:
     def __init__(
         self: Self,
         ncenters: int,
-        max_centroids: Optional[int] = None,
+        max_centroids: int | None = None,
         tol: float = _TOL_DEF,
         maxiter: int = _MAXITER_DEF,
         initial_sample_size: int = 3,

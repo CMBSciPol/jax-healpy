@@ -664,7 +664,7 @@ def maptype(m):
             raise TypeError('bad number of pixels')
 
 
-@partial(jit, static_argnames=['nside', 'nest', 'lonlat'])
+@jit(static_argnames=['nside', 'nest', 'lonlat'])
 def ang2pix(
     nside: int,
     theta: ArrayLike,
@@ -771,7 +771,7 @@ def _zphi2pix_polar_caps_ring(nside: int, z: ArrayLike, sin_theta: ArrayLike, tt
     return jnp.where(z > 0, 2 * ir * (ir - 1) + ip, npixel - 2 * ir * (ir + 1) + ip)
 
 
-@partial(jit, static_argnames=['nside', 'nest', 'lonlat'])
+@jit(static_argnames=['nside', 'nest', 'lonlat'])
 def pix2ang(nside: int, ipix: ArrayLike, nest: bool = False, lonlat: bool = False) -> tuple[Array, Array]:
     """pix2ang : nside,ipix,nest=False,lonlat=False -> theta[rad],phi[rad] (default RING)
 
@@ -975,7 +975,7 @@ def _pix2ang_nest(nside: ArrayLike, ipix: ArrayLike) -> tuple[Array, Array]:
 # }
 
 
-@partial(jit, static_argnames=['nside', 'nest'])
+@jit(static_argnames=['nside', 'nest'])
 def xyf2pix(nside: int, x: ArrayLike, y: ArrayLike, face: ArrayLike, nest: bool = False) -> Array:
     """xyf2pix : nside,x,y,face,nest=False -> ipix (default:RING)
 
@@ -1193,7 +1193,7 @@ def _get_ring_info(nside: int, ring_idx: ArrayLike) -> tuple[Array, Array, Array
     return theta, startpix, ringpix, shift
 
 
-@partial(jit, static_argnames=['nside', 'nest'])
+@jit(static_argnames=['nside', 'nest'])
 def pix2xyf(nside: int, ipix: ArrayLike, nest: bool = False) -> tuple[Array, Array, Array]:
     """pix2xyf : nside,ipix,nest=False -> x,y,face (default RING)
 
@@ -1347,7 +1347,7 @@ def _pix2iphi_south_cap_ring(nside: int, iring: Array, pixels: Array) -> Array:
     return iphi
 
 
-@partial(jit, static_argnames=['nside', 'nest'])
+@jit(static_argnames=['nside', 'nest'])
 def vec2pix(nside: int, x: ArrayLike, y: ArrayLike, z: ArrayLike, nest: bool = False) -> Array:
     """vec2pix : nside,x,y,z,nest=False -> ipix (default:RING)
 
@@ -1393,7 +1393,7 @@ def vec2pix2(nside: int, vec: ArrayLike, nest: bool = False) -> Array:
     return vec2pix2_ring(nside, vec)
 
 
-@partial(jit, static_argnames='nside')
+@jit(static_argnames='nside')
 @partial(vmap, in_axes=(None, 1))
 def vec2pix2_ring(nside: int, vec: ArrayLike) -> Array:
     vec /= jnp.sqrt(jnp.sum(vec**2))
@@ -1409,7 +1409,7 @@ def _vec2pix_ring(nside: int, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> Array
     return _zphi2pix_ring(nside, z, jnp.sqrt(x**2 + y**2) * dnorm, phi)
 
 
-@partial(jit, static_argnames=['nside', 'nest'])
+@jit(static_argnames=['nside', 'nest'])
 def pix2vec(nside: int, ipix: ArrayLike, nest: bool = False) -> Array:
     """pix2vec : nside,ipix,nest=False -> x,y,z (default RING)
 
@@ -1464,7 +1464,7 @@ def _pix2vec_ring(nside, pixels):
     return jnp.stack([sin_theta * jnp.cos(phi), sin_theta * jnp.sin(phi), z], axis=-1)
 
 
-@partial(jit, static_argnames=['lonlat'])
+@jit(static_argnames=['lonlat'])
 def ang2vec(theta: ArrayLike, phi: ArrayLike, lonlat: bool = False) -> Array:
     """ang2vec : convert angles to 3D position vector
 
@@ -1498,7 +1498,7 @@ def ang2vec(theta: ArrayLike, phi: ArrayLike, lonlat: bool = False) -> Array:
     return jnp.stack([x, y, z], axis=-1)
 
 
-@partial(jit, static_argnames=['lonlat'])
+@jit(static_argnames=['lonlat'])
 def vec2ang(vectors: ArrayLike, lonlat: bool = False) -> tuple[Array, Array]:
     """vec2ang: vectors [x, y, z] -> theta[rad], phi[rad]
 
@@ -1532,7 +1532,7 @@ def vec2ang(vectors: ArrayLike, lonlat: bool = False) -> tuple[Array, Array]:
     return theta, phi
 
 
-@partial(jit, static_argnames=['nside'])
+@jit(static_argnames=['nside'])
 def ring2nest(nside: int, ipix: ArrayLike) -> Array:
     """Convert pixel number from RING ordering to NESTED ordering.
 
@@ -1575,7 +1575,7 @@ def ring2nest(nside: int, ipix: ArrayLike) -> Array:
     return ipix_nest
 
 
-@partial(jit, static_argnames=['nside'])
+@jit(static_argnames=['nside'])
 def nest2ring(nside: int, ipix: ArrayLike) -> Array:
     """Convert pixel number from NESTED ordering to RING ordering.
 
@@ -1618,7 +1618,7 @@ def nest2ring(nside: int, ipix: ArrayLike) -> Array:
     return ipix_ring
 
 
-@partial(jit, static_argnames=['inp', 'out', 'r2n', 'n2r', 'process_by_chunks'])
+@jit(static_argnames=['inp', 'out', 'r2n', 'n2r', 'process_by_chunks'])
 def reorder(
     map_in: ArrayLike,
     inp: str | None = None,
@@ -1738,7 +1738,7 @@ def reorder(
     return map_out
 
 
-@partial(jit, static_argnames=['nside', 'nest', 'lonlat'])
+@jit(static_argnames=['nside', 'nest', 'lonlat'])
 def get_interp_weights(
     nside: int, theta: ArrayLike, phi: ArrayLike | None = None, nest: bool = False, lonlat: bool = False
 ) -> tuple[Array, Array]:
@@ -1975,7 +1975,7 @@ def _get_interp_weights_ring(nside: int, theta_coords: Array, phi_coords: Array)
     return pixels, weights
 
 
-@partial(jit, static_argnames=['nest', 'lonlat'])
+@jit(static_argnames=['nest', 'lonlat'])
 def get_interp_val(
     m: ArrayLike, theta: ArrayLike, phi: ArrayLike | None = None, nest: bool = False, lonlat: bool = False
 ) -> Array:
@@ -2075,7 +2075,7 @@ def get_interp_val(
     return result
 
 
-@partial(jit, static_argnames=['nside', 'nest', 'lonlat', 'get_center'])
+@jit(static_argnames=['nside', 'nest', 'lonlat', 'get_center'])
 def get_all_neighbours(
     nside: int,
     theta: ArrayLike,
@@ -2448,7 +2448,7 @@ def mask_bad(m: ArrayLike) -> Array:
     return m == UNSEEN
 
 
-@partial(jit, static_argnames=['nside_out', 'pess', 'order_in', 'order_out', 'power', 'dtype'])
+@jit(static_argnames=['nside_out', 'pess', 'order_in', 'order_out', 'power', 'dtype'])
 def ud_grade(
     map_in: ArrayLike,
     nside_out: int,
