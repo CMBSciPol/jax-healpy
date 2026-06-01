@@ -849,7 +849,9 @@ def _pix2i_ring(nside: int, pixels: ArrayLike) -> Array:
 
 
 def _pix2i_north_cap_ring(nside: int, pixels: ArrayLike) -> Array:
-    return (1 + jnp.sqrt(1 + 2 * pixels).astype(int)) >> 1  # counted from North Pole
+    # cast to float before sqrt so it follows the x64 flag regardless of pixels dtype
+    p = (1 + 2 * pixels).astype(float)
+    return (1 + jnp.sqrt(p).astype(int)) >> 1  # counted from North Pole
 
 
 def _pix2i_equatorial_region_ring(nside: int, pixels: ArrayLike) -> Array:
@@ -864,7 +866,8 @@ def _pix2i_equatorial_region_ring(nside: int, pixels: ArrayLike) -> Array:
 def _pix2i_south_cap_ring(nside: int, pixels: ArrayLike) -> Array:
     npixel = nside2npix(nside)
     ip = npixel - pixels
-    return (1 + jnp.sqrt(2 * ip - 1).astype(int)) >> 1  # counted from South Pole
+    p = (2 * ip - 1).astype(float)
+    return (1 + jnp.sqrt(p).astype(int)) >> 1  # counted from South Pole
 
 
 def _pix2z_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> tuple[Array, Array]:

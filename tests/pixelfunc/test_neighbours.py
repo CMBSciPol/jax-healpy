@@ -102,22 +102,7 @@ def test_get_all_neighbours_comprehensive_precision(region_name, nside, x64):
 
 @pytest.mark.slow
 @pytest.mark.parametrize('region_name', ['Low Cap', 'Equator', 'High Cap'])
-@pytest.mark.parametrize(
-    'nside',
-    [
-        512,
-        1024,
-        2048,
-        4096,
-        pytest.param(
-            8192,
-            marks=pytest.mark.xfail(
-                reason='jax get_all_neighbours returns -1 for some valid pixels at nside 8192',
-                strict=False,
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize('nside', [512, 1024, 2048, 4096, 8192])
 def test_get_all_neighbours_high_nside_sampling(region_name, nside):
     """Test precision for high nside values using random sampling to avoid memory issues."""
     npix = jhp.nside2npix(nside)
