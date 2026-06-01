@@ -14,7 +14,6 @@
 # You should have received a copy of the GNU General Public License
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
-from functools import partial
 
 import jax
 import numpy as np
@@ -50,7 +49,7 @@ def call_back_check(n_regions: Array, max_centroids: None) -> None:
             """)
 
 
-@partial(jax.jit, static_argnums=(2))
+@jax.jit(static_argnums=(2))
 def get_cutout_from_mask(ful_map: Array, indices: Array, axis: int = 0) -> Array:
     """Extract a cutout from a full map using given indices.
 
@@ -73,7 +72,7 @@ def get_cutout_from_mask(ful_map: Array, indices: Array, axis: int = 0) -> Array
     return jax.tree.map(lambda x: jnp.take(x, indices, axis=axis), ful_map)
 
 
-@partial(jax.jit, static_argnums=(2, 3))
+@jax.jit(static_argnums=(2, 3))
 def combine_masks(cutouts: list[Array], indices: list[Array], nside: int, axis: int = 0) -> Array:
     if len(cutouts) != len(indices):
         raise ValueError(' The number of cutouts and indices must match.')
@@ -96,7 +95,7 @@ def combine_masks(cutouts: list[Array], indices: list[Array], nside: int, axis: 
     return map_ids
 
 
-@partial(jax.jit, static_argnums=(2, 3))
+@jax.jit(static_argnums=(2, 3))
 def get_fullmap_from_cutout(labels: Array, indices: Array, nside: int, axis: int = 0) -> Array:
     """
     Reconstruct the full map from a cutout by inserting values along a specified axis.
@@ -202,7 +201,7 @@ def find_kmeans_clusters(
     return map_ids.at[ipix[indices]].set(km.labels)
 
 
-@partial(jax.jit, static_argnums=(2,))
+@jax.jit(static_argnums=(2,))
 def normalize_by_first_occurrence(arr: Array, n_regions: int, max_centroids: int) -> Array:
     """
     Normalize an array by mapping each unique value to the index of its first occurrence,

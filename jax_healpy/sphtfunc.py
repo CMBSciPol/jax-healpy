@@ -15,7 +15,7 @@
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
 from collections.abc import Callable
-from functools import partial, wraps
+from functools import wraps
 from typing import ParamSpec, TypeVar
 
 import jax
@@ -56,8 +56,7 @@ def requires_s2fft(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnT
     return deferred_func
 
 
-@partial(
-    jax.jit,
+@jax.jit(
     static_argnames=[
         'nside',
         'lmax',
@@ -198,8 +197,7 @@ def alm2map(
     return f
 
 
-@partial(
-    jax.jit,
+@jax.jit(
     static_argnames=[
         'lmax',
         'mmax',

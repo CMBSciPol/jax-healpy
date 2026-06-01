@@ -18,8 +18,6 @@
 Query disc implementation for HEALPix spherical disc queries.
 """
 
-from functools import partial
-
 import jax
 import jax.numpy as jnp
 from jax import jit, lax
@@ -551,7 +549,7 @@ def _query_disc_ring_single(
     return lax.cond(full_sphere, get_all_pixels, get_geometric_pixels)
 
 
-@partial(jit, static_argnames=['nside', 'inclusive', 'fact', 'nest', 'max_length'])
+@jit(static_argnames=['nside', 'inclusive', 'fact', 'nest', 'max_length'])
 def query_disc(
     nside: int,
     vec: ArrayLike,
