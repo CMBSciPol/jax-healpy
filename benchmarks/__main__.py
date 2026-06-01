@@ -3,11 +3,11 @@ import platform
 import re
 import subprocess
 import timeit
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from pprint import pprint
-from typing import Any, Iterable, Literal
+from typing import Any, Literal
 
 import healpy as hp
 import jax

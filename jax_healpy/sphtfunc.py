@@ -14,8 +14,9 @@
 # You should have received a copy of the GNU General Public License
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
+from collections.abc import Callable
 from functools import partial, wraps
-from typing import Callable, ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar
 
 import jax
 import jax.numpy as jnp

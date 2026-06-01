@@ -19,7 +19,6 @@ Query disc implementation for HEALPix spherical disc queries.
 """
 
 from functools import partial
-from typing import Optional
 
 import jax
 import jax.numpy as jnp
@@ -560,7 +559,7 @@ def query_disc(
     inclusive: bool = False,
     fact: int = 4,
     nest: bool = False,
-    max_length: Optional[int] = None,
+    max_length: int | None = None,
 ) -> Array:
     """Find pixels within a disc on the sphere.
 
@@ -652,7 +651,7 @@ def query_disc(
 
 
 def _query_disc_ring(
-    nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact: int, max_length: Optional[int]
+    nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact: int, max_length: int | None
 ) -> Array:
     """Efficient RING scheme query with batching support using geometric algorithm.
 
@@ -710,7 +709,7 @@ def _query_disc_ring(
 
 
 def _query_disc_bruteforce(
-    nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact: int, max_length: Optional[int]
+    nside: int, vec: ArrayLike, radius: float, inclusive: bool, fact: int, max_length: int | None
 ) -> Array:
     """DEPRECATED: Brute-force disc query with O(batch_size × npix) complexity.
 
