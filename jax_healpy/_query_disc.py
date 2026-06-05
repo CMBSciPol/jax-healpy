@@ -679,9 +679,9 @@ def _query_disc_ring(
         Pixels outside discs are marked as npix (sentinel value)
     """
 
-    # Convert to JAX arrays
-    vec = jnp.asarray(vec, dtype=jnp.float64)
-    radius = jnp.asarray(radius, dtype=jnp.float64)
+    # Convert to JAX arrays (float canonicalizes to the active x64 precision)
+    vec = jnp.asarray(vec, dtype=float)
+    radius = jnp.asarray(radius, dtype=float)
     original_is_single = vec.ndim == 1
 
     if original_is_single:
@@ -741,14 +741,14 @@ def _query_disc_bruteforce(
     - Geometric algorithm processes only candidate rings (~10-100× fewer operations)
     """
     # Step 1: Input standardization to (batch_dims, 3) format
-    vec = jnp.asarray(vec, dtype=jnp.float64)
+    vec = jnp.asarray(vec, dtype=float)
     original_is_single = vec.ndim == 1
     if original_is_single:
         vec = vec[None, :]  # (3,) → (1, 3)
 
     batch_dims = vec.shape[0]
     npix = 12 * nside * nside
-    radius = jnp.asarray(radius, dtype=jnp.float64)
+    radius = jnp.asarray(radius, dtype=float)
 
     # Default max_length to npix if not provided
     if max_length is None:

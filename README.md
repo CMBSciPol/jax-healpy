@@ -71,6 +71,26 @@ alm = hp.map2alm(skymap, lmax=128)
 reconstructed_map = hp.alm2map(alm, nside=nside)
 ```
 
+## Numerical Precision
+
+jax-healpy follows JAX's precision setting and **does not enable 64-bit precision on import** (since v0.7). By default JAX uses 32-bit.
+
+**We recommend enabling 64-bit precision** for almost all uses. Do it before the first array operation:
+
+```python
+import jax
+jax.config.update("jax_enable_x64", True)   # process-wide
+# or scope it locally:
+with jax.enable_x64(True):
+    ...
+```
+
+32-bit precision matches healpy only at very small `nside`. Even at moderate resolution (e.g. `nside = 256`), float32 rounding shifts points across pixel boundaries, so angle<->pixel conversions and neighbour/interpolation results start to diverge from healpy. Use 32-bit only for small maps or when memory/throughput is the priority and exact healpy agreement is not required.
+
+64-bit is **required** when `nside > 8192`: pixel indices exceed the int32 range, so 32-bit computations overflow and may raise errors, or silently return wrong results. jax-healpy will try to emit a warning in this case.
+
+Pixel-index dtypes track `nside` regardless of the x64 flag: int32 for `nside <= 8192`, int64 above.
+
 ## Performance Benchmarks
 
 Execution time measured on high-performance computing systems:

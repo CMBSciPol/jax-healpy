@@ -208,8 +208,12 @@ def check_nside(nside: int, nest: bool = False) -> None:
 
 def _pixel_dtype_for(nside: int) -> jnp.dtype:
     """Returns the appropriate dtype for a pixel number given nside"""
-    # for nside = 13378, npix = 2_147_650_608 which would overflow int32
-    return jnp.int32 if nside <= 13377 else jnp.int64
+    # nside=8192 (2**13) is the largest valid (power-of-2) nside whose pixel
+    # indices stay within int32; nside=16384 already overflows in ring/nest
+    # conversions, so promote to int64 from there on.
+    if nside <= 8192:
+        return jnp.int32
+    return jnp.int64
 
 
 def isnsideok(nside: int, nest: bool = False) -> bool:
@@ -747,10 +751,11 @@ def _zphi2pix_ring(nside: int, z: ArrayLike, sin_theta: ArrayLike, phi: ArrayLik
 
 
 def _zphi2pix_equatorial_region_ring(nside: int, z: ArrayLike, sin_theta: float, tt: ArrayLike) -> Array:
+    dt = _pixel_dtype_for(nside)
     ncap = 2 * nside * (nside - 1)
     nl4 = 4 * nside
-    jp = (nside * (0.5 + tt - 0.75 * z)).astype(int)
-    jm = (nside * (0.5 + tt + 0.75 * z)).astype(int)
+    jp = (nside * (0.5 + tt - 0.75 * z)).astype(dt)
+    jm = (nside * (0.5 + tt + 0.75 * z)).astype(dt)
     ir = nside + 1 + jp - jm
     kshift = 1 - ir & 1  # ir even -> 1, odd -> 0
     t1 = jp + jm - nside + kshift + 1 + nl4 + nl4
@@ -760,14 +765,15 @@ def _zphi2pix_equatorial_region_ring(nside: int, z: ArrayLike, sin_theta: float,
 
 
 def _zphi2pix_polar_caps_ring(nside: int, z: ArrayLike, sin_theta: ArrayLike, tt: ArrayLike) -> Array:
+    dt = _pixel_dtype_for(nside)
     npixel = nside2npix(nside)
     tp = tt - jnp.floor(tt)
     #    tmp = nside * sin_theta / jnp.sqrt((1 + jnp.abs(z)) / 3)
     tmp = nside * jnp.sqrt(3.0 * (1.0 - jnp.abs(z)))
-    jp = (tp * tmp).astype(int)
-    jm = ((1.0 - tp) * tmp).astype(int)
+    jp = (tp * tmp).astype(dt)
+    jm = ((1.0 - tp) * tmp).astype(dt)
     ir = jp + jm + 1
-    ip = (tt * ir).astype(int)
+    ip = (tt * ir).astype(dt)
     return jnp.where(z > 0, 2 * ir * (ir - 1) + ip, npixel - 2 * ir * (ir + 1) + ip)
 
 
@@ -843,7 +849,9 @@ def _pix2i_ring(nside: int, pixels: ArrayLike) -> Array:
 
 
 def _pix2i_north_cap_ring(nside: int, pixels: ArrayLike) -> Array:
-    return (1 + jnp.sqrt(1 + 2 * pixels).astype(int)) >> 1  # counted from North Pole
+    # cast to float before sqrt so it follows the x64 flag regardless of pixels dtype
+    p = (1 + 2 * pixels).astype(float)
+    return (1 + jnp.sqrt(p).astype(int)) >> 1  # counted from North Pole
 
 
 def _pix2i_equatorial_region_ring(nside: int, pixels: ArrayLike) -> Array:
@@ -858,7 +866,8 @@ def _pix2i_equatorial_region_ring(nside: int, pixels: ArrayLike) -> Array:
 def _pix2i_south_cap_ring(nside: int, pixels: ArrayLike) -> Array:
     npixel = nside2npix(nside)
     ip = npixel - pixels
-    return (1 + jnp.sqrt(2 * ip - 1).astype(int)) >> 1  # counted from South Pole
+    p = (2 * ip - 1).astype(float)
+    return (1 + jnp.sqrt(p).astype(int)) >> 1  # counted from South Pole
 
 
 def _pix2z_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> tuple[Array, Array]:
@@ -1048,10 +1057,10 @@ def _xy2fpix(nside: int, ix: Array, iy: Array) -> Array:
 
 
 # ring index of south corner for each face (0 = North pole)
-_JRLL = jnp.array([2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4])
+_JRLL = jnp.array([2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4], dtype=jnp.int32)
 
 # longitude index of south corner for each face (0 = longitude zero)
-_JPLL = jnp.array([1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7])
+_JPLL = jnp.array([1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7], dtype=jnp.int32)
 
 
 def _xyf2pix_ring(nside: int, ix: Array, iy: Array, face_num: Array) -> Array:
@@ -1246,7 +1255,7 @@ def _pix2xyf_nest(nside: int, pix: Array) -> tuple[Array, Array, Array]:
     return ix, iy, fnum
 
 
-def _fpix2xy(nside: int, pix: Array) -> tuple[Array, Array]:
+def _fpix2xy(nside: int, fpix: Array) -> tuple[Array, Array]:
     """Convert a pixel index inside a face into (x, y) coordinates.
 
     Pixel indices inside the face must be less than nside**2.
@@ -1256,8 +1265,8 @@ def _fpix2xy(nside: int, pix: Array) -> tuple[Array, Array]:
 
     def extract_bits(i, carry):
         x, y = carry
-        x |= (pix & (1 << (2 * i))) >> i
-        y |= (pix & (1 << (2 * i + 1))) >> (i + 1)
+        x |= (fpix & (1 << (2 * i))) >> i
+        y |= (fpix & (1 << (2 * i + 1))) >> (i + 1)
         return x, y
 
     # imagine that nside = 2 ** ord (nside must be a power of 2 in nested ordering)
@@ -1267,7 +1276,7 @@ def _fpix2xy(nside: int, pix: Array) -> tuple[Array, Array]:
     length = (nside - 1).bit_length()
 
     # we use a native for loop because it was slightly faster than lax.fori_loop with unroll=True
-    x, y = jnp.zeros_like(pix), jnp.zeros_like(pix)
+    x, y = jnp.zeros_like(fpix), jnp.zeros_like(fpix)
     for i in range(length):
         x, y = extract_bits(i, (x, y))
     return x, y
