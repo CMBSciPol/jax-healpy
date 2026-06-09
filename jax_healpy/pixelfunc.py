@@ -1027,14 +1027,14 @@ _JPLL = np.array([1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7], dtype=np.int32)
 def _xyf2pix_ring(nside: int, ix: Array, iy: Array, face_num: Array) -> Array:
     """Convert (x, y, face) to a pixel number in RING ordering"""
     # ring index of the pixel center
-    jr = (_JRLL[face_num] * nside) - ix - iy - 1
+    jr = (jnp.asarray(_JRLL)[face_num] * nside) - ix - iy - 1
 
     ringpix = _npix_on_ring(nside, jr)
     startpix = _start_pixel_ring(nside, jr)
     kshift = 1 - _ring_shifted(nside, jr)
 
     # pixel number in the ring
-    jp = (_JPLL[face_num] * ringpix // 4 + ix - iy + 1 + kshift) // 2
+    jp = (jnp.asarray(_JPLL)[face_num] * ringpix // 4 + ix - iy + 1 + kshift) // 2
     jp = jnp.where(jp < 1, jp + 4 * nside, jp)
 
     return startpix - 1 + jp
@@ -1276,8 +1276,8 @@ def _pix2xyf_ring(nside: int, pix: Array) -> tuple[Array, Array, Array]:
         4 * nside - iring,  # south polar cap
     )  # ring number counted from North pole or South pole
 
-    irt = iring_for_irt - (_JRLL[face_num] * nside) + 1
-    ipt = 2 * iphi - _JPLL[face_num] * nr - kshift - 1
+    irt = iring_for_irt - (jnp.asarray(_JRLL)[face_num] * nside) + 1
+    ipt = 2 * iphi - jnp.asarray(_JPLL)[face_num] * nr - kshift - 1
     ipt -= jnp.where(ipt >= nl2, 8 * nside, 0)
 
     ix = (ipt - irt) // 2
@@ -2332,14 +2332,14 @@ def _handle_face_boundaries(
 
         # Look up new face using the face array (vectorized)
         # Use advanced indexing to get new faces for each pixel
-        new_face = _NB_FACEARRAY[nbnum, orig_face]
+        new_face = jnp.asarray(_NB_FACEARRAY)[nbnum, orig_face]
 
         # Only process pixels that actually cross boundaries and have valid new faces
         valid_crossing = boundary_crossing & (new_face >= 0) & (new_face < 12)
 
         # Apply coordinate transformations using swap array bits
         # Get swap bits for face transitions (vectorized)
-        swap_bits = _NB_SWAPARRAY[nbnum, orig_face >> 2]
+        swap_bits = jnp.asarray(_NB_SWAPARRAY)[nbnum, orig_face >> 2]
 
         # Apply bit transformations exactly as in original C++
         # Bit 1: Flip x coordinate
