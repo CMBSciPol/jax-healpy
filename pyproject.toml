@@ -1,10 +1,6 @@
 [build-system]
-build-backend = 'setuptools.build_meta'
-requires = [
-    'setuptools==75.8.0',
-    'setuptools_scm[toml]==8.1.0',
-    'wheel',
-]
+build-backend = 'hatchling.build'
+requires = ['hatchling', 'hatch-vcs']
 
 [project]
 name = 'jax-healpy'
@@ -39,18 +35,6 @@ dependencies = [
 dynamic = ['version']
 
 [project.optional-dependencies]
-test = [
-    'healpy',
-    'matplotlib',
-    'pandas',
-    'pytest',
-    'pytest-cov',
-    'pytest-mock',
-    'setuptools_scm',
-    'typer',
-    'PyYAML',
-    'chex',
-]
 recommended = [
     's2fft',
 ]
@@ -59,8 +43,34 @@ recommended = [
 homepage = 'https://jax-healpy.readthedocs.io'
 repository = 'https://github.com/CMBSciPol/jax-healpy'
 
+[dependency-groups]
+dev = [
+    {include-group = 'docs'},
+    'chex',
+    'healpy',
+    'matplotlib',
+    'pandas',
+    'pytest>=9.0',
+    'pytest-cov',
+    'pytest-mock',
+    'PyYAML',
+    'typer',
+]
+docs = [
+    'ipykernel>=6.0',
+    'myst-parser>=1.0',
+    'nbsphinx>=0.8',
+    'sphinx>=5.0',
+    'sphinx-book-theme>=1.0',
+    'sphinx-copybutton>=0.5',
+]
+cuda = ['jax[cuda13]>=0.10.0']
+
+[tool.hatch.version]
+source = 'vcs'
+
 [tool.coverage.report]
-exclude_lines = [
+exclude_also = [
     'pragma: no cover',
     'except ImportError:',
     'raise NotImplementedError',
@@ -69,18 +79,22 @@ exclude_lines = [
 show_missing = true
 skip_covered = true
 
-[tool.pytest.ini_options]
-addopts = '-rfEX --cov=jax_healpy --doctest-modules'
+[tool.pytest]
+addopts = [
+    '-rfEX',
+    '--cov=jax_healpy',
+    '--doctest-modules',
+    '--strict-config',
+    '--strict-markers',
+    '-m', 'not slow',
+]
+minversion = "9"
 testpaths = [
     'tests',
 ]
 markers = [
     "slow: marks tests as slow (deselected by default in CI)",
 ]
-
-[tool.setuptools_scm]
-version_scheme = 'post-release'
-fallback_version = '0.0.0'
 
 [tool.ruff]
 line-length = 120
