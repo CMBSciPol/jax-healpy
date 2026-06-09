@@ -35,19 +35,6 @@ dependencies = [
 dynamic = ['version']
 
 [project.optional-dependencies]
-test = [
-    'healpy',
-    'matplotlib',
-    'pandas',
-    'pytest',
-    'pytest-cov',
-    'pytest-mock',
-    'pytest-rerunfailures',  # reruns the known upstream-s2fft alm2map flake (see test_map_alm.py)
-    'setuptools_scm',
-    'typer',
-    'PyYAML',
-    'chex',
-]
 recommended = [
     's2fft',
 ]
