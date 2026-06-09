@@ -144,14 +144,14 @@ UNSEEN = -1.6375e30
 
 # 8-element offset arrays for x and y directions (SW, W, NW, N, NE, E, SE, S)
 # These define the relative positions of the 8 neighbors around any pixel
-_NB_XOFFSET = jnp.array([-1, -1, 0, 1, 1, 1, 0, -1], dtype=jnp.int32)
-_NB_YOFFSET = jnp.array([0, 1, 1, 1, 0, -1, -1, -1], dtype=jnp.int32)
+_NB_XOFFSET = np.array([-1, -1, 0, 1, 1, 1, 0, -1], dtype=np.int32)
+_NB_YOFFSET = np.array([0, 1, 1, 1, 0, -1, -1, -1], dtype=np.int32)
 
 # Face boundary lookup table (9x12) - handles face transitions for neighbors
 # This lookup table maps (nbnum, face) -> new_face when neighbors cross face boundaries
 # nbnum encodes the boundary crossing direction, face is the original face (0-11)
 # Based on original HEALPix C++ implementation's neighbor finding algorithm
-_NB_FACEARRAY = jnp.array(
+_NB_FACEARRAY = np.array(
     [
         [8, 9, 10, 11, -1, -1, -1, -1, 10, 11, 8, 9],  # S
         [5, 6, 7, 4, 8, 9, 10, 11, 9, 10, 11, 8],  # SE
@@ -163,14 +163,14 @@ _NB_FACEARRAY = jnp.array(
         [3, 0, 1, 2, 3, 0, 1, 2, 4, 5, 6, 7],  # NW
         [2, 3, 0, 1, -1, -1, -1, -1, 0, 1, 2, 3],  # N
     ],
-    dtype=jnp.int32,
+    dtype=np.int32,
 )
 
 # Coordinate transformation bits (9x3) - handles x/y swapping across face boundaries
 # This lookup table provides bit flags for coordinate transformations when crossing faces
 # Bit 1: flip x coordinate, Bit 2: flip y coordinate, Bit 4: swap x and y coordinates
 # Index by (nbnum, face >> 2) to get transformation bits for the boundary crossing
-_NB_SWAPARRAY = jnp.array(
+_NB_SWAPARRAY = np.array(
     [
         [0, 0, 3],  # S
         [0, 0, 6],  # SE
@@ -182,7 +182,7 @@ _NB_SWAPARRAY = jnp.array(
         [6, 0, 0],  # NW
         [3, 0, 0],  # N
     ],
-    dtype=jnp.int32,
+    dtype=np.int32,
 )
 
 
@@ -1057,10 +1057,10 @@ def _xy2fpix(nside: int, ix: Array, iy: Array) -> Array:
 
 
 # ring index of south corner for each face (0 = North pole)
-_JRLL = jnp.array([2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4], dtype=jnp.int32)
+_JRLL = np.array([2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4], dtype=np.int32)
 
 # longitude index of south corner for each face (0 = longitude zero)
-_JPLL = jnp.array([1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7], dtype=jnp.int32)
+_JPLL = np.array([1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7], dtype=np.int32)
 
 
 def _xyf2pix_ring(nside: int, ix: Array, iy: Array, face_num: Array) -> Array:
