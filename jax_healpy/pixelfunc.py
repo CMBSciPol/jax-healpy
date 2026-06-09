@@ -945,45 +945,6 @@ def _pix2ang_nest(nside: ArrayLike, ipix: ArrayLike) -> tuple[Array, Array]:
     raise NotImplementedError('NEST pixel ordering is not implemented.')
 
 
-# template<typename I> void T_Healpix_Base<I>::pix2loc (I pix, double &z,
-#   double &phi, double &sth, bool &have_sth) const
-#   have_sth=false;
-#   {
-#   int face_num, ix, iy;
-#   nest2xyf(pix,ix,iy,face_num);
-#
-#   I jr = (I(jrll[face_num])<<order_) - ix - iy - 1;
-#
-#   I nr;
-#   if (jr<nside_)
-#     {
-#     nr = jr;
-#     double tmp=(nr*nr)*fact2_;
-#     z = 1 - tmp;
-#     if (z>0.99) { sth=sqrt(tmp*(2.-tmp)); have_sth=true; }
-#     }
-#   else if (jr > 3*nside_)
-#     {
-#     nr = nside_*4-jr;
-#     double tmp=(nr*nr)*fact2_;
-#     z = tmp - 1;
-#     if (z<-0.99) { sth=sqrt(tmp*(2.-tmp)); have_sth=true; }
-#     }
-#   else
-#     {
-#     nr = nside_;
-#     z = (2*nside_-jr)*fact1_;
-#     }
-#
-#   I tmp=I(jpll[face_num])*nr+ix-iy;
-#   planck_assert(tmp<8*nr,"must not happen");
-#   if (tmp<0) tmp+=8*nr;
-#   phi = (nr==nside_) ? 0.75*halfpi*tmp*fact1_ :
-#                        (0.5*halfpi*tmp)/nr;
-#   }
-# }
-
-
 @jit(static_argnames=['nside', 'nest'])
 def xyf2pix(nside: int, x: ArrayLike, y: ArrayLike, face: ArrayLike, nest: bool = False) -> Array:
     """xyf2pix : nside,x,y,face,nest=False -> ipix (default:RING)
