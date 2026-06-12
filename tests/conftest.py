@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import jax
-import numpy as np
 import pytest
 
 
@@ -14,6 +12,8 @@ def default_x64():
     precisions use the parametrized ``x64`` fixture, whose context manager
     overrides this default within the test.
     """
+    import jax
+
     with jax.enable_x64(True):
         yield
 
@@ -25,14 +25,10 @@ def x64(request: pytest.FixtureRequest):
     Use only where 32- vs 64-bit behavior genuinely differs (e.g. integer pixel
     dtype / overflow), not for float64 accuracy assertions.
     """
+    import jax
+
     with jax.enable_x64(request.param):
         yield request.param
-
-
-@pytest.fixture(scope='session')
-def numpy_rng() -> np.random.RandomState:
-    seed = 0
-    return np.random.RandomState(seed)
 
 
 @pytest.fixture(scope='session')

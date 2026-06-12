@@ -894,6 +894,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-mock" },
+    { name = "pytest-rerunfailures" },
     { name = "pyyaml" },
     { name = "sphinx", version = "9.0.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "sphinx", version = "9.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -915,7 +916,7 @@ docs = [
 requires-dist = [
     { name = "jax", specifier = ">=0.10.0" },
     { name = "jaxtyping" },
-    { name = "s2fft", marker = "extra == 'recommended'" },
+    { name = "s2fft", marker = "extra == 'recommended'", git = "https://github.com/astro-informatics/s2fft" },
 ]
 provides-extras = ["recommended"]
 
@@ -932,6 +933,7 @@ dev = [
     { name = "pytest", specifier = ">=9.0" },
     { name = "pytest-cov" },
     { name = "pytest-mock" },
+    { name = "pytest-rerunfailures" },
     { name = "pyyaml" },
     { name = "sphinx", specifier = ">=5.0" },
     { name = "sphinx-book-theme", specifier = ">=1.0" },
@@ -2140,6 +2142,19 @@ wheels = [
 ]
 
 [[package]]
+name = "pytest-rerunfailures"
+version = "16.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4d/f0/74f8e685be7ecd1572c1256132f18fce3a665d7e07649a3f23b7eb2d3bec/pytest_rerunfailures-16.3.tar.gz", hash = "sha256:37c9b1231c8083e9f4e724f50f7a21241822f9516c15c700ebbf218d6452355c", size = 34148, upload-time = "2026-05-22T06:51:22.292Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f8/98/58a71d68d3126d7f6a6ed1944c37ec207a4ff3dc66cad3bed7b59d38df61/pytest_rerunfailures-16.3-py3-none-any.whl", hash = "sha256:6bdfb8ffb46c46072e6c16bdedee38b6c13eac620d9415ed5b63152cbf283170", size = 15396, upload-time = "2026-05-22T06:51:20.547Z" },
+]
+
+[[package]]
 name = "python-dateutil"
 version = "2.9.0.post0"
 source = { registry = "https://pypi.org/simple" }
@@ -2454,20 +2469,11 @@ wheels = [
 
 [[package]]
 name = "s2fft"
-version = "1.4.0"
-source = { registry = "https://pypi.org/simple" }
+version = "1.4.1.dev19"
+source = { git = "https://github.com/astro-informatics/s2fft#4ef1ee5fc07284574cf9452cb706c26ffa556f92" }
 dependencies = [
     { name = "jax" },
     { name = "numpy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/02/60/ac5914b6a5fce9df03d4c74eeeda9338c83eb3468fd856a08ea998b7656f/s2fft-1.4.0.tar.gz", hash = "sha256:b84c0c2bb0c3dfabe3431360bf90224705554e92966ab87e92affc0fe8f956ba", size = 22770481, upload-time = "2026-02-12T11:11:49.532Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/bc/7175a55f8aa4c0e36fbe5c33b2d129309fe6025a0ad4a683e85c80cc45e6/s2fft-1.4.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:739544caa6eb7cfa34700c1cc55634739601d8557819e88c7addce9fad93c7c5", size = 129798, upload-time = "2026-02-12T11:11:38.223Z" },
-    { url = "https://files.pythonhosted.org/packages/9b/bb/0ca3beb35de790ac66a98c5ea1f8043125f9b331af1b0c519b1e62e0e342/s2fft-1.4.0-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:42a521700d4793f7ac8a2308233e561065567f03c98b91747c508f02ce4a2cd4", size = 138123, upload-time = "2026-02-12T11:11:39.616Z" },
-    { url = "https://files.pythonhosted.org/packages/0d/1f/39fc6e6f69a0c1f7de40f2defaa1ef80de33c66814b98506d850f18b0c18/s2fft-1.4.0-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:c5f984316b81fdfdcaffcfdcb2ba9bdf70b2c25d3ef23313f8123d360f566833", size = 129376, upload-time = "2026-02-12T11:11:40.906Z" },
-    { url = "https://files.pythonhosted.org/packages/bb/74/7ec92e611283b1a559a0b2e535621985b66c6c48128207887a999448e472/s2fft-1.4.0-cp312-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:60ef04398dc4481232609a11d7ba4e0a9fbe3b311bbbab5a600f058dbaa7e61c", size = 137534, upload-time = "2026-02-12T11:11:42.84Z" },
-    { url = "https://files.pythonhosted.org/packages/53/10/89793a12ecda9473651c4e8f395e9601fae02081e1f18e9b4af8c9035d85/s2fft-1.4.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:647edd6533035283e38567b8200937064e4e1fda3bad68f43c5c3259732816db", size = 130318, upload-time = "2026-02-12T11:11:45.132Z" },
-    { url = "https://files.pythonhosted.org/packages/2c/b6/77f99f38bb0f09bf85f7b3667015941d003ecd880060955c1f6ea9edeef6/s2fft-1.4.0-cp314-cp314t-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9ac7d4cee989d1e5d5724ec4bfd8259bade430c30bf916e5955548b541ba0b73", size = 138646, upload-time = "2026-02-12T11:11:47.24Z" },
 ]
 
 [[package]]

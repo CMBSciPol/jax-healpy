@@ -110,7 +110,7 @@ __all__ = [
     'ud_grade',
     'UNSEEN',
     # 'mask_good',
-    # 'mask_bad',
+    'mask_bad',
     # 'ma',
     # 'fit_dipole',
     # 'remove_dipole',

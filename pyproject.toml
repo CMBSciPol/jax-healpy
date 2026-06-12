@@ -53,6 +53,7 @@ dev = [
     'pytest>=9.0',
     'pytest-cov',
     'pytest-mock',
+    'pytest-rerunfailures',
     'PyYAML',
     'typer',
 ]
@@ -65,6 +66,9 @@ docs = [
     'sphinx-copybutton>=0.5',
 ]
 cuda = ['jax[cuda13]>=0.10.0']
+
+[tool.uv.sources]
+s2fft = { git = "https://github.com/astro-informatics/s2fft" }
 
 [tool.hatch.version]
 source = 'vcs'
