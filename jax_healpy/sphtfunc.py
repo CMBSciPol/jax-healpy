@@ -14,7 +14,6 @@
 # You should have received a copy of the GNU General Public License
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
-import warnings
 from collections.abc import Callable
 from functools import partial, wraps
 from typing import ParamSpec, TypeVar
@@ -173,8 +172,8 @@ def precompute_polarization_harmonic_transforms(
 def _compute_beam_window(lmax: int, fwhm: float = 0.0, sigma: float | None = None) -> ArrayLike:
     """Return Gaussian beam factors up to lmax."""
     if sigma is None:
-        # Use jnp.where to handle fwhm=0 case in a JAX-compatible way
-        sigma = jnp.where(fwhm == 0.0, 0.0, fwhm / jnp.sqrt(8.0 * jnp.log(2.0)))
+        # fwhm=0 -> sigma=0 -> exp(0)=1 (identity beam), so no special-casing is needed
+        sigma = fwhm / jnp.sqrt(8.0 * jnp.log(2.0))
 
     ell = jnp.arange(lmax + 1)
     # When sigma=0, exp returns 1.0 (no smoothing)
@@ -186,12 +185,30 @@ def _lmax_from_nalm(nalm: int) -> int:
     return int((-1 + np.sqrt(1 + 8 * (nalm - 1))) / 2)
 
 
-def _compute_cl(alms: ArrayLike, L: int, alms2: ArrayLike | None = None) -> ArrayLike:
-    """Compute C_l from one or two alm grids in s2fft layout."""
-    m_vals = jnp.arange(-L + 1, L)
+def get_valid_mask_alms(lmax: int, mmax_positive: int | None = None, mmax_negative: int | None = None) -> ArrayLike:
+    """Boolean ``(L, M)`` mask selecting valid alm entries (``|m| <= ell``) over an m-range.
+
+    Defaults span the full s2fft 2D m-axis (``m`` in ``[-lmax, lmax]``); pass
+    ``mmax_positive=0`` for the negative-m half (the ``valid_left`` case).
+    """
+    L = lmax + 1
+    if mmax_positive is None:
+        mmax_positive = L  # exclusive upper bound -> m up to lmax
+    if mmax_negative is None:
+        mmax_negative = -L + 1  # inclusive lower bound -> m down to -lmax
+    m_vals = jnp.arange(mmax_negative, mmax_positive)
     ell_vals = jnp.arange(L)
     ell_grid, m_grid = jnp.meshgrid(ell_vals, m_vals, indexing='ij')
-    valid_mask = jnp.abs(m_grid) <= ell_grid
+    return jnp.abs(m_grid) <= ell_grid
+
+
+def _compute_cl(alms: ArrayLike, L: int, alms2: ArrayLike | None = None) -> ArrayLike:
+    """Compute C_l from one or two alm grids in s2fft layout."""
+    ell_vals = jnp.arange(L)
+    # valid_mask restricts the sum to |m| <= ell: a no-op for well-formed alms, and for malformed
+    # ones it still returns the correct C_l (defined over |m| <= ell) rather than leaking power. We
+    # deliberately do not raise inside this jitted reduction (a host callback would sync every call).
+    valid_mask = get_valid_mask_alms(L - 1)
 
     alm_prod = jnp.abs(alms) ** 2 if alms2 is None else alms * jnp.conj(alms2)
     alm_prod_masked = alm_prod * valid_mask
@@ -216,10 +233,10 @@ def _generate_random_alm(cl: ArrayLike, lmax: int, prng_key: PRNGKeyArray) -> Ar
     rand_real = jax.random.normal(key_real, shape=(L, 2 * L - 1), dtype=jnp.float64)
     rand_imag = jax.random.normal(key_imag, shape=(L, 2 * L - 1), dtype=jnp.float64)
 
-    m_vals = jnp.arange(-L + 1, L)
-    ell_vals = jnp.arange(L)
-    ell_grid, m_grid = jnp.meshgrid(ell_vals, m_vals, indexing='ij')
-    valid_mask = jnp.abs(m_grid) <= ell_grid
+    # m_grid is reused below for the m==0 (real-variance) case. valid_mask here is load-bearing:
+    # it zeroes the out-of-triangle entries so the random draw is a well-formed alm (|m| <= ell).
+    _, m_grid = jnp.meshgrid(jnp.arange(L), jnp.arange(-L + 1, L), indexing='ij')
+    valid_mask = get_valid_mask_alms(lmax)
 
     cl_grid = jnp.broadcast_to(cl[:, None], (L, 2 * L - 1))
     scale = jnp.sqrt(cl_grid / 2.0)
@@ -234,8 +251,7 @@ def _generate_random_alm(cl: ArrayLike, lmax: int, prng_key: PRNGKeyArray) -> Ar
     phase = (-1) ** m_positive
     conj_right_flipped = jnp.flip(jnp.conj(right_half), axis=1) * phase[None, :]
 
-    ell_grid_left, m_neg_grid = jnp.meshgrid(jnp.arange(L), jnp.arange(-(L - 1), 0), indexing='ij')
-    valid_left = jnp.abs(m_neg_grid) <= ell_grid_left
+    valid_left = get_valid_mask_alms(lmax, mmax_positive=0)
     left_half = conj_right_flipped * valid_left
 
     return jnp.concatenate([left_half, alms[:, L - 1 : L], right_half], axis=1)
@@ -521,8 +537,6 @@ def _map2alm_core(
         'fwhm',
         'sigma',
         'pol',
-        'inplace',
-        'verbose',
         'healpy_ordering',
         'method',
     ],
@@ -537,8 +551,6 @@ def alm2map(
     fwhm=0.0,
     sigma=None,
     pol: bool = True,
-    inplace: bool | None = None,
-    verbose=True,
     healpy_ordering: bool = False,
     method: str = 'jax',
 ):
@@ -584,11 +596,6 @@ def alm2map(
       always treated as a scalar field regardless of ``pol``. Gaussian smoothing
       (``fwhm``/``sigma``) is supported and applies the spin-2 beam correction to
       E/B; ``pixwin`` is not supported. Default: True (matches healpy).
-    inplace : bool, optional
-      Ignored in the JAX backend. Any truthy value will emit a warning.
-    verbose : bool, optional
-      Accepted to match healpy's signature but ignored (the JAX backend is not
-      verbose). Default: True.
     healpy ordering : bool, optional
       True if the input alms follow the healpy ordering. By default, the s2fft
       ordering is assumed.
@@ -615,10 +622,6 @@ def alm2map(
     expected_ndim = 1 if healpy_ordering else 2
     if alms.ndim > expected_ndim + 1 + pol:
         raise ValueError('Input alms have too many dimensions.')
-
-    if inplace not in (None, False):
-        warnings.warn('alm2map ignores inplace=True under JAX; arrays are immutable.', UserWarning)
-    inplace_flag = False
 
     if pixwin:
         raise NotImplementedError('Pixel-window smoothing is not implemented; set pixwin=False.')
@@ -679,7 +682,7 @@ def alm2map(
 
     # Handle batched input
     if alms.ndim == expected_ndim + 1 + pol:
-        return jax.vmap(alm2map, in_axes=(0,) + 11 * (None,))(
+        return jax.vmap(alm2map, in_axes=(0,) + 9 * (None,))(
             alms,
             nside,
             lmax,
@@ -688,8 +691,6 @@ def alm2map(
             fwhm,
             sigma,
             pol,
-            inplace_flag,
-            False,
             healpy_ordering,
             method,
         )
@@ -719,8 +720,7 @@ def alm2map(
     return f
 
 
-@partial(
-    jax.jit,
+@jax.jit(
     static_argnames=[
         'lmax',
         'mmax',
@@ -730,7 +730,6 @@ def alm2map(
         'datapath',
         'gal_cut',
         'use_pixel_weights',
-        'verbose',
         'healpy_ordering',
         'method',
     ],
@@ -746,7 +745,6 @@ def map2alm(
     datapath=None,
     gal_cut=0,
     use_pixel_weights=False,
-    verbose=True,
     healpy_ordering: bool = False,
     method: str = 'jax',
 ):
@@ -809,8 +807,6 @@ def map2alm(
       pixels at latitude in [-gal_cut;+gal_cut] are not taken into account
     use_pixel_weights: bool, optional
       If True, use pixel by pixel weighting, healpy will automatically download the weights, if needed
-    verbose : bool, optional
-      Deprecated, has not effect.
     healpy_ordering : bool, optional
       By default, we follow the s2fft ordering for the alms. To use healpy
       ordering, set it to True.
@@ -889,7 +885,7 @@ def map2alm(
 
     # Handle batched scalar input (pol=False, shape (n, npix))
     if maps.ndim > 1:
-        return jax.vmap(map2alm, in_axes=(0,) + 11 * (None,))(
+        return jax.vmap(map2alm, in_axes=(0,) + 10 * (None,))(
             maps,
             lmax,
             mmax,
@@ -899,7 +895,6 @@ def map2alm(
             datapath,
             gal_cut,
             use_pixel_weights,
-            False,
             healpy_ordering,
             method,
         )
@@ -929,10 +924,8 @@ def map2alm(
     return flm
 
 
-@partial(jax.jit, static_argnames=['mmax', 'inplace', 'healpy_ordering'])
-def almxfl(
-    alm: ArrayLike, fl: ArrayLike, mmax: int | None = None, inplace: bool = False, healpy_ordering: bool = False
-):
+@partial(jax.jit, static_argnames=['mmax', 'healpy_ordering'])
+def almxfl(alm: ArrayLike, fl: ArrayLike, mmax: int | None = None, healpy_ordering: bool = False):
     """Multiply alm by a filter function fl.
 
     Parameters
@@ -944,8 +937,6 @@ def almxfl(
         alm_out[l,m] = alm[l,m] * fl[l]
     mmax : int, optional
         Maximum m. If None, assumes mmax=lmax
-    inplace : bool, optional
-        If True, modify alm in place (currently ignored for JAX arrays)
     healpy_ordering : bool, optional
         If True, alm uses healpy 1D format. If False, uses s2fft 2D format. Default: False
 
@@ -1242,6 +1233,8 @@ def anafast(
 ):
     """Compute the angular power spectrum from HEALPix map(s).
 
+    #TODO add option expanded_cross_cl which returns also ET BE and BT
+
     Parameters
     ----------
     map1 : array-like
@@ -1427,7 +1420,7 @@ def anafast(
         return cl
 
 
-@partial(jax.jit, static_argnames=['fwhm', 'sigma', 'mmax', 'pol', 'inplace', 'verbose', 'healpy_ordering'])
+@partial(jax.jit, static_argnames=['fwhm', 'sigma', 'mmax', 'pol', 'healpy_ordering'])
 def smoothalm(
     alms: ArrayLike,
     fwhm: float = 0.0,
@@ -1435,8 +1428,6 @@ def smoothalm(
     beam_window: ArrayLike | None = None,
     pol: bool = True,
     mmax: int | None = None,
-    verbose: bool = True,
-    inplace: bool = True,
     healpy_ordering: bool = False,
 ) -> ArrayLike:
     """Smooth spherical harmonic coefficients with a Gaussian beam.
@@ -1461,10 +1452,6 @@ def smoothalm(
         field regardless of ``pol`` (also matching healpy). Default: True
     mmax : int, optional
         Maximum m value for alm coefficients. Default: lmax (inferred from alm size)
-    verbose : bool, optional
-        Deprecated parameter (ignored). Default: True
-    inplace : bool, optional
-        If True, modifies input in-place. Ignored in JAX (arrays are immutable). Default: True
     healpy_ordering : bool, optional
         If True, input/output use healpy 1D format. If False, s2fft 2D format. Default: False
 
@@ -1485,11 +1472,6 @@ def smoothalm(
     >>> fwhm_rad = float(np.radians(5.0 / 60.0))  # 5 arcmin (static, must be a float)
     >>> alm_smooth = jhp.smoothalm(alm, fwhm=fwhm_rad, pol=False)
     """
-    if inplace not in (None, True):
-        warnings.warn('smoothalm ignores inplace parameter; JAX arrays are immutable', UserWarning)
-    if verbose not in (None, True):
-        warnings.warn('verbose parameter is ignored in JAX implementation', UserWarning)
-
     alms = jnp.asarray(alms)
 
     def _lmax_of(component: ArrayLike) -> int:
@@ -1526,7 +1508,7 @@ def smoothalm(
             else:
                 # healpy: fact = exp(-0.5 * (l(l+1) - s^2) * sigma^2), s = 2 for E/B.
                 fact = jnp.exp(-0.5 * (ell * (ell + 1) - spins[i] ** 2) * sigma_val**2)
-            smoothed.append(almxfl(alms[i], fact, mmax=mmax, inplace=False, healpy_ordering=healpy_ordering))
+            smoothed.append(almxfl(alms[i], fact, mmax=mmax, healpy_ordering=healpy_ordering))
         return jnp.stack(smoothed, axis=0)
 
     # Scalar branch.
@@ -1537,7 +1519,7 @@ def smoothalm(
         bl = _compute_beam_window(lmax, fwhm=fwhm, sigma=sigma)
 
     # Apply smoothing using almxfl
-    return almxfl(alms, bl, mmax=mmax, inplace=False, healpy_ordering=healpy_ordering)
+    return almxfl(alms, bl, mmax=mmax, healpy_ordering=healpy_ordering)
 
 
 @partial(
@@ -1552,7 +1534,6 @@ def smoothalm(
         'use_weights',
         'use_pixel_weights',
         'datapath',
-        'verbose',
         'nest',
     ],
 )
@@ -1569,7 +1550,6 @@ def smoothing(
     use_weights: bool = False,
     use_pixel_weights: bool = False,
     datapath: str | None = None,
-    verbose: bool = True,
     nest: bool = False,
 ) -> ArrayLike:
     """Smooth a HEALPix map with a Gaussian beam.
@@ -1603,8 +1583,6 @@ def smoothing(
         Use pixel-by-pixel weights. Not supported. Raises NotImplementedError if True. Default: False
     datapath : str, optional
         Path to weight files. Not supported. Raises NotImplementedError if not None. Default: None
-    verbose : bool, optional
-        Verbosity control. Ignored. Default: True
     nest : bool, optional
         Input map ordering. Not supported (only RING).
         Raises NotImplementedError if True. Default: False
@@ -1639,8 +1617,6 @@ def smoothing(
         raise NotImplementedError('use_pixel_weights is not supported')
     if datapath is not None:
         raise NotImplementedError('datapath is not supported')
-    if verbose not in (None, True):
-        warnings.warn('verbose parameter is ignored in JAX implementation', UserWarning)
 
     map_in = jnp.asarray(map_in)
     # A single map (1D) is always scalar; pol only applies to a stack of maps.
@@ -1664,14 +1640,13 @@ def smoothing(
     return alm2map(alms_smooth, nside=npix2nside(map_in.shape[-1]), lmax=lmax, mmax=mmax, healpy_ordering=False)
 
 
-@partial(jax.jit, static_argnames=['lmax', 'mmax', 'new', 'verbose', 'healpy_ordering'])
+@partial(jax.jit, static_argnames=['lmax', 'mmax', 'new', 'healpy_ordering'])
 def synalm(
     prng_key: PRNGKeyArray,
     cls: ArrayLike | tuple[ArrayLike, ...],
     lmax: int | None = None,
     mmax: int | None = None,
     new: bool = False,
-    verbose: bool = True,
     healpy_ordering: bool = False,
 ) -> ArrayLike | tuple[ArrayLike, ...]:
     """Generate random spherical harmonic coefficients from power spectrum.
@@ -1699,8 +1674,6 @@ def synalm(
         - True: by diagonal, e.g. ``TT, EE, BB, TE, EB, TB`` (or ``TT, EE, BB, TE``)
         - False (default): by row, e.g. ``TT, TE, TB, EE, EB, BB`` (or ``TT, TE, EE, BB``)
         Ignored for a single input spectrum.
-    verbose : bool, optional
-        Verbosity control. Ignored. Default: True
     healpy_ordering : bool, optional
         If True, output uses healpy 1D format. If False, s2fft 2D format. Default: False
 
@@ -1733,9 +1706,6 @@ def synalm(
     >>> cl = 1.0 / (ell + 10)**2
     >>> alm = jhp.synalm(key, cl, lmax=64)
     """
-    if verbose not in (None, True):
-        warnings.warn('verbose parameter is ignored in JAX implementation', UserWarning)
-
     is_multi, payload = _as_spectra_list(cls)
 
     # Polarization / multi-spectra case: draw correlated alms whose per-multipole
@@ -1783,10 +1753,12 @@ def synalm(
                 idx += 1
         cov = jnp.stack([jnp.stack(rows[i], axis=-1) for i in range(n)], axis=-2)  # (L, n, n)
 
-        # Real symmetric matrix square root (principal sqrt of a symmetric PSD matrix
-        # is symmetric PSD, so R @ R == cov, incl. the singular low-ell blocks; sqrtm
-        # returns complex -> take real part), then mix n independent unit-variance draws.
-        sqrt_cov = jnp.real(jax.vmap(sqrtm)(cov))  # (L, n, n)
+        # Per-multipole matrix square root: principal sqrt of a symmetric PSD matrix is
+        # symmetric PSD, so R @ R == cov (incl. the singular low-ell blocks). Mix n
+        # independent unit-variance draws below.
+        # TODO: in case of non-symmetric cls this needs to be done differently
+        #       (dropping the imaginary part / assuming a symmetric sqrt no longer holds).
+        sqrt_cov = jax.vmap(sqrtm)(cov)  # (L, n, n)
         keys = jax.random.split(prng_key, n)
         ones = jnp.ones(L, dtype=jnp.float64)
         unit = jnp.stack([_generate_random_alm(ones, lmax, keys[i]) for i in range(n)], axis=0)  # (n, L, 2L-1)
@@ -1855,7 +1827,7 @@ def pixwin(nside: int, pol: bool = False, lmax: int | None = None, datapath: str
 
 @partial(
     jax.jit,
-    static_argnames=['nside', 'lmax', 'mmax', 'alm', 'pol', 'pixwin', 'fwhm', 'sigma', 'new', 'verbose', 'method'],
+    static_argnames=['nside', 'lmax', 'mmax', 'alm', 'pol', 'pixwin', 'fwhm', 'sigma', 'new', 'method'],
 )
 @requires_s2fft
 def synfast(
@@ -1870,10 +1842,11 @@ def synfast(
     fwhm: float = 0.0,
     sigma: float | None = None,
     new: bool = False,
-    verbose: bool = True,
     method: str = 'jax',
 ):
     """Generate a random HEALPix map from a power spectrum.
+
+    #TODO add option to expect cl in 6 for polarized or 4 for EE BB EB or (10 maybe? or 9) for expanded cross
 
     Parameters
     ----------
@@ -1915,9 +1888,6 @@ def synfast(
         Ordering convention for a sequence of input spectra (matches healpy):
         True for the new by-diagonal order, False (default) for the old by-row
         order. Ignored for a single input spectrum. See :func:`synalm`.
-    verbose : bool, optional
-        Verbosity flag. Accepted for API compatibility but ignored with a warning.
-        Default: True
     method : str, optional
         Transform method ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'
         JAX-specific parameter not present in healpy.
@@ -1938,6 +1908,10 @@ def synfast(
     from the (cross-)spectra and its matrix square root is used so that
     cross-spectra such as TE are reproduced exactly. Pixel window functionality
     is not yet implemented.
+
+    The polarized version of synfast does not run on GPU yet: it uses ``sqrtm``,
+    whose Schur decomposition is not yet implemented on GPU by JAX. The scalar
+    (single-spectrum) path is unaffected.
 
     Examples
     --------
@@ -1960,8 +1934,6 @@ def synfast(
     # Validate unsupported parameters
     if pixwin:
         raise NotImplementedError('pixwin=True is not supported yet')
-    if verbose not in (None, True):
-        warnings.warn('verbose parameter is ignored in JAX implementation', UserWarning)
 
     is_multi, payload = _as_spectra_list(cls)
     # healpy: a single input spectrum means pol has no effect.

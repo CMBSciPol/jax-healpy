@@ -67,7 +67,7 @@ def test_smoothing(synthesized_map: np.ndarray, fwhm_deg: float) -> None:
     map_smooth_hp = hp.smoothing(synthesized_map, fwhm=fwhm, pol=False, verbose=False)
 
     # Smooth with jax_healpy
-    map_smooth_jax = jhp.smoothing(synthesized_map, fwhm=fwhm, pol=False, verbose=False)
+    map_smooth_jax = jhp.smoothing(synthesized_map, fwhm=fwhm, pol=False)
 
     # Should be close to healpy (some differences due to s2fft vs healpy backend)
     np.testing.assert_allclose(map_smooth_jax, map_smooth_hp, rtol=1e-6, atol=1e-10)
