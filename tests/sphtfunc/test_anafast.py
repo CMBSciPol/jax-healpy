@@ -101,25 +101,25 @@ def test_anafast_nspec(synthesized_map: np.ndarray, lmax: int | None) -> None:
 
 def test_anafast_use_weights_raises(synthesized_map: np.ndarray) -> None:
     """Test that anafast raises NotImplementedError for use_weights=True."""
-    with pytest.raises(NotImplementedError, match='use_weights is not supported'):
+    with pytest.raises(NotImplementedError, match='use_weights is not implemented'):
         jhp.anafast(synthesized_map, use_weights=True, pol=False)
 
 
 def test_anafast_datapath_raises(synthesized_map: np.ndarray) -> None:
     """Test that anafast raises NotImplementedError for datapath."""
-    with pytest.raises(NotImplementedError, match='datapath is not supported'):
+    with pytest.raises(NotImplementedError, match='datapath is not implemented'):
         jhp.anafast(synthesized_map, datapath='/some/path', pol=False)
 
 
 def test_anafast_gal_cut_raises(synthesized_map: np.ndarray) -> None:
     """Test that anafast raises NotImplementedError for gal_cut != 0."""
-    with pytest.raises(NotImplementedError, match='gal_cut is not supported'):
+    with pytest.raises(NotImplementedError, match='gal_cut is not implemented'):
         jhp.anafast(synthesized_map, gal_cut=10, pol=False)
 
 
 def test_anafast_use_pixel_weights_raises(synthesized_map: np.ndarray) -> None:
     """Test that anafast raises NotImplementedError for use_pixel_weights=True."""
-    with pytest.raises(NotImplementedError, match='use_pixel_weights is not supported'):
+    with pytest.raises(NotImplementedError, match='use_pixel_weights is not implemented'):
         jhp.anafast(synthesized_map, use_pixel_weights=True, pol=False)
 
 
@@ -368,7 +368,7 @@ def test_synfast_pixwin_raises() -> None:
     ell = jnp.arange(lmax + 1)
     cl = 1.0 / (ell + 10) ** 2
 
-    with pytest.raises(NotImplementedError, match='pixwin=True is not supported'):
+    with pytest.raises(NotImplementedError, match='pixwin=True is not implemented'):
         jhp.synfast(jax.random.PRNGKey(42), cl, nside, pixwin=True, pol=False)
 
 
@@ -478,9 +478,8 @@ def test_alm2cl_multiple_alms() -> None:
     # Compute with jax-healpy
     cls_jax = jhp.alm2cl(alms_jax, healpy_ordering=True)
 
-    # Should return 6 spectra (3*4/2)
-    assert isinstance(cls_jax, tuple)
-    assert len(cls_jax) == 6
+    # Should return 6 spectra (3*4/2) as a stacked array, matching healpy's ndarray return.
+    assert np.asarray(cls_jax).shape[0] == 6
 
     # Each spectrum should match
     for i, (cl_jax, cl_hp) in enumerate(zip(cls_jax, cls_hp)):
@@ -500,8 +499,7 @@ def test_alm2cl_nspec() -> None:
     # Get first 3 spectra
     cls_jax = jhp.alm2cl(alms_jax, nspec=3, healpy_ordering=True)
 
-    assert isinstance(cls_jax, tuple)
-    assert len(cls_jax) == 3
+    assert np.asarray(cls_jax).shape[0] == 3
 
 
 # Tests for synalm
