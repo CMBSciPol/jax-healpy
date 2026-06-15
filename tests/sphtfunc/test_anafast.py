@@ -478,9 +478,8 @@ def test_alm2cl_multiple_alms() -> None:
     # Compute with jax-healpy
     cls_jax = jhp.alm2cl(alms_jax, healpy_ordering=True)
 
-    # Should return 6 spectra (3*4/2)
-    assert isinstance(cls_jax, tuple)
-    assert len(cls_jax) == 6
+    # Should return 6 spectra (3*4/2) as a stacked array, matching healpy's ndarray return.
+    assert np.asarray(cls_jax).shape[0] == 6
 
     # Each spectrum should match
     for i, (cl_jax, cl_hp) in enumerate(zip(cls_jax, cls_hp)):
@@ -500,8 +499,7 @@ def test_alm2cl_nspec() -> None:
     # Get first 3 spectra
     cls_jax = jhp.alm2cl(alms_jax, nspec=3, healpy_ordering=True)
 
-    assert isinstance(cls_jax, tuple)
-    assert len(cls_jax) == 3
+    assert np.asarray(cls_jax).shape[0] == 3
 
 
 # Tests for synalm
