@@ -332,3 +332,83 @@ def test_alm2map_pol_smoothing_matches_healpy(synthesized_tqu_map: np.ndarray, n
 
     assert tqu_jax.shape == tqu_hp.shape
     np.testing.assert_allclose(tqu_jax, tqu_hp, atol=5e-3, rtol=1e-8)
+
+
+# --- masked / invalid pixel handling (UNSEEN, NaN, inf) -------------------------------
+
+
+@pytest.mark.parametrize('healpy_ordering', [False, True])
+def test_map2alm_unseen_matches_healpy(synthesized_map: np.ndarray, healpy_ordering: bool, nside: int) -> None:
+    """UNSEEN pixels are zeroed before the transform, matching healpy bit-for-bit."""
+    lmax = 2 * nside - 1
+    masked = synthesized_map.copy()
+    masked[[5, 100, masked.size - 1]] = jhp.UNSEEN
+
+    actual = jhp.map2alm(jnp.asarray(masked), lmax=lmax, iter=0, healpy_ordering=healpy_ordering)
+    expected = hp.map2alm(masked, lmax=lmax, iter=0)
+    if not healpy_ordering:
+        expected = flm_hp_to_2d(expected, lmax + 1)
+    np.testing.assert_allclose(np.asarray(actual), expected, atol=1e-12)
+
+
+def test_map2alm_unseen_equivalent_to_zeroing(synthesized_map: np.ndarray, nside: int) -> None:
+    """Masking UNSEEN must be identical to manually zeroing those pixels."""
+    lmax = 2 * nside - 1
+    idx = [5, 100, synthesized_map.size - 1]
+    masked = synthesized_map.copy()
+    masked[idx] = jhp.UNSEEN
+    zeroed = synthesized_map.copy()
+    zeroed[idx] = 0.0
+
+    a_masked = jhp.map2alm(jnp.asarray(masked), lmax=lmax, iter=0)
+    a_zeroed = jhp.map2alm(jnp.asarray(zeroed), lmax=lmax, iter=0)
+    np.testing.assert_allclose(np.asarray(a_masked), np.asarray(a_zeroed), atol=1e-14)
+
+
+def test_map2alm_does_not_mutate_input(synthesized_map: np.ndarray, nside: int) -> None:
+    """The UNSEEN substitution happens on a copy; the input map is preserved."""
+    lmax = 2 * nside - 1
+    masked = jnp.asarray(synthesized_map).at[5].set(jhp.UNSEEN)
+    _ = jhp.map2alm(masked, lmax=lmax, iter=0)
+    assert masked[5] == jhp.UNSEEN
+
+
+@pytest.mark.parametrize('badval', [np.nan, np.inf, -np.inf])
+def test_map2alm_nonfinite_zeroed(synthesized_map: np.ndarray, badval: float, nside: int) -> None:
+    """NaN/inf pixels are treated as bad and zeroed (extension beyond healpy).
+
+    A finite result that equals the zeroed-pixel transform; without this handling
+    a NaN would poison every coefficient.
+    """
+    lmax = 2 * nside - 1
+    idx = [5, 100]
+    bad = jnp.asarray(synthesized_map).at[jnp.array(idx)].set(badval)
+    zeroed = jnp.asarray(synthesized_map).at[jnp.array(idx)].set(0.0)
+
+    a_bad = jhp.map2alm(bad, lmax=lmax, iter=0)
+    a_zeroed = jhp.map2alm(zeroed, lmax=lmax, iter=0)
+    assert jnp.all(jnp.isfinite(a_bad))
+    np.testing.assert_allclose(np.asarray(a_bad), np.asarray(a_zeroed), atol=1e-14)
+
+
+def test_map2alm_pol_independent_masks(synthesized_tqu_map: np.ndarray, nside: int) -> None:
+    """Each of I, Q, U is masked independently (UNSEEN in one, NaN in another)."""
+    lmax = 2 * nside - 1
+    iqu = np.asarray(synthesized_tqu_map).copy()
+    iqu_zeroed = iqu.copy()
+    iqu[0, 5] = jhp.UNSEEN
+    iqu[1, 9] = np.nan
+    iqu[2, 20] = np.inf
+    iqu_zeroed[0, 5] = iqu_zeroed[1, 9] = iqu_zeroed[2, 20] = 0.0
+
+    teb_bad = jhp.map2alm(jnp.asarray(iqu), lmax=lmax, iter=0, pol=True)
+    teb_zeroed = jhp.map2alm(jnp.asarray(iqu_zeroed), lmax=lmax, iter=0, pol=True)
+    assert jnp.all(jnp.isfinite(teb_bad))
+    np.testing.assert_allclose(np.asarray(teb_bad), np.asarray(teb_zeroed), atol=1e-14)
+
+
+def test_mask_bad_tolerant_and_nan_parity() -> None:
+    """mask_bad uses healpy's tolerant comparison and (like healpy) ignores NaN."""
+    vals = jnp.array([jhp.UNSEEN, jhp.UNSEEN * (1 + 1e-7), 0.0, np.nan, np.inf])
+    mask = jhp.mask_bad(vals)
+    np.testing.assert_array_equal(np.asarray(mask), [True, True, False, False, False])

@@ -33,6 +33,7 @@ except ImportError:
     pass
 
 from jax_healpy import npix2nside
+from jax_healpy.pixelfunc import UNSEEN, mask_bad
 
 __all__ = [
     'alm2cl',
@@ -412,6 +413,18 @@ def _alm2map_core(
         return jnp.real(f_complex)
 
 
+def _bad_pixel_mask(m: ArrayLike) -> ArrayLike:
+    """Mask of bad pixels: UNSEEN (via mask_bad) or non-finite (NaN/+-inf)."""
+    m = jnp.asarray(m)
+    return mask_bad(m) | ~jnp.isfinite(m)
+
+
+def _sanitize_map(m: ArrayLike) -> ArrayLike:
+    """Zero out bad pixels before a transform, returning a fresh array."""
+    m = jnp.asarray(m)
+    return jnp.where(_bad_pixel_mask(m), jnp.zeros((), dtype=m.dtype), m)
+
+
 def _map2alm_core(
     maps: ArrayLike,
     lmax: int,
@@ -449,8 +462,8 @@ def _map2alm_core(
     if spin != 0:
         # Input: [Q_map, U_map] where Q and U are real-valued Stokes parameters
         # Output: [alm_E, alm_B] where E and B are complex-valued mode coefficients
-        q_map = jnp.asarray(maps[0])
-        u_map = jnp.asarray(maps[1])
+        q_map = _sanitize_map(maps[0])  # zero bad pixels, per map
+        u_map = _sanitize_map(maps[1])
 
         nside = npix2nside(q_map.shape[-1])
         L = lmax + 1
@@ -502,7 +515,7 @@ def _map2alm_core(
         return [alm_E, alm_B]
     else:
         # Scalar transform (spin=0)
-        maps_complex = jnp.asarray(maps)
+        maps_complex = _sanitize_map(maps)  # zero bad pixels
         nside = npix2nside(maps_complex.shape[-1])
         L = lmax + 1
 
@@ -822,10 +835,9 @@ def map2alm(
 
     Notes
     -----
-    The pixels which have the special `UNSEEN` value are replaced by zeros
-    before spherical harmonic transform. They are converted back to `UNSEEN`
-    value, so that the input maps are not modified. Each map have its own,
-    independent mask.
+    Bad pixels -- `UNSEEN` or non-finite (``NaN`` / ``+-inf``) -- are replaced by
+    zeros before the transform so they do not contaminate the alm. Input maps are
+    not modified, and each map is masked independently.
     """
     if use_weights:
         raise NotImplementedError('Specifying use_weights is not implemented.')
@@ -1596,6 +1608,10 @@ def smoothing(
     -----
     The smoothing does not remove monopole/dipole components.
 
+    Bad pixels -- `UNSEEN` or non-finite (``NaN`` / ``+-inf``) -- are zeroed before
+    smoothing and set back to `UNSEEN` at the same positions in the output. Each map
+    keeps its own mask.
+
     Examples
     --------
     >>> import jax
@@ -1619,6 +1635,8 @@ def smoothing(
         raise NotImplementedError('datapath is not supported')
 
     map_in = jnp.asarray(map_in)
+    # Remember bad pixels (per map) to restore them as UNSEEN in the output.
+    bad = _bad_pixel_mask(map_in)
     # A single map (1D) is always scalar; pol only applies to a stack of maps.
     pol_active = pol and map_in.ndim == 2
 
@@ -1630,14 +1648,17 @@ def smoothing(
         alms_smooth = smoothalm(
             alms, fwhm=fwhm, sigma=sigma, beam_window=beam_window, pol=True, mmax=mmax, healpy_ordering=False
         )
-        return alm2map(alms_smooth, nside=nside, lmax=lmax, mmax=mmax, pol=True, healpy_ordering=False)
+        out = alm2map(alms_smooth, nside=nside, lmax=lmax, mmax=mmax, pol=True, healpy_ordering=False)
+        # A single (1, npix) input collapses to a (npix,) map; align the mask shape.
+        return jnp.where(bad.reshape(out.shape), UNSEEN, out)
 
     # Scalar branch (single map).
     alms = map2alm(map_in, lmax=lmax, mmax=mmax, iter=iter, pol=False, healpy_ordering=False)
     alms_smooth = smoothalm(
         alms, fwhm=fwhm, sigma=sigma, beam_window=beam_window, pol=False, mmax=mmax, healpy_ordering=False
     )
-    return alm2map(alms_smooth, nside=npix2nside(map_in.shape[-1]), lmax=lmax, mmax=mmax, healpy_ordering=False)
+    out = alm2map(alms_smooth, nside=npix2nside(map_in.shape[-1]), lmax=lmax, mmax=mmax, healpy_ordering=False)
+    return jnp.where(bad.reshape(out.shape), UNSEEN, out)
 
 
 @partial(jax.jit, static_argnames=['lmax', 'mmax', 'new', 'healpy_ordering'])
@@ -2024,6 +2045,9 @@ def map2alm_spin(
     Notes
     -----
     For polarization (spin=2), input maps should be [Q, U] and output will be [E_lm, B_lm].
+
+    Bad pixels -- `UNSEEN` or non-finite (``NaN`` / ``+-inf``) -- are replaced by
+    zeros before the transform (each map masked independently). See :func:`map2alm`.
 
     Examples
     --------

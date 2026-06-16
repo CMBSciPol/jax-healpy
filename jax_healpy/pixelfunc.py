@@ -2401,21 +2401,30 @@ def get_nside(m: ArrayLike) -> int:
     return npix2nside(npix)
 
 
-def mask_bad(m: ArrayLike) -> Array:
-    """Create boolean mask for UNSEEN pixels.
+def mask_bad(m: ArrayLike, badval: float = UNSEEN, rtol: float = 1.0e-5, atol: float = 1.0e-8) -> Array:
+    """Return a boolean mask that is ``True`` where ``m`` is close to ``badval``.
+
+    Uses the tolerant comparison ``|m - badval| <= atol + rtol * |badval|``.
+    ``NaN`` is not flagged.
 
     Parameters
     ----------
     m : array-like
-        HEALPix map
+        HEALPix map.
+    badval : float, optional
+        Value considered bad (:const:`UNSEEN` by default).
+    rtol, atol : float, optional
+        Relative and absolute tolerances.
 
     Returns
     -------
     mask : Array
-        Boolean array with True where pixels are UNSEEN
+        Boolean array, ``True`` where ``m`` is close to ``badval``.
     """
     m = jnp.asarray(m)
-    return m == UNSEEN
+    atol = abs(atol)
+    rtol = abs(rtol)
+    return jnp.abs(m - badval) <= atol + rtol * abs(badval)
 
 
 @jit(static_argnames=['nside_out', 'pess', 'order_in', 'order_out', 'power', 'dtype'])
