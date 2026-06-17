@@ -1649,16 +1649,16 @@ def smoothing(
             alms, fwhm=fwhm, sigma=sigma, beam_window=beam_window, pol=True, mmax=mmax, healpy_ordering=False
         )
         out = alm2map(alms_smooth, nside=nside, lmax=lmax, mmax=mmax, pol=True, healpy_ordering=False)
-        # A single (1, npix) input collapses to a (npix,) map; align the mask shape.
+        # A single (1, npix) map collapses to a (npix,) output; align the mask shape.
         return jnp.where(bad.reshape(out.shape), UNSEEN, out)
 
-    # Scalar branch (single map).
+    # Scalar branch (single map); bad already matches the output shape.
     alms = map2alm(map_in, lmax=lmax, mmax=mmax, iter=iter, pol=False, healpy_ordering=False)
     alms_smooth = smoothalm(
         alms, fwhm=fwhm, sigma=sigma, beam_window=beam_window, pol=False, mmax=mmax, healpy_ordering=False
     )
     out = alm2map(alms_smooth, nside=npix2nside(map_in.shape[-1]), lmax=lmax, mmax=mmax, healpy_ordering=False)
-    return jnp.where(bad.reshape(out.shape), UNSEEN, out)
+    return jnp.where(bad, UNSEEN, out)
 
 
 @partial(jax.jit, static_argnames=['lmax', 'mmax', 'new', 'healpy_ordering'])
