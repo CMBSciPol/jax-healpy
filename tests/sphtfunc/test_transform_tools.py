@@ -126,3 +126,64 @@ def test_precompute_harmonic_transforms_smoke() -> None:
     p2, pm2 = jhp.precompute_polarization_harmonic_transforms(32, lmax=63)
     assert isinstance(p2, (list, tuple)) and len(p2) > 0
     assert isinstance(pm2, (list, tuple)) and len(pm2) > 0
+
+
+# --- smoothing remembers and restores masked pixels (UNSEEN/non-finite) ------------------
+
+
+def test_smoothing_restores_unseen_mask(synthesized_map: np.ndarray, nside: int) -> None:
+    """smoothing zeros UNSEEN before the transform and restores UNSEEN on output, like healpy."""
+    fwhm = np.radians(10.0)
+    lmax = 2 * nside - 1
+    idx = [5, 100, synthesized_map.size - 1]
+    masked = synthesized_map.copy()
+    masked[idx] = jhp.UNSEEN
+
+    out_jax = np.asarray(jhp.smoothing(masked, fwhm=fwhm, pol=False, iter=0, lmax=lmax))
+    out_hp = hp.smoothing(masked, fwhm=fwhm, pol=False, iter=0, lmax=lmax)
+
+    # Masked positions restored to UNSEEN, identical set to healpy.
+    np.testing.assert_array_equal(out_jax == jhp.UNSEEN, out_hp == hp.UNSEEN)
+    assert np.all(out_jax[idx] == jhp.UNSEEN)
+    good = out_hp != hp.UNSEEN
+    np.testing.assert_allclose(out_jax[good], out_hp[good], rtol=1e-6, atol=1e-10)
+
+
+@pytest.mark.parametrize('badval', [np.nan, np.inf, -np.inf])
+def test_smoothing_restores_nonfinite_as_unseen(synthesized_map: np.ndarray, badval: float, nside: int) -> None:
+    """Non-finite input pixels (extension beyond healpy) are restored as UNSEEN."""
+    fwhm = np.radians(10.0)
+    lmax = 2 * nside - 1
+    masked = synthesized_map.copy()
+    masked[7] = badval
+
+    out = np.asarray(jhp.smoothing(masked, fwhm=fwhm, pol=False, iter=0, lmax=lmax))
+    assert out[7] == jhp.UNSEEN
+    good = np.ones(out.size, dtype=bool)
+    good[7] = False
+    assert np.all(np.isfinite(out[good]))
+
+
+def test_smoothing_pol_independent_masks(synthesized_tqu_map: np.ndarray, nside: int) -> None:
+    """Each of I, Q, U restores its own mask positions independently."""
+    fwhm = np.radians(10.0)
+    lmax = 2 * nside - 1
+    iqu = np.asarray(synthesized_tqu_map).copy()
+    iqu[0, 1] = jhp.UNSEEN
+    iqu[1, 2] = jhp.UNSEEN
+    iqu[2, 3] = np.nan
+
+    out = np.asarray(jhp.smoothing(iqu, fwhm=fwhm, pol=True, iter=0, lmax=lmax))
+    assert out.shape == iqu.shape
+    assert out[0, 1] == jhp.UNSEEN and out[1, 2] == jhp.UNSEEN and out[2, 3] == jhp.UNSEEN
+    # A mask on one component must not bleed into the others.
+    assert out[0, 2] != jhp.UNSEEN and out[1, 1] != jhp.UNSEEN and out[2, 1] != jhp.UNSEEN
+
+
+def test_smoothing_clean_map_unchanged_behavior(synthesized_map: np.ndarray, nside: int) -> None:
+    """With no masked pixels, the masking logic is a no-op (output stays all-finite)."""
+    fwhm = np.radians(10.0)
+    lmax = 2 * nside - 1
+    out = np.asarray(jhp.smoothing(synthesized_map, fwhm=fwhm, pol=False, iter=0, lmax=lmax))
+    assert np.all(np.isfinite(out))
+    assert not np.any(out == jhp.UNSEEN)
