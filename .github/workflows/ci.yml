@@ -17,10 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout project
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up prek and run hooks
-        uses: j178/prek-action@v2.0.4
+        uses: j178/prek-action@v2.0.5
         with:
           prek-version: "0.4.3"
 
@@ -33,7 +33,7 @@ jobs:
 
     steps:
       - name: Checkout project
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install uv and set up environment
         uses: astral-sh/setup-uv@v8.2.0
