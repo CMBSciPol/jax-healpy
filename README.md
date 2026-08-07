@@ -170,10 +170,11 @@ If you use jax-healpy in your research, please cite:
 
 ```bibtex
 @software{jax_healpy,
-  author = {Chanial, Pierre and Biquard, Simon and Kabalan, Wassim},
-  title = {jax-healpy: JAX-based HEALPix implementation},
-  url = {https://github.com/pchanial/jax-healpy},
-  year = {2024}
+    author = {Chanial, Pierre and Morshed, Magdy and Biquard, Simon and Kabalan, Wassim and Basyrov, Artem},
+    license = {GPL-3.0},
+    title = {{jax-healpy: Differentiable implementation of HEALPix functions and extensions in JAX}},
+    url = {https://github.com/CMBSciPol/jax-healpy},
+    year = {2026}
 }
 ```
 
