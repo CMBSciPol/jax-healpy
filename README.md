@@ -42,7 +42,7 @@ pip install jax-healpy[recommended]
 Clone the repository and install in editable mode:
 
 ```bash
-git clone https://github.com/pchanial/jax-healpy.git
+git clone https://github.com/CMBSciPol/jax-healpy.git
 cd jax-healpy
 pip install -e .
 ```
@@ -52,6 +52,7 @@ pip install -e .
 ```python
 import jax.numpy as jnp
 import jax_healpy as hp
+import jax
 
 # Create a HEALPix map
 nside = 64
@@ -65,6 +66,7 @@ theta, phi = hp.pix2ang(nside, pixels)
 recovered_pixels = hp.ang2pix(nside, theta, phi, nest=False)
 
 # Spherical harmonics transform (requires s2fft)
+skymap = jax.random.normal(jax.random.PRNGKey(0), (npix,))
 alm = hp.map2alm(skymap, lmax=128)
 reconstructed_map = hp.alm2map(alm, nside=nside)
 ```
