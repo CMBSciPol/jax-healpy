@@ -41,6 +41,7 @@ __all__ = [
     'alm2map_spin',
     'almxfl',
     'anafast',
+    'bad_pixel_mask',
     'gauss_beam',
     'map2alm',
     'map2alm_spin',
@@ -425,16 +426,33 @@ def _alm2map_core(
         return jnp.real(f_complex)
 
 
-def _bad_pixel_mask(m: ArrayLike) -> ArrayLike:
-    """Mask of bad pixels: UNSEEN (via mask_bad) or non-finite (NaN/+-inf)."""
+def bad_pixel_mask(m: ArrayLike) -> ArrayLike:
+    """Boolean mask of bad pixels: `UNSEEN` (via :func:`mask_bad`) or non-finite (``NaN`` / ``+-inf``).
+
+    Parameters
+    ----------
+    m : array-like, shape (npix,) or (n, npix)
+        HEALPix map or stack of maps.
+
+    Returns
+    -------
+    mask : Array
+        Boolean array of the same shape, ``True`` where the pixel is bad.
+
+    See Also
+    --------
+    map2alm : accepts the mask through its ``bad_mask`` argument.
+    """
     m = jnp.asarray(m)
     return mask_bad(m) | ~jnp.isfinite(m)
 
 
-def _sanitize_map(m: ArrayLike) -> ArrayLike:
-    """Zero out bad pixels before a transform, returning a fresh array."""
+def _apply_bad_mask(m: ArrayLike, bad_mask: ArrayLike | None) -> ArrayLike:
+    """Zero the pixels flagged by ``bad_mask``, returning a fresh array."""
     m = jnp.asarray(m)
-    return jnp.where(_bad_pixel_mask(m), jnp.zeros((), dtype=m.dtype), m)
+    if bad_mask is None:
+        return m
+    return jnp.where(jnp.asarray(bad_mask), jnp.zeros((), dtype=m.dtype), m)
 
 
 @requires_s2fft
@@ -445,6 +463,7 @@ def _map2alm_core(
     iter: int,
     method: str,
     spin: int,
+    bad_mask: ArrayLike | None = None,
 ) -> ArrayLike:
     """Core map2alm implementation supporting spin-weighted transforms.
 
@@ -462,6 +481,8 @@ def _map2alm_core(
         s2fft method ('jax', 'jax_healpy', 'jax_cuda')
     spin : int
         Spin weight (0 for scalar, 2 for polarization, etc.)
+    bad_mask : ArrayLike, optional
+        Boolean mask matching the structure of ``maps``; flagged pixels are zeroed.
     Returns
     -------
     ArrayLike
@@ -475,8 +496,9 @@ def _map2alm_core(
     if spin != 0:
         # Input: [Q_map, U_map] where Q and U are real-valued Stokes parameters
         # Output: [alm_E, alm_B] where E and B are complex-valued mode coefficients
-        q_map = _sanitize_map(maps[0])  # zero bad pixels, per map
-        u_map = _sanitize_map(maps[1])
+        q_mask, u_mask = (None, None) if bad_mask is None else (bad_mask[0], bad_mask[1])
+        q_map = _apply_bad_mask(maps[0], q_mask)
+        u_map = _apply_bad_mask(maps[1], u_mask)
 
         nside = npix2nside(q_map.shape[-1])
         L = lmax + 1
@@ -528,7 +550,7 @@ def _map2alm_core(
         return [alm_E, alm_B]
     else:
         # Scalar transform (spin=0)
-        maps_complex = _sanitize_map(maps)  # zero bad pixels
+        maps_complex = _apply_bad_mask(maps, bad_mask)
         nside = npix2nside(maps_complex.shape[-1])
         L = lmax + 1
 
@@ -770,6 +792,7 @@ def map2alm(
     use_pixel_weights=False,
     healpy_ordering: bool = False,
     method: str = 'jax',
+    bad_mask: ArrayLike | None = None,
 ) -> ArrayLike:
     """Computes the alm of a Healpix map. The input maps must all be
     in ring ordering.
@@ -819,6 +842,10 @@ def map2alm(
       ordering, set it to True.
     method : str, optional
       Transform backend ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'.
+    bad_mask : array-like of bool, optional
+      Mask of pixels to zero before the transform, broadcastable to the shape of
+      ``maps``. Use :func:`bad_pixel_mask` to build it from a map containing
+      `UNSEEN` or non-finite values. Default: None (no masking).
 
     Returns
     -------
@@ -829,9 +856,22 @@ def map2alm(
 
     Notes
     -----
-    Bad pixels -- `UNSEEN` or non-finite (``NaN`` / ``+-inf``) -- are replaced by
-    zeros before the transform so they do not contaminate the alm. Input maps are
-    not modified, and each map is masked independently.
+    Like healpy, the transform does not inspect pixel values: a map containing
+    `UNSEEN` (a large finite sentinel) or non-finite values must be masked through
+    ``bad_mask``, otherwise those pixels contaminate every coefficient. Input maps
+    are never modified.
+
+    Because the mask is an argument rather than a function of the pixel values,
+    the transform is exactly linear in ``maps`` for any fixed ``bad_mask``. It can
+    therefore be transposed with :func:`jax.linear_transpose` and reused as a linear
+    operator across the iterations of a solver.
+
+    Examples
+    --------
+    >>> import jax
+    >>> import jax_healpy as jhp
+    >>> mask = jhp.bad_pixel_mask(m)                                # doctest: +SKIP
+    >>> alm = jhp.map2alm(m, lmax=lmax, bad_mask=mask)              # doctest: +SKIP
     """
     if use_weights:
         raise NotImplementedError('Specifying use_weights is not implemented.')
@@ -847,6 +887,9 @@ def map2alm(
         raise ValueError('The input map must have at least one dimension.')
     if maps.ndim > 2:
         raise ValueError('The input map has too many dimensions.')
+
+    if bad_mask is not None:
+        bad_mask = jnp.broadcast_to(jnp.asarray(bad_mask), maps.shape)
 
     # Polarized branch: input is shape (n, npix) with n in {1, 2, 3}.
     #   n == 1 -> I        -> alm_T                 (spin 0)
@@ -867,16 +910,36 @@ def map2alm(
         if n == 2:
             # Q, U -> E, B (spin-2 only, no temperature)
             alm_E, alm_B = _map2alm_core(
-                maps=[maps[0], maps[1]], lmax=target_lmax, mmax=mmax, iter=iter, method=method, spin=2
+                maps=[maps[0], maps[1]],
+                lmax=target_lmax,
+                mmax=mmax,
+                iter=iter,
+                method=method,
+                spin=2,
+                bad_mask=None if bad_mask is None else [bad_mask[0], bad_mask[1]],
             )
             out = [alm_E, alm_B]
         else:
             # leading map is temperature (n == 1 -> I; n == 3 -> I, Q, U)
-            alm_T = _map2alm_core(maps=maps[0], lmax=target_lmax, mmax=mmax, iter=iter, method=method, spin=0)
+            alm_T = _map2alm_core(
+                maps=maps[0],
+                lmax=target_lmax,
+                mmax=mmax,
+                iter=iter,
+                method=method,
+                spin=0,
+                bad_mask=None if bad_mask is None else bad_mask[0],
+            )
             out = [alm_T]
             if n == 3:
                 alm_E, alm_B = _map2alm_core(
-                    maps=[maps[1], maps[2]], lmax=target_lmax, mmax=mmax, iter=iter, method=method, spin=2
+                    maps=[maps[1], maps[2]],
+                    lmax=target_lmax,
+                    mmax=mmax,
+                    iter=iter,
+                    method=method,
+                    spin=2,
+                    bad_mask=None if bad_mask is None else [bad_mask[1], bad_mask[2]],
                 )
                 out += [alm_E, alm_B]
 
@@ -889,7 +952,7 @@ def map2alm(
 
     # Handle batched scalar input (pol=False, shape (n, npix))
     if maps.ndim > 1:
-        return jax.vmap(map2alm, in_axes=(0,) + 10 * (None,))(
+        return jax.vmap(map2alm, in_axes=(0,) + 10 * (None,) + (None if bad_mask is None else 0,))(
             maps,
             lmax,
             mmax,
@@ -901,6 +964,7 @@ def map2alm(
             use_pixel_weights,
             healpy_ordering,
             method,
+            bad_mask,
         )
 
     nside = npix2nside(maps.shape[-1])
@@ -918,6 +982,7 @@ def map2alm(
         iter=iter,
         method=method,
         spin=0,
+        bad_mask=bad_mask,
     )
 
     if healpy_ordering:
@@ -1624,14 +1689,17 @@ def smoothing(
         raise NotImplementedError('datapath is not implemented')
 
     map_in = jnp.asarray(map_in)
-    # Remember bad pixels (per map) to restore them as UNSEEN in the output.
-    bad = _bad_pixel_mask(map_in)
+    # Remember bad pixels (per map) to zero them before the transform and restore
+    # them as UNSEEN in the output.
+    bad = bad_pixel_mask(map_in)
     # A single map (1D) is always scalar; pol only applies to a stack of maps.
     pol_active = pol and map_in.ndim == 2
 
     if pol_active:
         nside = npix2nside(map_in.shape[-1])
-        alms = jnp.asarray(map2alm(map_in, lmax=lmax, mmax=mmax, iter=iter, pol=True, healpy_ordering=False))
+        alms = jnp.asarray(
+            map2alm(map_in, lmax=lmax, mmax=mmax, iter=iter, pol=True, healpy_ordering=False, bad_mask=bad)
+        )
         if alms.ndim == 2:  # single component (1 map) -> add the component axis
             alms = alms[None, ...]
         alms_smooth = smoothalm(
@@ -1642,7 +1710,7 @@ def smoothing(
         return jnp.where(bad.reshape(out.shape), UNSEEN, out)
 
     # Scalar branch (single map); bad already matches the output shape.
-    alms = map2alm(map_in, lmax=lmax, mmax=mmax, iter=iter, pol=False, healpy_ordering=False)
+    alms = map2alm(map_in, lmax=lmax, mmax=mmax, iter=iter, pol=False, healpy_ordering=False, bad_mask=bad)
     alms_smooth = smoothalm(
         alms, fwhm=fwhm, sigma=sigma, beam_window=beam_window, pol=False, mmax=mmax, healpy_ordering=False
     )
@@ -2002,6 +2070,7 @@ def map2alm_spin(
     iter: int = 0,
     method: str = 'jax',
     healpy_ordering: bool = False,
+    bad_mask: ArrayLike | None = None,
 ) -> ArrayLike | list[ArrayLike]:
     """Compute spin-weighted spherical harmonic coefficients from HEALPix maps.
 
@@ -2024,6 +2093,9 @@ def map2alm_spin(
         Transform method ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'
     healpy_ordering : bool, optional
         If True, return alms in healpy format. If False, s2fft format. Default: False
+    bad_mask : array-like of bool, optional
+        Mask of pixels to zero before the transform, broadcastable to the shape of
+        ``maps``. Default: None (no masking). See :func:`map2alm`.
 
     Returns
     -------
@@ -2034,9 +2106,6 @@ def map2alm_spin(
     Notes
     -----
     For polarization (spin=2), input maps should be [Q, U] and output will be [E_lm, B_lm].
-
-    Bad pixels -- `UNSEEN` or non-finite (``NaN`` / ``+-inf``) -- are replaced by
-    zeros before the transform (each map masked independently). See :func:`map2alm`.
 
     Examples
     --------
@@ -2057,9 +2126,13 @@ def map2alm_spin(
             raise ValueError(f'For spin={spin}, maps must be a list/tuple of 2 arrays')
         maps = [jnp.asarray(m) for m in maps]
         nside = npix2nside(maps[0].shape[-1])
+        if bad_mask is not None:
+            bad_mask = list(jnp.broadcast_to(jnp.asarray(bad_mask), (2, maps[0].shape[-1])))
     else:
         maps = jnp.asarray(maps)
         nside = npix2nside(maps.shape[-1])
+        if bad_mask is not None:
+            bad_mask = jnp.broadcast_to(jnp.asarray(bad_mask), maps.shape)
 
     lmax = _resolve_lmax(nside, lmax)
     target_L = lmax + 1
@@ -2075,6 +2148,7 @@ def map2alm_spin(
         iter=iter,
         method=method,
         spin=spin,
+        bad_mask=bad_mask,
     )
 
     if healpy_ordering:
