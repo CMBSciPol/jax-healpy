@@ -8,8 +8,6 @@ This project provides a comprehensive JAX-native implementation of HEALPix (Hier
 [![PyPI version](https://badge.fury.io/py/jax-healpy.svg)](https://badge.fury.io/py/jax-healpy)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-> **⚠️ WARNING: BETA STAGE** - This project is in active development. APIs may change and some features are still under development.
-
 ## Key Features
 
 - **🚀 GPU Acceleration**: Leverage JAX's XLA compilation for high-performance computing on CPUs and GPUs
