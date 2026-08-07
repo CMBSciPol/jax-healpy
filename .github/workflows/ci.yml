@@ -46,4 +46,8 @@ jobs:
         run: uv sync --locked --group dev --extra recommended
 
       - name: Run tests
-        run: uv run pytest -vv -m "not slow"
+        # NaMaster (pymaster) is not pip/uv-installable, so the pseudo_cl NaMaster *oracle* tests
+        # (tests/pseudo_cl/test_oracle.py, which hard-imports pymaster) run locally in a conda env
+        # and are deliberately excluded here pending a conda-based CI job. Explicit, documented
+        # exclusion -- not a per-test skip.
+        run: uv run pytest -vv -m "not slow" --ignore=tests/pseudo_cl/test_oracle.py
