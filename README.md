@@ -8,8 +8,6 @@ This project provides a comprehensive JAX-native implementation of HEALPix (Hier
 [![PyPI version](https://badge.fury.io/py/jax-healpy.svg)](https://badge.fury.io/py/jax-healpy)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-> **⚠️ WARNING: BETA STAGE** - This project is in active development. APIs may change and some features are still under development.
-
 ## Key Features
 
 - **🚀 GPU Acceleration**: Leverage JAX's XLA compilation for high-performance computing on CPUs and GPUs
@@ -44,7 +42,7 @@ pip install jax-healpy[recommended]
 Clone the repository and install in editable mode:
 
 ```bash
-git clone https://github.com/pchanial/jax-healpy.git
+git clone https://github.com/CMBSciPol/jax-healpy.git
 cd jax-healpy
 pip install -e .
 ```
@@ -54,6 +52,7 @@ pip install -e .
 ```python
 import jax.numpy as jnp
 import jax_healpy as hp
+import jax
 
 # Create a HEALPix map
 nside = 64
@@ -67,6 +66,7 @@ theta, phi = hp.pix2ang(nside, pixels)
 recovered_pixels = hp.ang2pix(nside, theta, phi, nest=False)
 
 # Spherical harmonics transform (requires s2fft)
+skymap = jax.random.normal(jax.random.PRNGKey(0), (npix,))
 alm = hp.map2alm(skymap, lmax=128)
 reconstructed_map = hp.alm2map(alm, nside=nside)
 ```
@@ -170,10 +170,11 @@ If you use jax-healpy in your research, please cite:
 
 ```bibtex
 @software{jax_healpy,
-  author = {Chanial, Pierre and Biquard, Simon and Kabalan, Wassim},
-  title = {jax-healpy: JAX-based HEALPix implementation},
-  url = {https://github.com/pchanial/jax-healpy},
-  year = {2024}
+    author = {Chanial, Pierre and Morshed, Magdy and Biquard, Simon and Kabalan, Wassim and Basyrov, Artem},
+    license = {GPL-3.0},
+    title = {{jax-healpy: Differentiable implementation of HEALPix functions and extensions in JAX}},
+    url = {https://github.com/CMBSciPol/jax-healpy},
+    year = {2026}
 }
 ```
 
