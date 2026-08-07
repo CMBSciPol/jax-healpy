@@ -339,12 +339,18 @@ def test_alm2map_pol_smoothing_matches_healpy(synthesized_tqu_map: np.ndarray, n
 
 @pytest.mark.parametrize('healpy_ordering', [False, True])
 def test_map2alm_unseen_matches_healpy(synthesized_map: np.ndarray, healpy_ordering: bool, nside: int) -> None:
-    """UNSEEN pixels are zeroed before the transform, matching healpy bit-for-bit."""
+    """Masking UNSEEN through bad_mask matches healpy bit-for-bit."""
     lmax = 2 * nside - 1
     masked = synthesized_map.copy()
     masked[[5, 100, masked.size - 1]] = jhp.UNSEEN
 
-    actual = jhp.map2alm(jnp.asarray(masked), lmax=lmax, iter=0, healpy_ordering=healpy_ordering)
+    actual = jhp.map2alm(
+        jnp.asarray(masked),
+        lmax=lmax,
+        iter=0,
+        healpy_ordering=healpy_ordering,
+        bad_mask=jhp.bad_pixel_mask(masked),
+    )
     expected = hp.map2alm(masked, lmax=lmax, iter=0)
     if not healpy_ordering:
         expected = flm_hp_to_2d(expected, lmax + 1)
@@ -360,32 +366,32 @@ def test_map2alm_unseen_equivalent_to_zeroing(synthesized_map: np.ndarray, nside
     zeroed = synthesized_map.copy()
     zeroed[idx] = 0.0
 
-    a_masked = jhp.map2alm(jnp.asarray(masked), lmax=lmax, iter=0)
+    a_masked = jhp.map2alm(jnp.asarray(masked), lmax=lmax, iter=0, bad_mask=jhp.bad_pixel_mask(masked))
     a_zeroed = jhp.map2alm(jnp.asarray(zeroed), lmax=lmax, iter=0)
     np.testing.assert_allclose(np.asarray(a_masked), np.asarray(a_zeroed), atol=1e-14)
 
 
 def test_map2alm_does_not_mutate_input(synthesized_map: np.ndarray, nside: int) -> None:
-    """The UNSEEN substitution happens on a copy; the input map is preserved."""
+    """The zeroing happens on a copy; the input map is preserved."""
     lmax = 2 * nside - 1
     masked = jnp.asarray(synthesized_map).at[5].set(jhp.UNSEEN)
-    _ = jhp.map2alm(masked, lmax=lmax, iter=0)
+    _ = jhp.map2alm(masked, lmax=lmax, iter=0, bad_mask=jhp.bad_pixel_mask(masked))
     assert masked[5] == jhp.UNSEEN
 
 
 @pytest.mark.parametrize('badval', [np.nan, np.inf, -np.inf])
 def test_map2alm_nonfinite_zeroed(synthesized_map: np.ndarray, badval: float, nside: int) -> None:
-    """NaN/inf pixels are treated as bad and zeroed (extension beyond healpy).
+    """NaN/inf pixels are flagged by bad_pixel_mask and zeroed (extension beyond healpy).
 
-    A finite result that equals the zeroed-pixel transform; without this handling
-    a NaN would poison every coefficient.
+    Yields a finite result equal to the zeroed-pixel transform; without the mask a
+    NaN would poison every coefficient.
     """
     lmax = 2 * nside - 1
     idx = [5, 100]
     bad = jnp.asarray(synthesized_map).at[jnp.array(idx)].set(badval)
     zeroed = jnp.asarray(synthesized_map).at[jnp.array(idx)].set(0.0)
 
-    a_bad = jhp.map2alm(bad, lmax=lmax, iter=0)
+    a_bad = jhp.map2alm(bad, lmax=lmax, iter=0, bad_mask=jhp.bad_pixel_mask(bad))
     a_zeroed = jhp.map2alm(zeroed, lmax=lmax, iter=0)
     assert jnp.all(jnp.isfinite(a_bad))
     np.testing.assert_allclose(np.asarray(a_bad), np.asarray(a_zeroed), atol=1e-14)
@@ -401,10 +407,37 @@ def test_map2alm_pol_independent_masks(synthesized_tqu_map: np.ndarray, nside: i
     iqu[2, 20] = np.inf
     iqu_zeroed[0, 5] = iqu_zeroed[1, 9] = iqu_zeroed[2, 20] = 0.0
 
-    teb_bad = jhp.map2alm(jnp.asarray(iqu), lmax=lmax, iter=0, pol=True)
+    teb_bad = jhp.map2alm(jnp.asarray(iqu), lmax=lmax, iter=0, pol=True, bad_mask=jhp.bad_pixel_mask(iqu))
     teb_zeroed = jhp.map2alm(jnp.asarray(iqu_zeroed), lmax=lmax, iter=0, pol=True)
     assert jnp.all(jnp.isfinite(teb_bad))
     np.testing.assert_allclose(np.asarray(teb_bad), np.asarray(teb_zeroed), atol=1e-14)
+
+
+def test_map2alm_spin_bad_mask(synthesized_tqu_map: np.ndarray, nside: int) -> None:
+    """map2alm_spin accepts a per-map mask, equivalent to zeroing the pixels."""
+    lmax = 2 * nside - 1
+    qu = np.asarray(synthesized_tqu_map)[1:].copy()
+    qu_zeroed = qu.copy()
+    qu[0, 5] = jhp.UNSEEN
+    qu[1, 9] = np.nan
+    qu_zeroed[0, 5] = qu_zeroed[1, 9] = 0.0
+
+    eb_bad = jhp.map2alm_spin(list(jnp.asarray(qu)), spin=2, lmax=lmax, bad_mask=jhp.bad_pixel_mask(qu))
+    eb_zeroed = jhp.map2alm_spin(list(jnp.asarray(qu_zeroed)), spin=2, lmax=lmax)
+    for a, b in zip(eb_bad, eb_zeroed):
+        assert jnp.all(jnp.isfinite(a))
+        np.testing.assert_allclose(np.asarray(a), np.asarray(b), atol=1e-14)
+
+
+def test_map2alm_bad_mask_broadcasts(synthesized_tqu_map: np.ndarray, nside: int) -> None:
+    """A single (npix,) mask broadcasts across a stack of maps."""
+    lmax = 2 * nside - 1
+    iqu = jnp.asarray(synthesized_tqu_map)
+    mask = jnp.zeros(iqu.shape[-1], dtype=bool).at[jnp.array([5, 100])].set(True)
+
+    shared = jhp.map2alm(iqu, lmax=lmax, iter=0, pol=True, bad_mask=mask)
+    per_map = jhp.map2alm(iqu, lmax=lmax, iter=0, pol=True, bad_mask=jnp.broadcast_to(mask, iqu.shape))
+    np.testing.assert_allclose(np.asarray(shared), np.asarray(per_map), atol=1e-14)
 
 
 def test_mask_bad_tolerant_and_nan_parity() -> None:
@@ -412,3 +445,62 @@ def test_mask_bad_tolerant_and_nan_parity() -> None:
     vals = jnp.array([jhp.UNSEEN, jhp.UNSEEN * (1 + 1e-7), 0.0, np.nan, np.inf])
     mask = jhp.mask_bad(vals)
     np.testing.assert_array_equal(np.asarray(mask), [True, True, False, False, False])
+
+
+def test_bad_pixel_mask_flags_unseen_and_nonfinite() -> None:
+    """bad_pixel_mask extends mask_bad with the non-finite values."""
+    vals = jnp.array([jhp.UNSEEN, jhp.UNSEEN * (1 + 1e-7), 0.0, np.nan, np.inf, -np.inf])
+    mask = jhp.bad_pixel_mask(vals)
+    np.testing.assert_array_equal(np.asarray(mask), [True, True, False, True, True, True])
+
+
+# --- linearity of map2alm ------------------------------------------------------------
+
+
+@pytest.mark.parametrize('use_mask', [False, True])
+def test_map2alm_linear_transpose(synthesized_map: np.ndarray, nside: int, use_mask: bool) -> None:
+    """map2alm is a linear map of its input, so jax.linear_transpose can transpose it."""
+    lmax = 2 * nside - 1
+    m = jnp.asarray(synthesized_map)
+    mask = jnp.zeros(m.shape, dtype=bool).at[jnp.array([5, 100])].set(True) if use_mask else None
+
+    def f(x):
+        return jhp.map2alm(x, lmax=lmax, pol=False, bad_mask=mask)
+
+    (out,) = jax.linear_transpose(f, m)(f(m))
+    assert out.shape == m.shape
+    assert jnp.all(jnp.isfinite(out))
+
+
+@pytest.mark.parametrize('use_mask', [False, True])
+def test_map2alm_transpose_is_the_adjoint(synthesized_map: np.ndarray, nside: int, use_mask: bool) -> None:
+    """The transpose satisfies the dot-product identity <A u, v> == <u, A^T v>."""
+    lmax = 2 * nside - 1
+    m = jnp.asarray(synthesized_map)
+    mask = jnp.zeros(m.shape, dtype=bool).at[jnp.array([5, 100])].set(True) if use_mask else None
+
+    def f(x):
+        return jhp.map2alm(x, lmax=lmax, pol=False, bad_mask=mask)
+
+    u = jax.random.normal(jax.random.PRNGKey(3), m.shape, dtype=m.dtype)
+    v = jax.random.normal(jax.random.PRNGKey(4), f(m).shape, dtype=m.dtype) + 0j
+
+    # Real input, complex output: the adjoint is taken w.r.t. the real inner
+    # product Re<A u, v> on the output side.
+    lhs = jnp.real(jnp.vdot(f(u), v))
+    (at_v,) = jax.linear_transpose(f, m)(v)
+    rhs = jnp.real(jnp.vdot(u, at_v))
+    np.testing.assert_allclose(float(lhs), float(rhs), rtol=1e-8, atol=1e-10)
+
+
+def test_map2alm_is_additive(synthesized_map: np.ndarray, nside: int) -> None:
+    """f(a + b) == f(a) + f(b) for a fixed mask, including on maps holding UNSEEN."""
+    lmax = 2 * nside - 1
+    a = jnp.asarray(synthesized_map).at[5].set(jhp.UNSEEN)
+    b = jax.random.normal(jax.random.PRNGKey(5), a.shape, dtype=a.dtype)
+    mask = jhp.bad_pixel_mask(a)
+
+    def f(x):
+        return jhp.map2alm(x, lmax=lmax, pol=False, bad_mask=mask)
+
+    np.testing.assert_allclose(np.asarray(f(a + b)), np.asarray(f(a) + f(b)), rtol=1e-8, atol=1e-10)
