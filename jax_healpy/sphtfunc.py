@@ -23,7 +23,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.scipy.linalg import sqrtm
 from jax.typing import ArrayLike
-from jaxtyping import PRNGKeyArray
+from jaxtyping import Array, Bool, Complex, Inexact, PRNGKeyArray
 
 try:
     from s2fft.recursions.price_mcewen import generate_precomputes_jax
@@ -426,7 +426,7 @@ def _alm2map_core(
         return jnp.real(f_complex)
 
 
-def bad_pixel_mask(m: ArrayLike) -> ArrayLike:
+def bad_pixel_mask(m: ArrayLike) -> Bool[Array, '...']:
     """Boolean mask of bad pixels: `UNSEEN` (via :func:`mask_bad`) or non-finite (``NaN`` / ``+-inf``).
 
     Parameters
@@ -436,7 +436,7 @@ def bad_pixel_mask(m: ArrayLike) -> ArrayLike:
 
     Returns
     -------
-    mask : Array
+    mask : Bool[Array, '...']
         Boolean array of the same shape, ``True`` where the pixel is bad.
 
     See Also
@@ -447,7 +447,7 @@ def bad_pixel_mask(m: ArrayLike) -> ArrayLike:
     return mask_bad(m) | ~jnp.isfinite(m)
 
 
-def _apply_bad_mask(m: ArrayLike, bad_mask: ArrayLike | None) -> ArrayLike:
+def _apply_bad_mask(m: ArrayLike, bad_mask: ArrayLike | None) -> Inexact[Array, '...']:
     """Zero the pixels flagged by ``bad_mask``, returning a fresh array."""
     m = jnp.asarray(m)
     if bad_mask is None:
@@ -464,7 +464,7 @@ def _map2alm_core(
     method: str,
     spin: int,
     bad_mask: ArrayLike | None = None,
-) -> ArrayLike:
+) -> Complex[Array, '...']:
     """Core map2alm implementation supporting spin-weighted transforms.
 
     Parameters
@@ -856,10 +856,10 @@ def map2alm(
 
     Notes
     -----
-    Like healpy, the transform does not inspect pixel values: a map containing
-    `UNSEEN` (a large finite sentinel) or non-finite values must be masked through
-    ``bad_mask``, otherwise those pixels contaminate every coefficient. Input maps
-    are never modified.
+    Unlike healpy, which silently replaces `UNSEEN` pixels by zeros, the transform
+    never inspects pixel values: a map containing `UNSEEN` (a large finite sentinel)
+    or non-finite values must be masked through ``bad_mask``, otherwise those pixels
+    contaminate every coefficient. Input maps are never modified.
 
     Because the mask is an argument rather than a function of the pixel values,
     the transform is exactly linear in ``maps`` for any fixed ``bad_mask``. It can
