@@ -463,10 +463,17 @@ def test_get_interp_weights_centers_have_zero_gradient(branch):
     np.testing.assert_array_equal(np.asarray(grad_phi), 0.0)
 
 
-def test_get_interp_weights_centers_keep_gradient_of_weights():
-    """The flag must not disturb the gradient that flows through the weights."""
-    nside = 32
-    theta, phi = _branch_targets(nside, 'belt', n=100)
+@pytest.mark.parametrize('mode', ['jacfwd', 'jacrev'])
+@pytest.mark.parametrize('branch', ['north cap', 'belt', 'south cap'])
+def test_get_interp_weights_centers_keep_gradient_of_weights(branch, mode):
+    """The flag must not disturb the gradient that flows through the weights.
+
+    Bit equality, for the same reason as the weights themselves: the gradient is
+    differentiated from the forward graph, so pinning that graph pins the gradient.
+    Reverse mode is covered because that is what an adjoint or a CG solve exercises.
+    """
+    nside = 128
+    theta, phi = _branch_targets(nside, branch, n=100)
     theta, phi = jnp.asarray(theta), jnp.asarray(phi)
     map_data = jnp.asarray(np.random.default_rng(1).normal(size=jhp.nside2npix(nside)))
 
@@ -475,13 +482,14 @@ def test_get_interp_weights_centers_keep_gradient_of_weights():
         pixels, weights = out[0], out[1]
         return jnp.sum(weights * map_data[pixels], axis=0)
 
-    jac = jax.jacfwd(interp, argnums=(0, 1))
+    jac = {'jacfwd': jax.jacfwd, 'jacrev': jax.jacrev}[mode](interp, argnums=(0, 1))
     grad_with = jac(theta, phi, True)
     grad_without = jac(theta, phi, False)
 
     assert np.all(np.isfinite(np.asarray(grad_with[0])))
-    assert_allclose(grad_with[0], grad_without[0], atol=1e-12)
-    assert_allclose(grad_with[1], grad_without[1], atol=1e-12)
+    assert np.all(np.isfinite(np.asarray(grad_with[1])))
+    np.testing.assert_array_equal(np.asarray(grad_with[0]), np.asarray(grad_without[0]))
+    np.testing.assert_array_equal(np.asarray(grad_with[1]), np.asarray(grad_without[1]))
 
 
 def test_get_interp_weights_centers_operator_is_transposable():
