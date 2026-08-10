@@ -1168,9 +1168,16 @@ def _get_ring_info(nside: int, ring_idx: ArrayLike) -> tuple[Array, Array, Array
 def _get_ring_costheta_sintheta(nside: int, ring_idx: ArrayLike) -> tuple[Array, Array]:
     """Get the cosine and sine of a ring's co-latitude, without forming the angle.
 
-    `_get_ring_info` computes both internally and then collapses them into an angle with
-    `arctan2`. Recovering them from that angle would round twice and lose accuracy near
-    the poles, which matters in float32.
+    `_get_ring_info` returns the angle, and recovering the cosine and sine from it would
+    round twice and lose accuracy near the poles, which matters in float32. It computes
+    both directly in its polar branch before collapsing them through `arctan2`, but its
+    equatorial branch goes straight to `arccos` and never forms a sine, so that half has
+    to be computed here regardless.
+
+    Kept separate rather than folded into `_get_ring_info` as an extra return value: both
+    run in the same jit trace on the same ring index, so XLA's common-subexpression
+    elimination already shares everything that overlaps. Merging them measures no faster
+    and would give a helper that `_query_disc` also calls a variable-arity return.
 
     Args:
         nside (int): The healpix nside parameter.
