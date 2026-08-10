@@ -362,16 +362,22 @@ def test_get_interp_weights_centers_shapes_and_ranges(nside, branch):
 
 
 @pytest.mark.parametrize('branch', ['north cap', 'belt', 'south cap'])
-@pytest.mark.parametrize('nside', [16, 128])
+@pytest.mark.parametrize('nside', [16, 128, 1024])
 def test_get_interp_weights_centers_do_not_perturb_pixels(nside, branch):
-    """Asking for centers must not change what the function returns otherwise."""
+    """Asking for centers must not change what the function returns otherwise.
+
+    Bit equality, not closeness. The centers share subexpressions with the weights, and
+    the co-latitude weight divides by theta2 - theta1, which is of order 1/nside, so a
+    one-ulp change in a shared node is amplified by about nside. An `optimization_barrier`
+    keeps the two paths apart; without it this assertion fails.
+    """
     theta, phi = _branch_targets(nside, branch)
 
     pixels_ref, weights_ref = jhp.get_interp_weights(nside, theta, phi)
     pixels, weights, _ = jhp.get_interp_weights(nside, theta, phi, with_centers=True)
 
     np.testing.assert_array_equal(np.asarray(pixels), np.asarray(pixels_ref))
-    assert_allclose(weights, weights_ref, atol=1e-12)
+    np.testing.assert_array_equal(np.asarray(weights), np.asarray(weights_ref))
 
 
 def test_get_interp_weights_centers_float32_precision(x64):
@@ -384,8 +390,14 @@ def test_get_interp_weights_centers_float32_precision(x64):
     dtype = np.float64 if x64 else np.float32
     theta, phi = _branch_targets(nside, 'north cap', n=500)
 
-    _, _, centers = jhp.get_interp_weights(nside, jnp.asarray(theta, dtype), jnp.asarray(phi, dtype), with_centers=True)
+    t_in, p_in = jnp.asarray(theta, dtype), jnp.asarray(phi, dtype)
+    pixels_ref, weights_ref = jhp.get_interp_weights(nside, t_in, p_in)
+    pixels_c, weights_c, centers = jhp.get_interp_weights(nside, t_in, p_in, with_centers=True)
     assert centers.z.dtype == dtype
+
+    # the flag must leave the weights bit-identical in this precision too
+    np.testing.assert_array_equal(np.asarray(pixels_c), np.asarray(pixels_ref))
+    np.testing.assert_array_equal(np.asarray(weights_c), np.asarray(weights_ref))
 
     pixels, _, _ = jhp.get_interp_weights(nside, theta, phi, with_centers=True)
     theta_ref, phi_ref = hp.pix2ang(nside, np.asarray(pixels))

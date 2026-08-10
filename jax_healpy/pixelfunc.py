@@ -2039,21 +2039,30 @@ def _get_interp_weights_ring(
     if not with_centers:
         return pixels, weights
 
+    # Read the ring geometry through a barrier. The centers share subexpressions with the
+    # weights, and without this XLA fuses those shared nodes differently once they have a
+    # second consumer. The co-latitude weight divides by theta2 - theta1 ~ 1/nside, so a
+    # one-ulp change there is amplified by about nside, which would make the weights
+    # depend on whether centers were requested.
+    (ir1_c, ir2_c, i1_1c, i2_1c, i1_2c, i2_2c, shift1_c, shift2_c, dphi1_c, dphi2_c) = lax.optimization_barrier(
+        (ir1_safe, ir2_safe, i1_1, i2_1, i1_2, i2_2, shift1, shift2, dphi1, dphi2)
+    )
+
     # Co-latitude of the two rings. Safe in every branch: inside a cap the clamps above
     # collapse ir1_safe and ir2_safe onto the same ring, which is the ring the four
     # replacement pixels lie on, so the two entries simply coincide.
-    z1, s1 = _get_ring_costheta_sintheta(nside, ir1_safe)
-    z2, s2 = _get_ring_costheta_sintheta(nside, ir2_safe)
+    z1, s1 = _get_ring_costheta_sintheta(nside, ir1_c)
+    z2, s2 = _get_ring_costheta_sintheta(nside, ir2_c)
 
     # Longitude. The ring grid describes the pixels that would have been returned, so it
     # is only valid where the pole branches did not replace them. The four cap pixels sit
     # at (k + 1/2) * pi/2, and their index modulo 4 is k in both caps, so read them off
     # the final pixel values instead.
     quarter_pi = 0.5 * jnp.pi
-    phi_ring1_1 = jnp.where(is_north_pole, ((pixels_ring1_1 & 3) + 0.5) * quarter_pi, (i1_1 + shift1) * dphi1)
-    phi_ring1_2 = jnp.where(is_north_pole, ((pixels_ring1_2 & 3) + 0.5) * quarter_pi, (i2_1 + shift1) * dphi1)
-    phi_ring2_1 = jnp.where(is_south_pole, ((pixels_ring2_1 & 3) + 0.5) * quarter_pi, (i1_2 + shift2) * dphi2)
-    phi_ring2_2 = jnp.where(is_south_pole, ((pixels_ring2_2 & 3) + 0.5) * quarter_pi, (i2_2 + shift2) * dphi2)
+    phi_ring1_1 = jnp.where(is_north_pole, ((pixels[0] & 3) + 0.5) * quarter_pi, (i1_1c + shift1_c) * dphi1_c)
+    phi_ring1_2 = jnp.where(is_north_pole, ((pixels[1] & 3) + 0.5) * quarter_pi, (i2_1c + shift1_c) * dphi1_c)
+    phi_ring2_1 = jnp.where(is_south_pole, ((pixels[2] & 3) + 0.5) * quarter_pi, (i1_2c + shift2_c) * dphi2_c)
+    phi_ring2_2 = jnp.where(is_south_pole, ((pixels[3] & 3) + 0.5) * quarter_pi, (i2_2c + shift2_c) * dphi2_c)
 
     # Stop gradient: centers are fixed points of the HEALPix grid, piecewise constant in
     # the input coordinates. Keeping them constant is also what leaves an interpolation
