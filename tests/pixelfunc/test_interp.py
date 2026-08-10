@@ -1,5 +1,7 @@
 """Tests for get_interp_weights function."""
 
+from functools import partial
+
 import healpy as hp
 import jax
 import jax.numpy as jnp
@@ -273,6 +275,238 @@ def test_get_interp_weights_gradient():
     # Since sum of weights is always 1, gradients should be 0
     assert_allclose(grad_theta, 0.0, atol=1e-10)
     assert_allclose(grad_phi, 0.0, atol=1e-10)
+
+
+# Tests for get_interp_weights(with_centers=True)
+
+
+def _branch_targets(nside, branch, n=2000, seed=0):
+    """Sample targets that land in a chosen branch of the interpolation.
+
+    The pole branches are entered when the target lies inside ring 1 (or the last ring),
+    a window that shrinks as ~1/nside, so it has to be sized from nside. Drawing
+    uniformly on the sphere puts almost nothing in it and hides pole-branch bugs.
+    """
+    rng = np.random.default_rng(seed)
+    theta_ring1 = np.arccos(1.0 - 1.0 / (3.0 * nside**2))
+
+    if branch == 'north cap':
+        theta = rng.uniform(1e-9, 0.98 * theta_ring1, n)
+    elif branch == 'south cap':
+        theta = np.pi - rng.uniform(1e-9, 0.98 * theta_ring1, n)
+    elif branch == 'belt':
+        theta = rng.uniform(1.5 * theta_ring1, np.pi - 1.5 * theta_ring1, n)
+    else:
+        raise ValueError(branch)
+
+    return theta, rng.uniform(0, 2 * np.pi, n)
+
+
+def _assert_in_branch(nside, theta, branch):
+    """Guard the sampler: a test that misses its branch would pass vacuously."""
+    from jax_healpy.pixelfunc import _ring_above
+
+    ir1 = np.asarray(_ring_above(nside, jnp.cos(jnp.asarray(theta))))
+    if branch == 'north cap':
+        assert np.all(ir1 == 0)
+    elif branch == 'south cap':
+        assert np.all(ir1 + 1 == 4 * nside)
+    else:
+        assert np.all((ir1 != 0) & (ir1 + 1 != 4 * nside))
+
+
+@pytest.mark.parametrize('branch', ['north cap', 'belt', 'south cap'])
+@pytest.mark.parametrize('nside', [4, 16, 64, 256, 512, 1024])
+def test_get_interp_weights_centers_match_pix2ang(nside, branch):
+    """Centers must describe the returned pixels, row for row, in every branch."""
+    theta, phi = _branch_targets(nside, branch)
+    _assert_in_branch(nside, theta, branch)
+
+    pixels, _, centers = jhp.get_interp_weights(nside, theta, phi, with_centers=True)
+    theta_ref, phi_ref = hp.pix2ang(nside, np.asarray(pixels))
+
+    # rows 0,1 lie on the first ring and rows 2,3 on the second
+    row_ring = np.array([0, 0, 1, 1])
+    assert_allclose(np.asarray(centers.z)[row_ring], np.cos(theta_ref), atol=1e-12)
+    assert_allclose(np.asarray(centers.s)[row_ring], np.sin(theta_ref), atol=1e-12)
+
+    dphi = (np.asarray(centers.phi) - phi_ref + np.pi) % (2 * np.pi) - np.pi
+    assert_allclose(dphi, 0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize('branch', ['north cap', 'south cap'])
+@pytest.mark.parametrize('nside', [4, 16, 64, 512])
+def test_get_interp_weights_centers_two_rings_degenerate_in_caps(nside, branch):
+    """Inside a cap all four neighbours lie on one ring, so the two entries coincide."""
+    theta, phi = _branch_targets(nside, branch)
+    _, _, centers = jhp.get_interp_weights(nside, theta, phi, with_centers=True)
+
+    assert_allclose(centers.z[0], centers.z[1], atol=1e-15)
+    assert_allclose(centers.s[0], centers.s[1], atol=1e-15)
+
+
+@pytest.mark.parametrize('branch', ['north cap', 'belt', 'south cap'])
+@pytest.mark.parametrize('nside', [16, 128])
+def test_get_interp_weights_centers_shapes_and_ranges(nside, branch):
+    theta, phi = _branch_targets(nside, branch, n=50)
+    pixels, weights, centers = jhp.get_interp_weights(nside, theta, phi, with_centers=True)
+
+    assert pixels.shape == (4, 50)
+    assert weights.shape == (4, 50)
+    assert centers.z.shape == (2, 50)
+    assert centers.s.shape == (2, 50)
+    assert centers.phi.shape == (4, 50)
+
+    assert np.all(np.asarray(centers.s) >= 0.0)
+    assert np.all((np.asarray(centers.phi) >= 0.0) & (np.asarray(centers.phi) < 2 * np.pi))
+
+
+@pytest.mark.parametrize('branch', ['north cap', 'belt', 'south cap'])
+@pytest.mark.parametrize('nside', [16, 128])
+def test_get_interp_weights_centers_do_not_perturb_pixels(nside, branch):
+    """Asking for centers must not change what the function returns otherwise."""
+    theta, phi = _branch_targets(nside, branch)
+
+    pixels_ref, weights_ref = jhp.get_interp_weights(nside, theta, phi)
+    pixels, weights, _ = jhp.get_interp_weights(nside, theta, phi, with_centers=True)
+
+    np.testing.assert_array_equal(np.asarray(pixels), np.asarray(pixels_ref))
+    assert_allclose(weights, weights_ref, atol=1e-12)
+
+
+def test_get_interp_weights_centers_float32_precision(x64):
+    """Centers must stay accurate in float32, which is how furax runs the pipeline.
+
+    The weights themselves lose precision at high nside in float32, but the centers are
+    read off the ring geometry and must not.
+    """
+    nside = 512
+    dtype = np.float64 if x64 else np.float32
+    theta, phi = _branch_targets(nside, 'north cap', n=500)
+
+    _, _, centers = jhp.get_interp_weights(nside, jnp.asarray(theta, dtype), jnp.asarray(phi, dtype), with_centers=True)
+    assert centers.z.dtype == dtype
+
+    pixels, _, _ = jhp.get_interp_weights(nside, theta, phi, with_centers=True)
+    theta_ref, phi_ref = hp.pix2ang(nside, np.asarray(pixels))
+
+    tol = 1e-12 if x64 else 1e-6
+    assert_allclose(np.asarray(centers.z)[[0, 0, 1, 1]], np.cos(theta_ref), atol=tol)
+    assert_allclose(np.asarray(centers.s)[[0, 0, 1, 1]], np.sin(theta_ref), atol=tol)
+    dphi = (np.asarray(centers.phi) - phi_ref + np.pi) % (2 * np.pi) - np.pi
+    assert_allclose(dphi, 0.0, atol=tol)
+
+
+def test_get_interp_weights_centers_jit_and_pytree():
+    """InterpCenters is a NamedTuple, so it crosses a jit boundary as a pytree."""
+    nside = 32
+    theta, phi = _branch_targets(nside, 'belt', n=100)
+    theta, phi = jnp.asarray(theta), jnp.asarray(phi)
+
+    @partial(jax.jit, static_argnames=['nside'])
+    def run(nside, theta, phi):
+        return jhp.get_interp_weights(nside, theta, phi, with_centers=True)
+
+    _, _, centers = run(nside, theta, phi)
+
+    assert isinstance(centers, jhp.InterpCenters)
+    assert len(jax.tree.leaves(centers)) == 3
+
+    z, s, p = centers  # also unpacks as a plain tuple
+    assert_allclose(z, centers.z)
+    assert_allclose(s, centers.s)
+    assert_allclose(p, centers.phi)
+
+
+def test_get_interp_weights_centers_vmap():
+    nside = 32
+    theta, phi = _branch_targets(nside, 'belt', n=100)
+    theta, phi = jnp.asarray(theta), jnp.asarray(phi)
+
+    _, _, batched = jhp.get_interp_weights(nside, theta, phi, with_centers=True)
+    _, _, mapped = jax.vmap(lambda t, p: jhp.get_interp_weights(nside, t, p, with_centers=True))(theta, phi)
+
+    assert_allclose(jnp.swapaxes(mapped.z, 0, 1), batched.z)
+    assert_allclose(jnp.swapaxes(mapped.phi, 0, 1), batched.phi)
+
+
+@pytest.mark.parametrize('branch', ['north cap', 'belt', 'south cap'])
+def test_get_interp_weights_centers_have_zero_gradient(branch):
+    """Centers are fixed grid points: piecewise constant, so exactly zero tangents.
+
+    The polar sine goes through a sqrt that would produce a NaN gradient at the pole if
+    any differentiable path reached it, so this also guards against NaN.
+    """
+    nside = 32
+    theta, phi = _branch_targets(nside, branch, n=100)
+    theta, phi = jnp.asarray(theta), jnp.asarray(phi)
+
+    def summed_centers(theta, phi):
+        _, _, centers = jhp.get_interp_weights(nside, theta, phi, with_centers=True)
+        return centers.z.sum() + centers.s.sum() + centers.phi.sum()
+
+    grad_theta, grad_phi = jax.grad(summed_centers, argnums=(0, 1))(theta, phi)
+
+    np.testing.assert_array_equal(np.asarray(grad_theta), 0.0)
+    np.testing.assert_array_equal(np.asarray(grad_phi), 0.0)
+
+
+def test_get_interp_weights_centers_keep_gradient_of_weights():
+    """The flag must not disturb the gradient that flows through the weights."""
+    nside = 32
+    theta, phi = _branch_targets(nside, 'belt', n=100)
+    theta, phi = jnp.asarray(theta), jnp.asarray(phi)
+    map_data = jnp.asarray(np.random.default_rng(1).normal(size=jhp.nside2npix(nside)))
+
+    def interp(theta, phi, with_centers):
+        out = jhp.get_interp_weights(nside, theta, phi, with_centers=with_centers)
+        pixels, weights = out[0], out[1]
+        return jnp.sum(weights * map_data[pixels], axis=0)
+
+    jac = jax.jacfwd(interp, argnums=(0, 1))
+    grad_with = jac(theta, phi, True)
+    grad_without = jac(theta, phi, False)
+
+    assert np.all(np.isfinite(np.asarray(grad_with[0])))
+    assert_allclose(grad_with[0], grad_without[0], atol=1e-12)
+    assert_allclose(grad_with[1], grad_without[1], atol=1e-12)
+
+
+def test_get_interp_weights_centers_operator_is_transposable():
+    """A spin-2 interpolation built on the centers stays linear in the map.
+
+    This is the property furax needs: the centers enter as constants, so the operator has
+    a transpose and <Ax, y> == <x, A^T y>.
+    """
+    nside = 32
+    rng = np.random.default_rng(2)
+    theta, phi = _branch_targets(nside, 'belt', n=200)
+    theta, phi = jnp.asarray(theta), jnp.asarray(phi)
+
+    pixels, weights, centers = jhp.get_interp_weights(nside, theta, phi, with_centers=True)
+
+    # a spin-2 rotation by the transport angle between each neighbour and the target
+    z_row = centers.z[jnp.array([0, 0, 1, 1])]
+    dphi = centers.phi - phi
+    alpha = 2.0 * jnp.arctan2(jnp.sin(dphi) * z_row, 1.0 + jnp.cos(dphi))
+    cos_alpha, sin_alpha = jnp.cos(alpha), jnp.sin(alpha)
+
+    def apply(qu):
+        q, u = qu[0][pixels], qu[1][pixels]
+        q_rot = cos_alpha * q - sin_alpha * u
+        u_rot = sin_alpha * q + cos_alpha * u
+        return jnp.stack([jnp.sum(weights * q_rot, axis=0), jnp.sum(weights * u_rot, axis=0)])
+
+    qu = jnp.asarray(rng.normal(size=(2, jhp.nside2npix(nside))))
+    y = jnp.asarray(rng.normal(size=(2, theta.size)))
+    (transposed,) = jax.linear_transpose(apply, qu)(y)
+
+    assert_allclose(jnp.sum(apply(qu) * y), jnp.sum(qu * transposed), rtol=1e-12)
+
+
+def test_get_interp_weights_centers_nest_error():
+    with pytest.raises(ValueError, match='NEST'):
+        jhp.get_interp_weights(16, jnp.array([1.0]), jnp.array([0.0]), nest=True, with_centers=True)
 
 
 # Tests for get_interp_val

@@ -21,6 +21,7 @@ import jax
 from ._query_disc import estimate_disc_pixel_count, estimate_disc_radius, query_disc
 from .pixelfunc import (
     UNSEEN,
+    InterpCenters,
     ang2pix,
     ang2vec,
     get_all_neighbours,
@@ -87,6 +88,7 @@ __all__ = [
     'get_interp_weights',
     'get_interp_val',
     'get_all_neighbours',
+    'InterpCenters',
     # 'max_pixrad',
     'nest2ring',
     'ring2nest',

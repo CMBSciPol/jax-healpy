@@ -84,6 +84,7 @@ Map data manipulation
 """
 
 from functools import partial
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -103,6 +104,7 @@ __all__ = [
     'get_interp_weights',
     'get_interp_val',
     'get_all_neighbours',
+    'InterpCenters',
     # 'max_pixrad',
     'nest2ring',
     'ring2nest',
@@ -1163,6 +1165,52 @@ def _get_ring_info(nside: int, ring_idx: ArrayLike) -> tuple[Array, Array, Array
     return theta, startpix, ringpix, shift
 
 
+def _get_ring_costheta_sintheta(nside: int, ring_idx: ArrayLike) -> tuple[Array, Array]:
+    """Get the cosine and sine of a ring's co-latitude, without forming the angle.
+
+    `_get_ring_info` computes both internally and then collapses them into an angle with
+    `arctan2`. Recovering them from that angle would round twice and lose accuracy near
+    the poles, which matters in float32.
+
+    Args:
+        nside (int): The healpix nside parameter.
+        ring_idx (ArrayLike): Ring index, 1 to 4*nside-1.
+
+    Returns:
+        tuple[Array, Array]: cos(theta) and sin(theta) of the ring. The sine is
+        non-negative.
+    """
+    ring = ring_idx
+
+    fact1 = 2.0 / (3.0 * nside)
+    fact2 = 4.0 / (12.0 * nside * nside)
+
+    # Northern hemisphere equivalent ring
+    northring = jnp.where(ring > 2 * nside, 4 * nside - ring, ring)
+
+    # Polar cap region (northring < nside): both are exact rearrangements of the
+    # HEALPix ring definition, with no cancellation in sin near the pole.
+    polar_tmp = northring * northring * fact2
+    polar_costheta = 1.0 - polar_tmp
+    polar_sintheta = jnp.sqrt(polar_tmp * (2.0 - polar_tmp))
+
+    # Equatorial region (northring >= nside): |z| <= 2/3, so sqrt(1 - z**2) is well
+    # conditioned everywhere in this branch. The clamp is for polar rings, where this
+    # branch is discarded but still evaluated, and would otherwise take sqrt of a
+    # negative number.
+    equatorial_costheta = (2.0 * nside - northring) * fact1
+    equatorial_sintheta = jnp.sqrt(jnp.maximum(1.0 - equatorial_costheta * equatorial_costheta, 0.0))
+
+    is_polar = northring < nside
+    costheta = jnp.where(is_polar, polar_costheta, equatorial_costheta)
+    sintheta = jnp.where(is_polar, polar_sintheta, equatorial_sintheta)
+
+    # Southern hemisphere correction: theta -> pi - theta flips the cosine, keeps the sine
+    costheta = jnp.where(northring != ring, -costheta, costheta)
+
+    return costheta, sintheta
+
+
 @jit(static_argnames=['nside', 'nest'])
 def pix2xyf(nside: int, ipix: ArrayLike, nest: bool = False) -> tuple[Array, Array, Array]:
     """pix2xyf : nside,ipix,nest=False -> x,y,face (default RING)
@@ -1708,10 +1756,39 @@ def reorder(
     return map_out
 
 
-@jit(static_argnames=['nside', 'nest', 'lonlat'])
+class InterpCenters(NamedTuple):
+    """Centers of the four interpolation neighbours returned by `get_interp_weights`.
+
+    The four neighbours lie on only two rings: rows 0 and 1 of `pixels` on the first,
+    rows 2 and 3 on the second. Co-latitude therefore has two values per sample, not
+    four, and is given as a cosine and a sine because that is the form the ring geometry
+    yields and the form spherical-transport consumers need.
+
+    Being a NamedTuple, this is a JAX pytree: it crosses `jit` boundaries and can be
+    `vmap`-ed. It also unpacks as a plain `(z, s, phi)` tuple.
+
+    Attributes:
+        z (Array): Shape (2, *dims). cos(theta) of the first and second ring.
+        s (Array): Shape (2, *dims). sin(theta) of the first and second ring,
+            non-negative.
+        phi (Array): Shape (4, *dims). Longitude of each neighbour in radians, in
+            [0, 2*pi), aligned row for row with `pixels`.
+    """
+
+    z: Array
+    s: Array
+    phi: Array
+
+
+@jit(static_argnames=['nside', 'nest', 'lonlat', 'with_centers'])
 def get_interp_weights(
-    nside: int, theta: ArrayLike, phi: ArrayLike | None = None, nest: bool = False, lonlat: bool = False
-) -> tuple[Array, Array]:
+    nside: int,
+    theta: ArrayLike,
+    phi: ArrayLike | None = None,
+    nest: bool = False,
+    lonlat: bool = False,
+    with_centers: bool = False,
+) -> tuple[Array, Array] | tuple[Array, Array, InterpCenters]:
     """Return interpolation weights for given coordinates.
 
     This function performs bilinear interpolation by finding the four
@@ -1730,6 +1807,9 @@ def get_interp_weights(
         If True, use NESTED pixel ordering (raises error)
     lonlat : bool, optional
         If True, interpret theta, phi as longitude, latitude in degrees
+    with_centers : bool, optional
+        If True, also return the centers of the four neighbours. Cheaper than a second
+        pix2ang pass, since the ring geometry is already computed internally.
 
     Returns
     -------
@@ -1740,6 +1820,9 @@ def get_interp_weights(
     weights : Array
         Array of shape (4, N) containing the interpolation weights.
         Weights sum to 1.0 for each point to machine precision.
+    centers : InterpCenters
+        Only if with_centers is True. Centers of the pixels in `pixels`, aligned row
+        for row with it whatever order `pixels` is in.
 
     Notes
     -----
@@ -1779,6 +1862,8 @@ def get_interp_weights(
     - Gradients of individual weights reflect the continuous dependence on coordinates
     - Gradients of sum(weights) are always zero since the sum is identically 1.0
     - Pixel indices have zero gradients since they are discrete selectors
+    - Neighbour centers likewise have zero gradients: they are fixed points of the
+      HEALPix grid, piecewise constant in (theta, phi)
 
     Example gradient usage:
 
@@ -1803,10 +1888,12 @@ def get_interp_weights(
             theta_coords, phi_coords = _lonlat2thetaphi(theta_coords, phi_coords)
 
     # Call the RING implementation
-    return _get_interp_weights_ring(nside, theta_coords, phi_coords)
+    return _get_interp_weights_ring(nside, theta_coords, phi_coords, with_centers)
 
 
-def _get_interp_weights_ring(nside: int, theta_coords: Array, phi_coords: Array) -> tuple[Array, Array]:
+def _get_interp_weights_ring(
+    nside: int, theta_coords: Array, phi_coords: Array, with_centers: bool = False
+) -> tuple[Array, Array] | tuple[Array, Array, InterpCenters]:
     """
     Memory-optimized implementation of bilinear interpolation for RING ordering.
 
@@ -1942,7 +2029,38 @@ def _get_interp_weights_ring(nside: int, theta_coords: Array, phi_coords: Array)
     weight_sum = jnp.sum(weights, axis=0, keepdims=True)
     weights = weights / weight_sum
 
-    return pixels, weights
+    if not with_centers:
+        return pixels, weights
+
+    # Co-latitude of the two rings. Safe in every branch: inside a cap the clamps above
+    # collapse ir1_safe and ir2_safe onto the same ring, which is the ring the four
+    # replacement pixels lie on, so the two entries simply coincide.
+    z1, s1 = _get_ring_costheta_sintheta(nside, ir1_safe)
+    z2, s2 = _get_ring_costheta_sintheta(nside, ir2_safe)
+
+    # Longitude. The ring grid describes the pixels that would have been returned, so it
+    # is only valid where the pole branches did not replace them. The four cap pixels sit
+    # at (k + 1/2) * pi/2, and their index modulo 4 is k in both caps, so read them off
+    # the final pixel values instead.
+    quarter_pi = 0.5 * jnp.pi
+    phi_ring1_1 = jnp.where(is_north_pole, ((pixels_ring1_1 & 3) + 0.5) * quarter_pi, (i1_1 + shift1) * dphi1)
+    phi_ring1_2 = jnp.where(is_north_pole, ((pixels_ring1_2 & 3) + 0.5) * quarter_pi, (i2_1 + shift1) * dphi1)
+    phi_ring2_1 = jnp.where(is_south_pole, ((pixels_ring2_1 & 3) + 0.5) * quarter_pi, (i1_2 + shift2) * dphi2)
+    phi_ring2_2 = jnp.where(is_south_pole, ((pixels_ring2_2 & 3) + 0.5) * quarter_pi, (i2_2 + shift2) * dphi2)
+
+    # Stop gradient: centers are fixed points of the HEALPix grid, piecewise constant in
+    # the input coordinates. Keeping them constant is also what leaves an interpolation
+    # operator built on them linear, hence transposable, in the map it interpolates.
+    dtype = weights.dtype
+    centers = lax.stop_gradient(
+        InterpCenters(
+            z=jnp.stack([z1, z2]).astype(dtype),
+            s=jnp.stack([s1, s2]).astype(dtype),
+            phi=jnp.stack([phi_ring1_1, phi_ring1_2, phi_ring2_1, phi_ring2_2]).astype(dtype),
+        )
+    )
+
+    return pixels, weights, centers
 
 
 @jit(static_argnames=['nest', 'lonlat'])
