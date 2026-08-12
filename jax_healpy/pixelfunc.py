@@ -1817,8 +1817,7 @@ def get_interp_weights(
     lonlat : bool, optional
         If True, interpret theta, phi as longitude, latitude in degrees
     with_centers : bool, optional
-        If True, also return the centers of the four neighbours. Cheaper than a second
-        pix2ang pass, since the ring geometry is already computed internally.
+        If True, also return the centers of the four neighbours.
 
     Returns
     -------
