@@ -328,7 +328,7 @@ def test_get_interp_weights_centers_match_pix2ang(nside, branch):
     # rows 0,1 lie on the first ring and rows 2,3 on the second
     row_ring = np.array([0, 0, 1, 1])
     assert_allclose(np.asarray(centers.z)[row_ring], np.cos(theta_ref), atol=1e-12)
-    assert_allclose(np.asarray(centers.s)[row_ring], np.sin(theta_ref), atol=1e-12)
+    assert_allclose(np.asarray(centers.sth)[row_ring], np.sin(theta_ref), atol=1e-12)
 
     dphi = (np.asarray(centers.phi) - phi_ref + np.pi) % (2 * np.pi) - np.pi
     assert_allclose(dphi, 0.0, atol=1e-12)
@@ -342,7 +342,7 @@ def test_get_interp_weights_centers_two_rings_degenerate_in_caps(nside, branch):
     _, _, centers = jhp.get_interp_weights(nside, theta, phi, with_centers=True)
 
     assert_allclose(centers.z[0], centers.z[1], atol=1e-15)
-    assert_allclose(centers.s[0], centers.s[1], atol=1e-15)
+    assert_allclose(centers.sth[0], centers.sth[1], atol=1e-15)
 
 
 @pytest.mark.parametrize('branch', ['north cap', 'belt', 'south cap'])
@@ -354,10 +354,10 @@ def test_get_interp_weights_centers_shapes_and_ranges(nside, branch):
     assert pixels.shape == (4, 50)
     assert weights.shape == (4, 50)
     assert centers.z.shape == (2, 50)
-    assert centers.s.shape == (2, 50)
+    assert centers.sth.shape == (2, 50)
     assert centers.phi.shape == (4, 50)
 
-    assert np.all(np.asarray(centers.s) >= 0.0)
+    assert np.all(np.asarray(centers.sth) >= 0.0)
     assert np.all((np.asarray(centers.phi) >= 0.0) & (np.asarray(centers.phi) < 2 * np.pi))
 
 
@@ -404,7 +404,7 @@ def test_get_interp_weights_centers_float32_precision(x64):
 
     tol = 1e-12 if x64 else 1e-6
     assert_allclose(np.asarray(centers.z)[[0, 0, 1, 1]], np.cos(theta_ref), atol=tol)
-    assert_allclose(np.asarray(centers.s)[[0, 0, 1, 1]], np.sin(theta_ref), atol=tol)
+    assert_allclose(np.asarray(centers.sth)[[0, 0, 1, 1]], np.sin(theta_ref), atol=tol)
     dphi = (np.asarray(centers.phi) - phi_ref + np.pi) % (2 * np.pi) - np.pi
     assert_allclose(dphi, 0.0, atol=tol)
 
@@ -424,9 +424,9 @@ def test_get_interp_weights_centers_jit_and_pytree():
     assert isinstance(centers, jhp.InterpCenters)
     assert len(jax.tree.leaves(centers)) == 3
 
-    z, s, p = centers  # also unpacks as a plain tuple
+    z, sth, p = centers  # also unpacks as a plain tuple
     assert_allclose(z, centers.z)
-    assert_allclose(s, centers.s)
+    assert_allclose(sth, centers.sth)
     assert_allclose(p, centers.phi)
 
 
@@ -455,7 +455,7 @@ def test_get_interp_weights_centers_have_zero_gradient(branch):
 
     def summed_centers(theta, phi):
         _, _, centers = jhp.get_interp_weights(nside, theta, phi, with_centers=True)
-        return centers.z.sum() + centers.s.sum() + centers.phi.sum()
+        return centers.z.sum() + centers.sth.sum() + centers.phi.sum()
 
     grad_theta, grad_phi = jax.grad(summed_centers, argnums=(0, 1))(theta, phi)
 

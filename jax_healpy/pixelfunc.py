@@ -1174,18 +1174,17 @@ def _get_ring_costheta_sintheta(nside: int, ring_idx: ArrayLike) -> tuple[Array,
     equatorial branch goes straight to `arccos` and never forms a sine, so that half has
     to be computed here regardless.
 
-    Kept separate rather than folded into `_get_ring_info` as an extra return value: both
-    run in the same jit trace on the same ring index, so XLA's common-subexpression
-    elimination already shares everything that overlaps. Merging them measures no faster
-    and would give a helper that `_query_disc` also calls a variable-arity return.
+    Parameters
+    ----------
+    nside : int
+        The healpix nside parameter.
+    ring_idx : ArrayLike
+        Ring index, 1 to 4*nside-1.
 
-    Args:
-        nside (int): The healpix nside parameter.
-        ring_idx (ArrayLike): Ring index, 1 to 4*nside-1.
-
-    Returns:
-        tuple[Array, Array]: cos(theta) and sin(theta) of the ring. The sine is
-        non-negative.
+    Returns
+    -------
+    tuple[Array, Array]
+        cos(theta) and sin(theta) of the ring. The sine is non-negative.
     """
     ring = ring_idx
 
@@ -1772,18 +1771,21 @@ class InterpCenters(NamedTuple):
     yields and the form spherical-transport consumers need.
 
     Being a NamedTuple, this is a JAX pytree: it crosses `jit` boundaries and can be
-    `vmap`-ed. It also unpacks as a plain `(z, s, phi)` tuple.
+    `vmap`-ed. It also unpacks as a plain `(z, sth, phi)` tuple.
 
-    Attributes:
-        z (Array): Shape (2, *dims). cos(theta) of the first and second ring.
-        s (Array): Shape (2, *dims). sin(theta) of the first and second ring,
-            non-negative.
-        phi (Array): Shape (4, *dims). Longitude of each neighbour in radians, in
-            [0, 2*pi), aligned row for row with `pixels`.
+    Attributes
+    ----------
+    z : Array
+        Shape (2, *dims). cos(theta) of the first and second ring.
+    sth : Array
+        Shape (2, *dims). sin(theta) of the first and second ring, non-negative.
+    phi : Array
+        Shape (4, *dims). Longitude of each neighbour in radians, in [0, 2*pi), aligned
+        row for row with `pixels`.
     """
 
     z: Array
-    s: Array
+    sth: Array
     phi: Array
 
 
@@ -1829,7 +1831,14 @@ def get_interp_weights(
         Weights sum to 1.0 for each point to machine precision.
     centers : InterpCenters
         Only if with_centers is True. Centers of the pixels in `pixels`, aligned row
-        for row with it whatever order `pixels` is in.
+        for row with it whatever order `pixels` is in. The four neighbours lie on only
+        two rings — rows 0 and 1 of `pixels` share the first ring, rows 2 and 3 the
+        second — so co-latitude takes two values per sample rather than four, and
+        `centers.z` and `centers.sth` have shape (2, N) against `centers.phi`'s (4, N).
+        Co-latitude is returned as a cosine and a sine, rather than as an angle, because
+        that is the form the ring geometry produces natively; forming the angle would
+        round twice. To get one co-latitude per neighbour, index the ring rows as
+        `centers.z[jnp.array([0, 0, 1, 1])]`.
 
     Notes
     -----
@@ -1838,6 +1847,16 @@ def get_interp_weights(
     >>> sorted_indices = jnp.argsort(pixels, axis=0)
     >>> sorted_pixels = jnp.take_along_axis(pixels, sorted_indices, axis=0)
     >>> sorted_weights = jnp.take_along_axis(weights, sorted_indices, axis=0)
+
+    Requesting centers does not change the weights:
+    ----------------------------------------------
+    `pixels` and `weights` are bit-identical whether `with_centers` is True or False.
+    That is not automatic: the centers are read from the same ring geometry the weights
+    are built from, and giving those shared nodes a second consumer lets XLA fuse them
+    differently. The co-latitude weight divides by theta2 - theta1 ~ 1/nside, so a
+    one-ulp change upstream is amplified by roughly nside. A `lax.optimization_barrier`
+    on the shared ring quantities pins the fusion and keeps the two paths identical;
+    removing it reintroduces a with_centers-dependent bias in the weights.
 
     Precision and Algorithmic Considerations:
     ----------------------------------------
@@ -2051,8 +2070,8 @@ def _get_interp_weights_ring(
     # Co-latitude of the two rings. Safe in every branch: inside a cap the clamps above
     # collapse ir1_safe and ir2_safe onto the same ring, which is the ring the four
     # replacement pixels lie on, so the two entries simply coincide.
-    z1, s1 = _get_ring_costheta_sintheta(nside, ir1_c)
-    z2, s2 = _get_ring_costheta_sintheta(nside, ir2_c)
+    z1, sth1 = _get_ring_costheta_sintheta(nside, ir1_c)
+    z2, sth2 = _get_ring_costheta_sintheta(nside, ir2_c)
 
     # Longitude. The ring grid describes the pixels that would have been returned, so it
     # is only valid where the pole branches did not replace them. The four cap pixels sit
@@ -2071,7 +2090,7 @@ def _get_interp_weights_ring(
     centers = lax.stop_gradient(
         InterpCenters(
             z=jnp.stack([z1, z2]).astype(dtype),
-            s=jnp.stack([s1, s2]).astype(dtype),
+            sth=jnp.stack([sth1, sth2]).astype(dtype),
             phi=jnp.stack([phi_ring1_1, phi_ring1_2, phi_ring2_1, phi_ring2_2]).astype(dtype),
         )
     )
