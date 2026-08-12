@@ -2133,6 +2133,10 @@ def get_interp_val(
     internally and computes: result = sum(weights * map_values[pixels])
     Results won't match healpy if theta and phi are not valid angles.
 
+    Valid only for scalar (spin-0) fields. Each map is interpolated independently, with
+    no parallel transport of the neighbours to the target, so applying it to Q and U
+    mixes them.
+
     Examples
     --------
     >>> import jax_healpy as hp
