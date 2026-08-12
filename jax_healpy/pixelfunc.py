@@ -1855,7 +1855,6 @@ def get_interp_weights(
     differently. The co-latitude weight divides by theta2 - theta1 ~ 1/nside, so a
     one-ulp change upstream is amplified by roughly nside. A `lax.optimization_barrier`
     on the shared ring quantities pins the fusion and keeps the two paths identical;
-    removing it reintroduces a with_centers-dependent bias in the weights.
 
     Precision and Algorithmic Considerations:
     ----------------------------------------
