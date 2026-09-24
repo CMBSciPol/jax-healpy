@@ -2,140 +2,134 @@
 
 All notable changes to jax-healpy will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
-- Comprehensive documentation with ReadTheDocs integration
-- User guide for HEALPix pixelization concepts
-- API reference with detailed function documentation
-- Installation guide with HPC system instructions
-- Contributing guidelines for developers
-- `get_all_neighbours`: Function to get all neighboring pixels for a given pixel
-- `udgrade`: Function for upgrading/downgrading HEALPix map resolution
-- `pix2loc`, `loc2pix`: Pixel ↔ (cos θ, sin θ, φ) conversion, without trigonometric round trips
-- NEST ordering for `ang2pix`, `pix2ang`, `vec2pix`, `pix2vec`, `loc2pix` and `pix2loc`
+## [0.8] - 2026-09-24
 
-### Changed
-- `ang2pix`, `vec2pix`: use sin θ near the poles (|z| > 0.99) for better precision, as Healpix C++ does
-- Improved README with better structure and examples
-- Enhanced project metadata and PyPI badges
-- Better memory complexity implementation of `query_disc` function
+### Added
+
+- `pix2loc` and `loc2pix`: pixel ↔ (cos θ, sin θ, φ) conversions, without trigonometric round trips (#22)
+- NEST ordering for `ang2pix`, `pix2ang`, `vec2pix`, `pix2vec`, `loc2pix` and `pix2loc` (#23)
 
 ### Fixed
-- Documentation build configuration for ReadTheDocs
 
-## [0.1.0] - 2024-XX-XX
+- `ang2pix` and `vec2pix` use sin θ near the poles (|z| > 0.99), as Healpix C++ does, so near-pole directions at high nside no longer land in the wrong pixel (#22)
+
+## [0.7.1] - 2026-08-12
 
 ### Added
-- Initial implementation of core HEALPix functions
-- Pixel coordinate conversion functions:
-  - `pix2ang`, `ang2pix`: Pixel ↔ angular coordinate conversion
-  - `pix2vec`, `vec2pix`: Pixel ↔ unit vector conversion
-  - `ang2vec`, `vec2ang`: Angular ↔ unit vector conversion
-  - `pix2xyf`, `xyf2pix`: Pixel ↔ face coordinate conversion
-- HEALPix scheme conversions:
-  - `ring2nest`, `nest2ring`: Convert between RING and NESTED ordering
-  - `reorder`: Reorder entire maps between schemes
-- Resolution parameter functions:
-  - `nside2npix`, `npix2nside`: Convert resolution ↔ pixel count
-  - `nside2order`, `order2nside`: Convert resolution ↔ order parameter
-  - `order2npix`, `npix2order`: Convert order ↔ pixel count
-  - `nside2resol`, `nside2pixarea`: Calculate angular resolution and pixel area
-- Map interpolation functions:
-  - `get_interp_weights`: Get interpolation weights for arbitrary coordinates
-  - `get_interp_val`: Interpolate map values at arbitrary coordinates
-- Spherical harmonic transforms (requires s2fft):
-  - `map2alm`: Forward spherical harmonic transform
-  - `alm2map`: Inverse spherical harmonic transform
-- Query disc functionality:
-  - `query_disc`: Find pixels within circular regions on sphere
-- Clustering algorithms:
-  - `KMeans`: JAX-based K-means clustering implementation
-  - `kmeans_sample`: Simplified K-means clustering function
-  - `get_clusters`: Find connected clusters in binary masks
-  - `get_cutout_from_mask`: Extract map cutouts based on masks
-  - `from_cutout_to_fullmap`: Insert cutout data back into full maps
-- Mask manipulation utilities:
-  - `combine_masks`: Combine multiple binary masks
-  - `normalize_by_first_occurrence`: Normalize cluster labels
-  - `shuffle_labels`: Randomly shuffle cluster identities
-- Utility functions:
-  - `isnsideok`, `isnpixok`: Validate HEALPix parameters
-  - `maptype`: Determine map data type and properties
-- Constants:
-  - `UNSEEN`: Sentinel value for invalid/missing pixels
-- JAX integration features:
-  - GPU acceleration support
-  - Automatic differentiation compatibility
-  - JIT compilation optimization
-  - Vectorized batch processing
-- Comprehensive test suite with pytest
-- Benchmarking framework comparing performance to healpy
-- Development tools:
-  - Pre-commit hooks for code quality, including ruff linting and formatting and mypy
-  - Coverage reporting
 
-### Dependencies
-- JAX: Core computational framework
-- JAXtyping: Type annotations for JAX arrays
-- s2fft (optional): Spherical harmonic transforms
-- healpy (test only): Reference implementation for testing
+- `bad_pixel_mask`, exported at top level (#20)
+- `get_interp_weights(..., with_centers=True)` also returns the neighbours' centers as an `InterpCenters` pytree (#21)
 
-### Documentation
-- Basic README with installation and usage examples
-- Docstrings following NumPy format
-- Type hints for all public functions
-- Mathematical background for key algorithms
+### Changed
 
-### Performance
-- Significant speedups on GPU hardware compared to healpy
-- Optimized batch processing for multiple maps/coordinates
-- Memory-efficient implementations for large-scale computations
-- JIT compilation for optimal runtime performance
+- **Breaking:** `map2alm` and `map2alm_spin` take a `bad_mask` argument instead of inspecting pixel values, which keeps them linear; maps with `UNSEEN` or non-finite pixels must be masked explicitly (#20)
+- `mask_bad` uses healpy's tolerant comparison and is exported at top level (#14)
+- `smoothing` restores masked pixels to `UNSEEN` in its output (#14)
 
-### Testing
-- Comprehensive test coverage for all core functions
-- Accuracy validation against healpy reference implementation
-- Performance benchmarking suite
-- Edge case and error condition testing
-- Continuous integration setup
+## [0.7] - 2026-06-15
 
-### Known Limitations
-- Beta software: APIs may change in future versions
-- Limited HEALPix function coverage compared to healpy
-- Spherical harmonics require additional s2fft dependency
-- Some advanced healpy features not yet implemented
+### Added
 
----
+- Spherical harmonic transforms, including polarisation: `alm2map_spin`, `map2alm_spin`, `alm2cl`, `anafast`, `synalm`, `synfast`, `almxfl`, `smoothalm`, `smoothing`, `gauss_beam`, `pixwin` (#4)
+- `precompute_temperature_harmonic_transforms` and `precompute_polarization_harmonic_transforms` (#4)
+- Clustering examples in the documentation (#1)
 
-## Development Notes
+### Changed
 
-### Version Numbering
-- **Major version** (X.y.z): Breaking API changes, major new features
-- **Minor version** (x.Y.z): New features, backwards-compatible changes
-- **Patch version** (x.y.Z): Bug fixes, documentation updates
+- **Breaking:** importing jax-healpy no longer enables 64-bit precision; a warning is emitted instead (#5)
+- **Breaking:** drop Python 3.10, require JAX 0.10+ (#6)
+- `ang2vec`, `vec2ang`, `pix2vec` and `get_all_neighbours` preserve batch dimensions (#2)
+- Pixel indices are `int32` for nside ≤ 8192 (#5)
+- Build with hatchling and hatch-vcs (#8)
+- Unsupported arguments raise `NotImplementedError` (#10)
 
-### Release Process
-1. Update version in `pyproject.toml`
-2. Update changelog with release notes
-3. Create git tag with version number
-4. Build and upload to PyPI
-5. Update documentation on ReadTheDocs
+### Removed
 
-### Contributing
-See [Contributing Guide](contributing.md) for details on:
-- Development setup and workflow
-- Code style guidelines
-- Testing requirements
-- Documentation standards
-- Pull request process
+- No-op `verbose` and `inplace` arguments of the spherical harmonic functions (#4)
 
-### Acknowledgments
-This project builds on the excellent work of:
-- The original [HEALPix](https://healpix.jpl.nasa.gov/) team
-- The [healpy](https://healpy.readthedocs.io/) developers
-- The [JAX](https://jax.readthedocs.io/) team at Google
-- The [s2fft](https://astro-informatics.github.io/s2fft/) developers
+### Fixed
+
+- Importing jax-healpy no longer initialises the JAX backend (#7)
+
+## [0.6] - 2025-10-10
+
+### Fixed
+
+- `CITATION.cff` metadata
+
+## [0.5] - 2025-09-24
+
+### Added
+
+- `get_all_neighbours`
+- `ud_grade`
+- `get_nside`
+- `estimate_disc_pixel_count` and `estimate_disc_radius`
+- `UNSEEN` exported at top level
+
+### Changed
+
+- **Breaking:** clustering functions move to the `jax_healpy.clustering` subpackage; `get_clusters` is renamed `find_kmeans_clusters` and `from_cutout_to_fullmap` is renamed `get_fullmap_from_cutout`
+- `query_disc` uses less memory
+
+## [0.4] - 2025-07-25
+
+### Fixed
+
+- Documentation links and version
+
+## [0.3] - 2025-07-25
+
+### Added
+
+- `get_interp_weights` and `get_interp_val`: bilinear interpolation for RING ordering
+- `query_disc`
+- K-means clustering and mask utilities: `KMeans`, `kmeans_sample`, `get_clusters`, `get_cutout_from_mask`, `from_cutout_to_fullmap`, `combine_masks`, `normalize_by_first_occurrence`, `shuffle_labels`
+- Documentation on ReadTheDocs
+- Citation file and license
+
+## [0.2.1] - 2025-02-03
+
+### Fixed
+
+- Setuptools version for the release build
+
+## [0.2] - 2025-02-03
+
+### Added
+
+- `map2alm` and `alm2map` (spin 0) through s2fft, with batched maps
+- `ring2nest`, `nest2ring` and `reorder`
+- Benchmarks against healpy
+- Release workflow
+
+### Changed
+
+- s2fft is an optional dependency
+
+## [0.1] - 2023-10-04
+
+Initial tagged release.
+
+### Added
+
+- `pix2ang`, `ang2pix`, `pix2vec`, `vec2pix`, `ang2vec` and `vec2ang`
+- `nside2npix`, `npix2nside`, `nside2order`, `order2nside`, `order2npix`, `npix2order`, `nside2resol` and `nside2pixarea`
+- `isnsideok`, `isnpixok` and `maptype`
+
+[unreleased]: https://github.com/CMBSciPol/jax-healpy/compare/v0.8...HEAD
+[0.8]: https://github.com/CMBSciPol/jax-healpy/compare/v0.7.1...v0.8
+[0.7.1]: https://github.com/CMBSciPol/jax-healpy/compare/v0.7...v0.7.1
+[0.7]: https://github.com/CMBSciPol/jax-healpy/compare/v0.6...v0.7
+[0.6]: https://github.com/CMBSciPol/jax-healpy/compare/v0.5...v0.6
+[0.5]: https://github.com/CMBSciPol/jax-healpy/compare/v0.4...v0.5
+[0.4]: https://github.com/CMBSciPol/jax-healpy/compare/v0.3...v0.4
+[0.3]: https://github.com/CMBSciPol/jax-healpy/compare/v0.2.1...v0.3
+[0.2.1]: https://github.com/CMBSciPol/jax-healpy/compare/v0.2...v0.2.1
+[0.2]: https://github.com/CMBSciPol/jax-healpy/compare/v0.1...v0.2
+[0.1]: https://github.com/CMBSciPol/jax-healpy/releases/tag/v0.1
