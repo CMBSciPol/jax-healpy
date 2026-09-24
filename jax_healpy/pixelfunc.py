@@ -821,8 +821,13 @@ def _zphi2pix_polar_caps_ring(nside: int, z: ArrayLike, sin_theta: ArrayLike, tt
     dt = _pixel_dtype_for(nside)
     npixel = nside2npix(nside)
     tp = tt - jnp.floor(tt)
-    #    tmp = nside * sin_theta / jnp.sqrt((1 + jnp.abs(z)) / 3)
-    tmp = nside * jnp.sqrt(3.0 * (1.0 - jnp.abs(z)))
+    # near the poles, sin(theta) keeps the precision that 1 - |z| loses (as in Healpix C++)
+    abs_z = jnp.abs(z)
+    tmp = nside * jnp.where(
+        abs_z > 0.99,
+        sin_theta / jnp.sqrt((1.0 + abs_z) / 3.0),
+        jnp.sqrt(3.0 * (1.0 - abs_z)),
+    )
     jp = (tp * tmp).astype(dt)
     jm = ((1.0 - tp) * tmp).astype(dt)
     ir = jp + jm + 1

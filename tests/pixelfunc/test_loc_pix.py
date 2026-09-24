@@ -29,7 +29,10 @@ def test_loc2pix_pix2loc_roundtrip(nside: int) -> None:
 @pytest.mark.parametrize('nside', [1, 16, 256, 8388608])
 def test_loc2pix_matches_healpy(nside: int) -> None:
     rng = np.random.default_rng(0)
-    theta = rng.uniform(0, np.pi, 1000)
+    # include directions very close to the poles, where sin(theta) matters
+    theta = np.concatenate(
+        [rng.uniform(0, np.pi, 1000), rng.uniform(0, 1e-6, 10000), np.pi - rng.uniform(0, 1e-6, 10000)]
+    )
     phi = rng.uniform(0, 2 * np.pi, theta.size)
     actual = hp.loc2pix(nside, jnp.cos(theta), jnp.sin(theta), phi)
     assert_array_equal(actual, healpy.ang2pix(nside, theta, phi))
