@@ -736,13 +736,11 @@ def ang2pix(
     # check_theta_valid(theta)
     check_nside(nside, nest=nest)
 
-    if nest:
-        raise NotImplementedError('NEST pixel ordering is not implemented.')
-
     if lonlat:
         theta, phi = _lonlat2thetaphi(theta, phi)
 
-    pixels = _zphi2pix_ring(nside, jnp.cos(theta), jnp.sin(theta), phi)
+    loc2pix_scheme = _loc2pix_nest if nest else _zphi2pix_ring
+    pixels = loc2pix_scheme(nside, jnp.cos(theta), jnp.sin(theta), phi)
     return jnp.where((theta < 0) | (theta > np.pi + 1e-5), -1, pixels)
 
 
@@ -788,8 +786,7 @@ def loc2pix(nside: int, z: ArrayLike, sin_theta: ArrayLike, phi: ArrayLike, nest
     """
     check_nside(nside, nest=nest)
     if nest:
-        raise NotImplementedError('NEST pixel ordering is not implemented.')
-
+        return _loc2pix_nest(nside, z, sin_theta, phi)
     return _zphi2pix_ring(nside, z, sin_theta, phi)
 
 
@@ -821,18 +818,59 @@ def _zphi2pix_polar_caps_ring(nside: int, z: ArrayLike, sin_theta: ArrayLike, tt
     dt = _pixel_dtype_for(nside)
     npixel = nside2npix(nside)
     tp = tt - jnp.floor(tt)
-    # near the poles, sin(theta) keeps the precision that 1 - |z| loses (as in Healpix C++)
-    abs_z = jnp.abs(z)
-    tmp = nside * jnp.where(
-        abs_z > 0.99,
-        sin_theta / jnp.sqrt((1.0 + abs_z) / 3.0),
-        jnp.sqrt(3.0 * (1.0 - abs_z)),
-    )
+    tmp = _polar_cap_distance(nside, z, sin_theta)
     jp = (tp * tmp).astype(dt)
     jm = ((1.0 - tp) * tmp).astype(dt)
     ir = jp + jm + 1
     ip = (tt * ir).astype(dt)
     return jnp.where(z > 0, 2 * ir * (ir - 1) + ip, npixel - 2 * ir * (ir + 1) + ip)
+
+
+def _polar_cap_distance(nside: int, z: ArrayLike, sin_theta: ArrayLike) -> Array:
+    """Distance to the closest pole, in units where the polar cap boundary is at nside"""
+    # near the poles, sin(theta) keeps the precision that 1 - |z| loses (as in Healpix C++)
+    abs_z = jnp.abs(z)
+    return nside * jnp.where(
+        abs_z > 0.99,
+        sin_theta / jnp.sqrt((1.0 + abs_z) / 3.0),
+        jnp.sqrt(3.0 * (1.0 - abs_z)),
+    )
+
+
+def _loc2pix_nest(nside: int, z: ArrayLike, sin_theta: ArrayLike, phi: ArrayLike) -> Array:
+    """Convert (z, sin_theta, phi) to a pixel number in NESTED ordering (Healpix C++ loc2pix)"""
+    dt = _pixel_dtype_for(nside)
+    order = nside2order(nside)
+    tt = jnp.mod(2 * phi / np.pi, 4)
+
+    # equatorial region: face from the indices of the ascending and descending edge lines
+    temp1 = nside * (0.5 + tt)
+    temp2 = nside * (z * 0.75)
+    jp = (temp1 - temp2).astype(dt)
+    jm = (temp1 + temp2).astype(dt)
+    ifp = jp >> order
+    ifm = jm >> order
+    face_eq = jnp.where(ifp == ifm, ifp | 4, jnp.where(ifp < ifm, ifp, ifm + 8))
+    ix_eq = jm & (nside - 1)
+    iy_eq = nside - (jp & (nside - 1)) - 1
+
+    # polar caps: one face per quarter of longitude
+    ntt = jnp.minimum(3, tt.astype(dt))
+    tp = tt - ntt
+    tmp = _polar_cap_distance(nside, z, sin_theta)
+    # clip points too close to the face boundary
+    jp_cap = jnp.minimum((tp * tmp).astype(dt), nside - 1)
+    jm_cap = jnp.minimum(((1.0 - tp) * tmp).astype(dt), nside - 1)
+    north = z >= 0
+    face_cap = jnp.where(north, ntt, ntt + 8)
+    ix_cap = jnp.where(north, nside - jm_cap - 1, jp_cap)
+    iy_cap = jnp.where(north, nside - jp_cap - 1, jm_cap)
+
+    equatorial = jnp.abs(z) <= 2 / 3
+    ix = jnp.where(equatorial, ix_eq, ix_cap)
+    iy = jnp.where(equatorial, iy_eq, iy_cap)
+    face = jnp.where(equatorial, face_eq, face_cap)
+    return _xyf2pix_nest(nside, ix, iy, face)
 
 
 @jit(static_argnames=['nside', 'nest', 'lonlat'])
@@ -999,8 +1037,10 @@ def _pix2phi_south_cap_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> 
     return phi
 
 
-def _pix2ang_nest(nside: ArrayLike, ipix: ArrayLike) -> tuple[Array, Array]:
-    raise NotImplementedError('NEST pixel ordering is not implemented.')
+def _pix2ang_nest(nside: int, ipix: ArrayLike) -> tuple[Array, Array]:
+    z, sin_theta, phi = _pix2loc_nest(nside, ipix)
+    theta = jnp.where(jnp.abs(z) > 0.99, jnp.arctan2(sin_theta, z), jnp.arccos(z))
+    return theta, phi
 
 
 @jit(static_argnames=['nside', 'nest'])
@@ -1463,10 +1503,9 @@ def vec2pix(nside: int, x: ArrayLike, y: ArrayLike, z: ArrayLike, nest: bool = F
     [  4  20  88 368]
     """
     check_nside(nside, nest=nest)
-    if nest:
-        raise NotImplementedError
-
-    return _vec2pix_ring(nside, x, y, z)
+    dnorm = 1 / jnp.sqrt(x**2 + y**2 + z**2)
+    loc2pix_scheme = _loc2pix_nest if nest else _zphi2pix_ring
+    return loc2pix_scheme(nside, z * dnorm, jnp.sqrt(x**2 + y**2) * dnorm, jnp.arctan2(y, x))
 
 
 def vec2pix2(nside: int, vec: ArrayLike, nest: bool = False) -> Array:
@@ -1480,13 +1519,6 @@ def vec2pix2_ring(nside: int, vec: ArrayLike) -> Array:
     phi = jnp.arctan2(vec[1], vec[0])
     # return _zphi2pix_ring(nside, vec[2], jnp.sqrt(vec[0] ** 2 + vec[1] ** 2), phi)
     return _zphi2pix_ring(nside, vec[2], jnp.sqrt(vec[0] ** 2 + vec[1] ** 2), phi)
-
-
-def _vec2pix_ring(nside: int, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> Array:
-    dnorm = 1 / jnp.sqrt(x**2 + y**2 + z**2)
-    z *= dnorm
-    phi = jnp.arctan2(y, x)
-    return _zphi2pix_ring(nside, z, jnp.sqrt(x**2 + y**2) * dnorm, phi)
 
 
 @jit(static_argnames=['nside', 'nest'])
@@ -1524,14 +1556,7 @@ def pix2vec(nside: int, ipix: ArrayLike, nest: bool = False) -> Array:
     (array([ 0.52704628,  0.68861915]), array([-0.52704628, -0.28523539]), array([-0.66666667,  0.66666667]))
     """
     check_nside(nside, nest=nest)
-    if nest:
-        raise NotImplementedError
-
-    return _pix2vec_ring(nside, ipix)
-
-
-def _pix2vec_ring(nside, pixels):
-    z, sin_theta, phi = _pix2loc_ring(nside, pixels)
+    z, sin_theta, phi = _pix2loc_nest(nside, ipix) if nest else _pix2loc_ring(nside, ipix)
     return jnp.stack([sin_theta * jnp.cos(phi), sin_theta * jnp.sin(phi), z], axis=-1)
 
 
@@ -1570,8 +1595,7 @@ def pix2loc(nside: int, ipix: ArrayLike, nest: bool = False) -> tuple[Array, Arr
     """
     check_nside(nside, nest=nest)
     if nest:
-        raise NotImplementedError('NEST pixel ordering is not implemented.')
-
+        return _pix2loc_nest(nside, ipix)
     return _pix2loc_ring(nside, ipix)
 
 
@@ -1586,6 +1610,41 @@ def _pix2loc_ring(nside: int, pixels: ArrayLike) -> tuple[Array, Array, Array]:
             (1 - z) * (1 + z),
         )
     )
+    return z, sin_theta, phi
+
+
+def _pix2loc_nest(nside: int, pixels: ArrayLike) -> tuple[Array, Array, Array]:
+    """Convert a pixel number in NESTED ordering to (z, sin_theta, phi) (Healpix C++ pix2loc)"""
+    npixel = nside2npix(nside)
+    ix, iy, face_num = _pix2xyf_nest(nside, jnp.asarray(pixels).astype(_pixel_dtype_for(nside)))
+
+    # ring index of the pixel center, counted from the North pole
+    jr = jnp.asarray(_JRLL)[face_num] * nside - ix - iy - 1
+    north_cap = jr < nside
+    south_cap = jr > 3 * nside
+    # number of pixels in a quarter of the ring
+    nr = jnp.where(north_cap, jr, jnp.where(south_cap, 4 * nside - jr, nside))
+
+    # cast to float so the result follows the x64 flag regardless of the pixel dtype
+    fnr = nr.astype(float)
+    abs_one_minus_z = fnr * fnr * 4 / npixel
+    z = jnp.where(
+        north_cap,
+        1 - abs_one_minus_z,
+        jnp.where(south_cap, abs_one_minus_z - 1, (2 * nside - jr).astype(float) * 2 / 3 / nside),
+    )
+    sin_theta = jnp.sqrt(
+        jnp.where(
+            jnp.abs(z) > 0.99,
+            abs_one_minus_z * (2 - abs_one_minus_z),
+            (1 - z) * (1 + z),
+        )
+    )
+
+    # pixel index in the ring, counted from longitude zero, in units of half pixels
+    kk = jnp.asarray(_JPLL)[face_num] * nr + ix - iy
+    kk = jnp.where(kk < 0, kk + 8 * nr, kk)
+    phi = kk.astype(float) * np.pi / 4 / fnr
     return z, sin_theta, phi
 
 
