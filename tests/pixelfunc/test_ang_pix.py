@@ -5,10 +5,7 @@ from numpy.testing import assert_allclose
 import jax_healpy as hp
 
 
-@pytest.mark.parametrize(
-    'nest',
-    [False, pytest.param(True, marks=pytest.mark.xfail(reason='NEST not implemented'))],
-)
+@pytest.mark.parametrize('nest', [False, True])
 def test_ang2pix2ang(theta0: float, phi0: float, nest: bool) -> None:
     # ensure nside = 1 << 23 is correctly calculated
     # by comparing the original theta phi are restored.
@@ -21,10 +18,7 @@ def test_ang2pix2ang(theta0: float, phi0: float, nest: bool) -> None:
     assert np.allclose(actual_phi, phi0)
 
 
-@pytest.mark.parametrize(
-    'nest',
-    [False, pytest.param(True, marks=pytest.mark.xfail(reason='NEST not implemented'))],
-)
+@pytest.mark.parametrize('nest', [False, True])
 def test_ang2pix2ang_lonlat(lon0: float, lat0: float, nest: bool) -> None:
     # Need to decrease the precision of the check because deg not radians
     nside = hp.order2nside(23)
@@ -197,7 +191,6 @@ def test_pix2ang_ring(nside: int, pixel: int, expected_theta: float, expected_ph
     assert_allclose(actual_phi, expected_phi, rtol=1e-12, atol=1e-14)
 
 
-@pytest.mark.skip(reason='NEST ordering not implemented')
 @pytest.mark.parametrize(
     'nside, z, expected_pixel',
     [
@@ -242,7 +235,6 @@ def test_ang2pix_nest(nside: int, z: float, expected_pixel: int) -> None:
     assert list(actual_pixel) == expected_pixel
 
 
-@pytest.mark.skip(reason='NEST ordering not implemented')
 @pytest.mark.parametrize(
     'nside, pixel, expected_theta, expected_phi',
     [
@@ -376,10 +368,7 @@ def test_ang2pix_nest_outofrange_doesntcrash(theta0: float, phi0: float, nest: b
         hp.ang2pix(1 << 30, theta0, phi0, nest=nest)
 
 
-@pytest.mark.parametrize(
-    'nest',
-    [False, pytest.param(True, marks=pytest.mark.xfail(reason='NEST not implemented'))],
-)
+@pytest.mark.parametrize('nest', [False, True])
 @pytest.mark.parametrize('theta', [-1, np.pi + 1e-4])
 def test_ang2pix_outofrange_theta(nest: bool, theta: float) -> None:
     pixel = hp.ang2pix(32, theta, 0, nest=nest)

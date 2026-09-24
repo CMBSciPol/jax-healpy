@@ -5,10 +5,7 @@ from numpy.testing import assert_allclose
 import jax_healpy as hp
 
 
-@pytest.mark.parametrize(
-    'nest',
-    [False, pytest.param(True, marks=pytest.mark.xfail(reason='NEST not implemented'))],
-)
+@pytest.mark.parametrize('nest', [False, True])
 def test_vec2pix2vec(vec0: np.ndarray, nest: bool) -> None:
     # ensure nside = 1 << 23 is correctly calculated
     # by comparing the original theta phi are restored.
@@ -186,7 +183,6 @@ def test_pix2vec_ring(nside: int, pixel: int, expected_vec: list[float]) -> None
     assert_allclose(actual_vec, expected_vec, rtol=1e-14)
 
 
-@pytest.mark.skip(reason='NEST ordering not implemented')
 @pytest.mark.parametrize(
     'nside, z, expected_pixel',
     [
@@ -202,25 +198,19 @@ def test_pix2vec_ring(nside: int, pixel: int, expected_vec: list[float]) -> None
         (256, 0.999999999999, [65535, 65535, 131071, 196607, 262143]),
         (256, 0.999, [65451, 65393, 130926, 196509, 262066]),
         (256, 0.98, [64171, 62887, 128668, 194924, 260699]),
-        (256, 0.2, [314428, 374663, 69792, 133882, 490315]),
+        # on a face boundary: expected values from healpy.vec2pix, which differ from ang2pix
+        (256, 0.2, [314428, 374663, 69792, 139344, 490315]),
         (256, 0, [311296, 367194, 436585, 415382, 484773]),
-        pytest.param(
-            256, -0.2, [275395, 361652, 647087, 719370, 477304], marks=pytest.mark.xfail(reason='healpy fails here')
-        ),
+        (256, -0.2, [275395, 361652, 647087, 716639, 477304]),
         (256, -0.98, [527016, 525732, 591507, 657763, 723544]),
         (256, -0.999, [524456, 524365, 589922, 655505, 721038]),
         (256, -0.999999999999, [524288, 524288, 589824, 655360, 720896]),
         (8388608, 0.999999999999, [70368744177579, 70368744177521, 140737488355182, 211106232532893, 281474976710578]),
         (8388608, 0.999, [70278549581803, 70215893321959, 140581352114460, 211000373347884, 281391603516635]),
         (8388608, 0.98, [68903870655151, 67525170488751, 138156734224031, 209298842069359, 279923936516703]),
-        (8388608, 0.2, [337614746881807, 402291901456865, 74939263100968, 143755755568830, 526472038240978]),
+        (8388608, 0.2, [337614746881807, 402291901456865, 74939263100968, 149619817583636, 526472038240978]),
         (8388608, 0, [334251534843904, 394271934289558, 468780016360026, 446013657949605, 520521740020073]),
-        pytest.param(
-            8388608,
-            -0.2,
-            [295703950717168, 388321636068653, 694805112548331, 772417698038402, 512501772852766],
-            marks=pytest.mark.xfail(reason='healpy fails here'),
-        ),
+        (8388608, -0.2, [295703950717168, 388321636068653, 694805112548331, 769485667030999, 512501772852766]),
         (8388608, -0.98, [565879700466336, 564500993615264, 635126088062608, 706268195907936, 776899759643216]),
         (8388608, -0.999, [563130342613032, 563033326615332, 633424556784083, 703843578017507, 774209036810008]),
         (
@@ -239,7 +229,6 @@ def test_vec2pix_nest(nside: int, z: float, expected_pixel: int) -> None:
     assert list(actual_pixel) == expected_pixel
 
 
-@pytest.mark.skip(reason='NEST ordering not implemented')
 @pytest.mark.parametrize(
     'nside, pixel, expected_vec',
     [
