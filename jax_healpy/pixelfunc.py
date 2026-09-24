@@ -29,6 +29,8 @@ conversion from/to sky coordinates
 - :func:`ang2pix` converts angular coordinates to pixel number
 - :func:`vec2pix` converts 3-vector to pixel number
 - :func:`vec2ang` converts 3-vector to angular coordinates
+- :func:`pix2loc` converts pixel number to cosine and sine of colatitude, and longitude
+- :func:`loc2pix` converts cosine and sine of colatitude, and longitude, to pixel number
 - :func:`ang2vec` converts angular coordinates to unit 3-vector
 - :func:`pix2xyf` converts pixel number to coordinates within face
 - :func:`xyf2pix` converts coordinates within face to pixel number
@@ -101,6 +103,8 @@ __all__ = [
     'vec2pix',
     'ang2vec',
     'vec2ang',
+    'pix2loc',
+    'loc2pix',
     'get_interp_weights',
     'get_interp_val',
     'get_all_neighbours',
@@ -742,6 +746,53 @@ def ang2pix(
     return jnp.where((theta < 0) | (theta > np.pi + 1e-5), -1, pixels)
 
 
+@jit(static_argnames=['nside', 'nest'])
+def loc2pix(nside: int, z: ArrayLike, sin_theta: ArrayLike, phi: ArrayLike, nest: bool = False) -> Array:
+    """loc2pix : nside,z,sin_theta,phi,nest=False -> ipix (default:RING)
+
+    Same as :func:`ang2pix`, but takes the colatitude through its cosine and sine, which spares
+    the trigonometric functions when they are already at hand (e.g. from a rotation). This is
+    the inverse of :func:`pix2loc`.
+
+    Parameters
+    ----------
+    nside : int
+      The healpix nside parameter, must be a power of 2, less than 2**30
+    z : float, scalars or array-like
+      Cosine of the colatitude, in [-1, 1]
+    sin_theta : float, scalars or array-like
+      Sine of the colatitude, in [0, 1]. It is only used near the poles (|z| > 0.99),
+      where it is more accurate than sqrt(1 - z**2).
+    phi : float, scalars or array-like
+      Longitude in radians
+    nest : bool, optional
+      if True, assume NESTED pixel ordering, otherwise, RING pixel ordering
+
+    Returns
+    -------
+    pix : int or array of int
+      The healpix pixel numbers. Usual numpy broadcasting rules apply.
+
+    See Also
+    --------
+    pix2loc, ang2pix, vec2pix
+
+    Examples
+    --------
+    >>> import jax_healpy as hp
+    >>> hp.loc2pix(16, 0.0, 1.0, 0.0)
+    Array(1504, dtype=int64)
+
+    >>> print(hp.loc2pix(16, *hp.pix2loc(16, np.array([1440, 427, 1520, 0, 3068]))))
+    [1440  427 1520    0 3068]
+    """
+    check_nside(nside, nest=nest)
+    if nest:
+        raise NotImplementedError('NEST pixel ordering is not implemented.')
+
+    return _zphi2pix_ring(nside, z, sin_theta, phi)
+
+
 def _zphi2pix_ring(nside: int, z: ArrayLike, sin_theta: ArrayLike, phi: ArrayLike) -> Array:
     tt = jnp.mod(2 * phi / np.pi, 4)
     ipix = jnp.where(
@@ -770,8 +821,13 @@ def _zphi2pix_polar_caps_ring(nside: int, z: ArrayLike, sin_theta: ArrayLike, tt
     dt = _pixel_dtype_for(nside)
     npixel = nside2npix(nside)
     tp = tt - jnp.floor(tt)
-    #    tmp = nside * sin_theta / jnp.sqrt((1 + jnp.abs(z)) / 3)
-    tmp = nside * jnp.sqrt(3.0 * (1.0 - jnp.abs(z)))
+    # near the poles, sin(theta) keeps the precision that 1 - |z| loses (as in Healpix C++)
+    abs_z = jnp.abs(z)
+    tmp = nside * jnp.where(
+        abs_z > 0.99,
+        sin_theta / jnp.sqrt((1.0 + abs_z) / 3.0),
+        jnp.sqrt(3.0 * (1.0 - abs_z)),
+    )
     jp = (tp * tmp).astype(dt)
     jm = ((1.0 - tp) * tmp).astype(dt)
     ir = jp + jm + 1
@@ -1475,6 +1531,51 @@ def pix2vec(nside: int, ipix: ArrayLike, nest: bool = False) -> Array:
 
 
 def _pix2vec_ring(nside, pixels):
+    z, sin_theta, phi = _pix2loc_ring(nside, pixels)
+    return jnp.stack([sin_theta * jnp.cos(phi), sin_theta * jnp.sin(phi), z], axis=-1)
+
+
+@jit(static_argnames=['nside', 'nest'])
+def pix2loc(nside: int, ipix: ArrayLike, nest: bool = False) -> tuple[Array, Array, Array]:
+    """pix2loc : nside,ipix,nest=False -> z,sin_theta,phi (default RING)
+
+    Same as :func:`pix2ang`, but returns the colatitude through its cosine and sine, which the
+    pixel scheme gives without trigonometric functions. This is the inverse of :func:`loc2pix`.
+
+    Parameters
+    ----------
+    nside : int
+      The healpix nside parameter, must be a power of 2, less than 2**30
+    ipix : int, scalar or array-like
+      Healpix pixel number
+    nest : bool, optional
+      if True, assume NESTED pixel ordering, otherwise, RING pixel ordering
+
+    Returns
+    -------
+    z, sin_theta, phi : float, arrays
+      Cosine and sine of the colatitude, and longitude in radians, of the pixel centers.
+      Near the poles, sin_theta is computed from 1 - |z| to keep full precision.
+
+    See Also
+    --------
+    loc2pix, pix2ang, pix2vec
+
+    Examples
+    --------
+    >>> import jax_healpy as hp
+    >>> z, sin_theta, phi = hp.pix2loc(16, 1440)
+    >>> print(f'{z:.8f} {sin_theta:.8f} {phi:.8f}')
+    0.04166667 0.99913157 0.00000000
+    """
+    check_nside(nside, nest=nest)
+    if nest:
+        raise NotImplementedError('NEST pixel ordering is not implemented.')
+
+    return _pix2loc_ring(nside, ipix)
+
+
+def _pix2loc_ring(nside: int, pixels: ArrayLike) -> tuple[Array, Array, Array]:
     iring = _pix2i_ring(nside, pixels)
     z, abs_one_minus_z = _pix2z_ring(nside, iring, pixels)
     phi = _pix2phi_ring(nside, iring, pixels)
@@ -1485,7 +1586,7 @@ def _pix2vec_ring(nside, pixels):
             (1 - z) * (1 + z),
         )
     )
-    return jnp.stack([sin_theta * jnp.cos(phi), sin_theta * jnp.sin(phi), z], axis=-1)
+    return z, sin_theta, phi
 
 
 @jit(static_argnames=['lonlat'])

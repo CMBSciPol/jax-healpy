@@ -19,6 +19,8 @@ Functions for converting between different coordinate representations:
 .. autofunction:: jax_healpy.vec2pix
 .. autofunction:: jax_healpy.ang2vec
 .. autofunction:: jax_healpy.vec2ang
+.. autofunction:: jax_healpy.pix2loc
+.. autofunction:: jax_healpy.loc2pix
 
 Pixel Coordinates
 -----------------

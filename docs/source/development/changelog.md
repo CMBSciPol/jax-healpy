@@ -15,8 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contributing guidelines for developers
 - `get_all_neighbours`: Function to get all neighboring pixels for a given pixel
 - `udgrade`: Function for upgrading/downgrading HEALPix map resolution
+- `pix2loc`, `loc2pix`: Pixel ↔ (cos θ, sin θ, φ) conversion, without trigonometric round trips
 
 ### Changed
+- `ang2pix`, `vec2pix`: use sin θ near the poles (|z| > 0.99) for better precision, as Healpix C++ does
 - Improved README with better structure and examples
 - Enhanced project metadata and PyPI badges
 - Better memory complexity implementation of `query_disc` function
