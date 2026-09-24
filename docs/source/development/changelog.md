@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contributing guidelines for developers
 - `get_all_neighbours`: Function to get all neighboring pixels for a given pixel
 - `udgrade`: Function for upgrading/downgrading HEALPix map resolution
+- `pix2loc`, `loc2pix`: Pixel ↔ (cos θ, sin θ, φ) conversion, without trigonometric round trips
 
 ### Changed
 - Improved README with better structure and examples
