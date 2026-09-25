@@ -3,7 +3,9 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns:
@@ -11,8 +13,34 @@ updates:
   - package-ecosystem: "pre-commit"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    cooldown:
+      default-days: 7
     groups:
       pre-commit:
         patterns:
           - "*"
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 5
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
+    groups:
+      dev-tooling:
+        patterns:
+          - "pytest*"
+          - "chex"
+          - "cyclopts"
+          - "matplotlib"
+          - "pandas"
+          - "pyyaml"
+      docs:
+        patterns:
+          - "sphinx*"
+          - "myst-parser"
+          - "nbsphinx"
+          - "ipykernel"
