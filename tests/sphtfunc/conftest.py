@@ -33,8 +33,9 @@ def _isolate_jax_state():
     yield
 
 
-# JIT time for s2fft is very slow, so drop 128
-@pytest.fixture(scope='session', params=[32, 64])
+# JIT time for s2fft is very slow, so drop 128; nside=64 alone costs ~2/3 of the
+# sphtfunc suite in CI, so it only runs with the slow tests (`pytest -m slow`)
+@pytest.fixture(scope='session', params=[32, pytest.param(64, marks=pytest.mark.slow)])
 def nside(request):
     return request.param
 
