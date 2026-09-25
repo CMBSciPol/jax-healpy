@@ -2131,22 +2131,25 @@ def _get_interp_weights_ring(
     dphi1 = 2.0 * jnp.pi / nr1
     dphi2 = 2.0 * jnp.pi / nr2
 
-    # Phi interpolation indices and weights
-    phi1_norm = (phi_coords / dphi1 - shift1) % nr1
-    phi2_norm = (phi_coords / dphi2 - shift2) % nr2
+    # Phi interpolation position, in units of pixels along each ring
+    phi1_norm = phi_coords / dphi1 - shift1
+    phi2_norm = phi_coords / dphi2 - shift2
 
-    # Compute pixel indices (for pixel selection only)
-    # Stop gradient: Floor+cast operations are non-differentiable and only used for indexing
-    i1_1 = lax.stop_gradient(jnp.floor(phi1_norm).astype(jnp.int32))
-    i1_2 = lax.stop_gradient(jnp.floor(phi2_norm).astype(jnp.int32))
+    # Stop gradient: Floor operations are non-differentiable and only used for indexing
+    floor1 = lax.stop_gradient(jnp.floor(phi1_norm))
+    floor2 = lax.stop_gradient(jnp.floor(phi2_norm))
 
-    # Compute weights using gradient-friendly fractional parts
-    # Use modulo instead of floor subtraction for better gradient behavior
-    w_phi1 = phi1_norm % 1.0
-    w_phi2 = phi2_norm % 1.0
+    # Fractional parts: the weights keep the unit gradient with respect to phi. Wrapping
+    # the position onto the ring (a float remainder) is left to the integer indices, as
+    # it does not change the fractional part.
+    w_phi1 = phi1_norm - floor1
+    w_phi2 = phi2_norm - floor2
 
-    i2_1 = (i1_1 + 1) % nr1
-    i2_2 = (i1_2 + 1) % nr2
+    # Pixel indices within each ring, and their eastern neighbours
+    i1_1 = floor1.astype(jnp.int32) % nr1
+    i1_2 = floor2.astype(jnp.int32) % nr2
+    i2_1 = jnp.where(i1_1 == nr1 - 1, 0, i1_1 + 1)
+    i2_2 = jnp.where(i1_2 == nr2 - 1, 0, i1_2 + 1)
 
     # Theta interpolation weight computation
     theta_denom = jnp.where(is_normal, theta2 - theta1, 1.0)  # Avoid div by 0
@@ -2202,16 +2205,20 @@ def _get_interp_weights_ring(
     # Final assembly - single stack operation
     # Stop gradient: Pixel indices are discrete array selectors, not part of interpolation math
     pixels = lax.stop_gradient(jnp.stack([pixels_ring1_1, pixels_ring1_2, pixels_ring2_1, pixels_ring2_2]))
-    weights = jnp.stack([w1_final, w2_final, w3_final, w4_final])
 
     # Clamp weights to ensure non-negativity (handles floating point precision issues)
-    weights = jnp.maximum(weights, 0.0)
+    w1_final = jnp.maximum(w1_final, 0.0)
+    w2_final = jnp.maximum(w2_final, 0.0)
+    w3_final = jnp.maximum(w3_final, 0.0)
+    w4_final = jnp.maximum(w4_final, 0.0)
 
     # Ensure weights sum to exactly 1.0 for gradient consistency
     # This enforces the mathematical constraint sum(weights) = 1.0, making gradients
-    # of the sum exactly zero while preserving gradients of individual weights
-    weight_sum = jnp.sum(weights, axis=0, keepdims=True)
-    weights = weights / weight_sum
+    # of the sum exactly zero while preserving gradients of individual weights.
+    # The sum is spelled out elementwise rather than reduced over a stacked axis: XLA
+    # otherwise emits a reduction fusion that recomputes the whole weight graph.
+    weight_sum = w1_final + w2_final + w3_final + w4_final
+    weights = jnp.stack([w1_final, w2_final, w3_final, w4_final]) / weight_sum
 
     if not with_centers:
         return pixels, weights
