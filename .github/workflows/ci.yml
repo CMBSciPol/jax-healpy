@@ -1,44 +1,49 @@
 name: CI
 
+permissions: {}
+
 on:
   push:
     branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
 
+# A new push to a PR cancels its outdated run; pushes to main each get their own group
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
   pre-commit:
     name: Run pre-commit hooks
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout project
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up prek and run hooks
-        uses: j178/prek-action@v2.0.4
+        uses: j178/prek-action@v3.0.0
         with:
-          prek-version: "0.4.3"
+          prek-version: "0.5.3"
 
   test:
     name: Run tests on Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
       - name: Checkout project
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install uv and set up environment
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@v10.2.0
         with:
-          version: "0.11.19"
+          version: "0.12.19"
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
@@ -46,4 +51,4 @@ jobs:
         run: uv sync --locked --group dev --extra recommended
 
       - name: Run tests
-        run: uv run pytest -vv -m "not slow"
+        run: uv run pytest -vv -n auto -m "not slow"

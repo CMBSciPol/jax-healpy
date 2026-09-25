@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Any
 
 import healpy as hp
-import jax
 import numpy as np
 import pytest
 
@@ -13,28 +12,10 @@ from s2fft.sampling.s2_samples import flm_2d_to_hp  # noqa: E402
 from s2fft.utils import signal_generator  # noqa: E402
 
 
-@pytest.fixture(autouse=True)
-def _isolate_jax_state():
-    """Clear JAX caches before every sphtfunc transform test.
-
-    The s2fft-backed transforms accumulate many compiled XLA executables across a
-    session, and stale compiled state nondeterministically corrupts otherwise-correct
-    results -- NaNs in near-zero high-ell spin coefficients, and a constant monopole
-    offset in scalar ``alm2map`` -- so tests pass in isolation but fail when run after
-    other transform tests. This affects scalar transforms too (not only pol/spin), and
-    clearing only some tests leaves a bad intermediate cache state that corrupts the
-    next one; clearing before every test -- the remedy documented in CLAUDE.md --
-    makes the suite order-independent. 64-bit precision is re-asserted because s2fft
-    accuracy degrades badly without it. This recompiles per test, so the suite is
-    slower but correct.
-    """
-    jax.config.update('jax_enable_x64', True)
-    jax.clear_caches()
-    yield
-
-
-# JIT time for s2fft is very slow, so drop 128
-@pytest.fixture(scope='session', params=[32, 64])
+@pytest.fixture(
+    scope='session',
+    params=[32, pytest.param(64, marks=pytest.mark.slow), pytest.param(128, marks=pytest.mark.slow)],
+)
 def nside(request):
     return request.param
 

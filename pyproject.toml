@@ -56,13 +56,14 @@ dev = [
     {include-group = 'docs'},
     'chex',
     'cyclopts',
-    'healpy',
+    'healpy>=1.20',
     'matplotlib',
     'pandas',
     'pytest>=9.0',
     'pytest-cov',
     'pytest-mock',
     'pytest-rerunfailures',
+    'pytest-xdist',
     'PyYAML',
 ]
 docs = [
