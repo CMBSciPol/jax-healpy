@@ -86,11 +86,11 @@ def combine_masks(cutouts: list[Array], indices: list[Array], nside: int, axis: 
     full_shape[axis] = npix
     map_ids = jax.tree.map(lambda x: jnp.full(full_shape, UNSEEN), cutouts[0])
 
-    for cutout, indices in zip(cutouts, indices):
+    for cutout, patch_indices in zip(cutouts, indices):
         patch_slice = [slice(None)] * len(jax.tree.leaves(cutout)[0].shape)
-        patch_slice[axis] = indices
+        patch_slice[axis] = patch_indices
         patch_slice = tuple(patch_slice)
-        map_ids = jax.tree.map(lambda maps, lbl: maps.at[patch_slice].set(lbl), map_ids, cutout)
+        map_ids = jax.tree.map(lambda maps, lbl: maps.at[patch_slice].set(lbl), map_ids, cutout)  # noqa: B023
 
     return map_ids
 

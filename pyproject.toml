@@ -111,20 +111,19 @@ markers = [
 
 [tool.ruff]
 line-length = 120
-fix = true
+fix = true           # autofix issues
+force-exclude = true # useful with ruff-pre-commit plugin
 
 [tool.ruff.lint]
-select = [
-    # pycodestyle
-    'E',
-    # pyflakes
-    'F',
-    # pyupgrade
-    'UP',
-    # flake8-debugger
-    'T10',
-    # isort
-    'I',
+extend-select = [
+    'B',      # flake8-bugbear
+    'C4',     # flake8-comprehensions
+    'I',      # isort
+    'UP',     # pyupgrade
+    'T10',    # flake8-debugger
+]
+ignore = [
+    'B905', # zip() without strict=
 ]
 
 [tool.ruff.format]
