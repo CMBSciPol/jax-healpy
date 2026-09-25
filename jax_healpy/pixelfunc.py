@@ -947,29 +947,32 @@ def _pix2i_equatorial_region_ring(nside: int, pixels: ArrayLike) -> Array:
     return tmp + nside
 
 
-def _pix2z_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> tuple[Array, Array]:
+def _ring2z(
+    nside: int, ring_from_pole: Array, ring_from_north: Array, north_cap: Array, south_cap: Array
+) -> tuple[Array, Array]:
+    """Cosine and sine of the co-latitude of a ring.
+
+    The polar caps use the ring index counted from the closest pole, the equatorial region
+    the ring index counted from the North pole.
+    """
     npixel = nside2npix(nside)
-    ncap = 2 * nside * (nside - 1)
-    abs_one_minus_z = _pix2z_polar_caps_ring(nside, iring)
+    # cast to float so the result follows the x64 flag regardless of the pixel dtype
+    fnr = ring_from_pole.astype(float)
+    abs_one_minus_z = fnr * fnr * 4 / npixel
     z = jnp.where(
-        pixels < ncap,
+        north_cap,
         1 - abs_one_minus_z,
-        jnp.where(
-            pixels < npixel - ncap,
-            _pix2z_equatorial_region_ring(nside, iring),
-            abs_one_minus_z - 1,
-        ),
+        jnp.where(south_cap, abs_one_minus_z - 1, (2 * nside - ring_from_north).astype(float) * 2 / 3 / nside),
     )
-    return z, abs_one_minus_z
-
-
-def _pix2z_polar_caps_ring(nside: int, iring: ArrayLike) -> Array:
-    npixel = nside2npix(nside)
-    return iring * iring * 4 / npixel
-
-
-def _pix2z_equatorial_region_ring(nside: int, iring: ArrayLike) -> Array:
-    return (2 * nside - iring) * 2 / 3 / nside
+    # near the poles, 1 - |z| is known exactly, and keeps the precision that 1 - z**2 loses
+    sin_theta = jnp.sqrt(
+        jnp.where(
+            jnp.abs(z) > 0.99,
+            abs_one_minus_z * (2 - abs_one_minus_z),
+            (1 - z) * (1 + z),
+        )
+    )
+    return z, sin_theta
 
 
 def _pix2phi_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
@@ -1508,51 +1511,33 @@ def pix2loc(nside: int, ipix: ArrayLike, nest: bool = False) -> tuple[Array, Arr
 
 
 def _pix2loc_ring(nside: int, pixels: ArrayLike) -> tuple[Array, Array, Array]:
+    npixel = nside2npix(nside)
+    ncap = 2 * nside * (nside - 1)
+    # in the polar caps, iring is counted from the closest pole
     iring = _pix2i_ring(nside, pixels)
-    z, abs_one_minus_z = _pix2z_ring(nside, iring, pixels)
+    z, sin_theta = _ring2z(nside, iring, iring, pixels < ncap, pixels >= npixel - ncap)
     phi = _pix2phi_ring(nside, iring, pixels)
-    sin_theta = jnp.sqrt(
-        jnp.where(
-            jnp.abs(z) > 0.99,
-            abs_one_minus_z * (2 - abs_one_minus_z),
-            (1 - z) * (1 + z),
-        )
-    )
     return z, sin_theta, phi
 
 
 def _pix2loc_nest(nside: int, pixels: ArrayLike) -> tuple[Array, Array, Array]:
     """Convert a pixel number in NESTED ordering to (z, sin_theta, phi) (Healpix C++ pix2loc)"""
-    npixel = nside2npix(nside)
     ix, iy, face_num = _pix2xyf_nest(nside, jnp.asarray(pixels).astype(_pixel_dtype_for(nside)))
 
     # ring index of the pixel center, counted from the North pole
     jr = _jrll(face_num) * nside - ix - iy - 1
     north_cap = jr < nside
     south_cap = jr > 3 * nside
-    # number of pixels in a quarter of the ring
+    # number of pixels in a quarter of the ring, which in the polar caps is also the ring
+    # index counted from the closest pole
     nr = jnp.where(north_cap, jr, jnp.where(south_cap, 4 * nside - jr, nside))
 
-    # cast to float so the result follows the x64 flag regardless of the pixel dtype
-    fnr = nr.astype(float)
-    abs_one_minus_z = fnr * fnr * 4 / npixel
-    z = jnp.where(
-        north_cap,
-        1 - abs_one_minus_z,
-        jnp.where(south_cap, abs_one_minus_z - 1, (2 * nside - jr).astype(float) * 2 / 3 / nside),
-    )
-    sin_theta = jnp.sqrt(
-        jnp.where(
-            jnp.abs(z) > 0.99,
-            abs_one_minus_z * (2 - abs_one_minus_z),
-            (1 - z) * (1 + z),
-        )
-    )
+    z, sin_theta = _ring2z(nside, nr, jr, north_cap, south_cap)
 
     # pixel index in the ring, counted from longitude zero, in units of half pixels
     kk = _jpll(face_num) * nr + ix - iy
     kk = jnp.where(kk < 0, kk + 8 * nr, kk)
-    phi = kk.astype(float) * np.pi / 4 / fnr
+    phi = kk.astype(float) * np.pi / 4 / nr.astype(float)
     return z, sin_theta, phi
 
 
