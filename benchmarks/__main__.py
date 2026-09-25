@@ -14,8 +14,8 @@ import jax
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import typer
 import yaml
+from cyclopts import App
 from jaxtyping import ArrayLike
 from matplotlib.ticker import ScalarFormatter
 
@@ -37,11 +37,10 @@ BENCHMARKED_FUNCS = [
 ]
 CHART_PATH_NAME = 'chart-{style}-n{n}.png'
 
-# TODO: use those when typer supports Literals
 LibraryType = Literal['healpy', 'jax-healpy']
 PrecisionType = Literal['32', '64']
 
-app = typer.Typer()
+app = App()
 
 
 @dataclass(frozen=True)
@@ -56,11 +55,11 @@ class BenchmarkResult:
 
 
 def bench_it(
-    library: str,
+    library: LibraryType,
     func_name: str,
     nside: int,
     n: int,
-    precision: str,
+    precision: PrecisionType,
     rng: np.random.Generator,
 ) -> float:
     if precision == '32':
@@ -200,10 +199,10 @@ def time_it(func: Callable[[], None]) -> float:
 
 @app.command()
 def run(
-    library: str,
+    library: LibraryType,
     nside: int = 512,
     n: int = 10_000_000,
-    precision: str = '64',
+    precision: PrecisionType = '64',
 ) -> None:
     if library == 'jax-healpy':
         version = f'jax({jax.__version__})'
