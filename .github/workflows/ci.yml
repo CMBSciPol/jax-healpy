@@ -57,4 +57,4 @@ jobs:
             jax-${{ matrix.python-version }}-
 
       - name: Run tests
-        run: uv run pytest -vv -m "not slow"
+        run: uv run pytest -vv -n auto -m "not slow"

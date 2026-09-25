@@ -63,6 +63,7 @@ dev = [
     'pytest-cov',
     'pytest-mock',
     'pytest-rerunfailures',
+    'pytest-xdist',
     'PyYAML',
 ]
 docs = [
