@@ -983,38 +983,12 @@ def _pix2z_equatorial_region_ring(nside: int, iring: ArrayLike) -> Array:
 
 
 def _pix2phi_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
-    npixel = nside2npix(nside)
-    ncap = 2 * nside * (nside - 1)
-    phi = jnp.where(
-        pixels < ncap,
-        _pix2phi_north_cap_ring(nside, iring, pixels),
-        jnp.where(
-            pixels < npixel - ncap,
-            _pix2phi_equatorial_region_ring(nside, iring, pixels),
-            _pix2phi_south_cap_ring(nside, iring, pixels),
-        ),
-    )
-    return phi
-
-
-def _pix2phi_north_cap_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
-    iphi = pixels + 1 - 2 * iring * (iring - 1)
-    phi = (iphi - 0.5) * np.pi / 2 / iring
-    return phi
-
-
-def _pix2phi_equatorial_region_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
-    iphi = pixels + 2 * nside * (nside + 1) - 4 * nside * iring + 1
-    fodd = ((iring + nside) & 1) * 0.5 + 0.5  # iring + nside odd -> 1 else 0.5
-    phi = (iphi - fodd) * np.pi / 2 / nside
-    return phi
-
-
-def _pix2phi_south_cap_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
-    npixel = nside2npix(nside)
-    iphi = 4 * iring + 1 - (npixel - pixels - 2 * iring * (iring - 1))
-    phi = (iphi - 0.5) * np.pi / 2 / iring
-    return phi
+    iphi = _pix2iphi_ring(nside, iring, pixels)
+    # number of pixels in a quarter of the ring
+    nr = _npix_on_ring(nside, iring) // 4
+    # pixel centers sit half a pixel off longitude zero, except on unshifted rings
+    fodd = jnp.where(_ring_shifted(nside, iring), 0.5, 1.0)
+    return (iphi - fodd) * np.pi / 2 / nr
 
 
 @jit(static_argnames=['nside', 'nest'])
@@ -1206,40 +1180,15 @@ def _get_ring_info(nside: int, ring_idx: ArrayLike) -> tuple[Array, Array, Array
 
     Returns: theta, startpix, ringpix, shifted
     """
-    # Convert to scalar for compatibility
-    ring = ring_idx
-
-    ncap = 2 * nside * (nside - 1)
-    npix_total = 12 * nside * nside
-
-    # Northern hemisphere equivalent ring
-    northring = jnp.where(ring > 2 * nside, 4 * nside - ring, ring)
-
     # Co-latitude: the cosine and sine are selected per region (and hemisphere) before the
     # single arctan2, so only one transcendental is evaluated per ring instead of one per region
-    costheta, sintheta = _get_ring_costheta_sintheta(nside, ring)
+    costheta, sintheta = _get_ring_costheta_sintheta(nside, ring_idx)
     theta = jnp.arctan2(sintheta, costheta)
 
-    # Polar cap region (northring < nside)
-    polar_ringpix = 4 * northring
-    polar_shifted = True
-    polar_startpix = 2 * northring * (northring - 1)
-
-    # Equatorial region (northring >= nside)
-    equatorial_ringpix = 4 * nside
-    equatorial_shifted = ((northring - nside) & 1) == 0
-    equatorial_startpix = ncap + (northring - nside) * equatorial_ringpix
-
-    # Choose based on region
-    ringpix = jnp.where(northring < nside, polar_ringpix, equatorial_ringpix)
-    shifted = jnp.where(northring < nside, polar_shifted, equatorial_shifted)
-    startpix = jnp.where(northring < nside, polar_startpix, equatorial_startpix)
-
-    # Southern hemisphere correction
-    startpix = jnp.where(northring != ring, npix_total - startpix - ringpix, startpix)
-
+    startpix = _start_pixel_ring(nside, ring_idx)
+    ringpix = _npix_on_ring(nside, ring_idx)
     # Convert shifted boolean to float (0.0 or 0.5)
-    shift = jnp.where(shifted, 0.5, 0.0)
+    shift = jnp.where(_ring_shifted(nside, ring_idx), 0.5, 0.0)
 
     return theta, startpix, ringpix, shift
 
@@ -1269,7 +1218,7 @@ def _get_ring_costheta_sintheta(nside: int, ring_idx: ArrayLike) -> tuple[Array,
     fact2 = 4.0 / (12.0 * nside * nside)
 
     # Northern hemisphere equivalent ring
-    northring = jnp.where(ring > 2 * nside, 4 * nside - ring, ring)
+    northring = _northern_ring(nside, ring)
 
     # Polar cap region (northring < nside): both are exact rearrangements of the
     # HEALPix ring definition, with no cancellation in sin near the pole.
