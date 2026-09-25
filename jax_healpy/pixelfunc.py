@@ -917,12 +917,9 @@ def pix2ang(nside: int, ipix: ArrayLike, nest: bool = False, lonlat: bool = Fals
 
     check_nside(nside, nest=nest)
 
-    if nest:
-        theta, phi = _pix2ang_nest(nside, ipix)
-    else:
-        iring = _pix2i_ring(nside, ipix)
-        theta = _pix2theta_ring(nside, iring, ipix)
-        phi = _pix2phi_ring(nside, iring, ipix)
+    z, sin_theta, phi = _pix2loc_nest(nside, ipix) if nest else _pix2loc_ring(nside, ipix)
+    # both are accurate, so arctan2 is well conditioned everywhere, near the poles included
+    theta = jnp.arctan2(sin_theta, z)
 
     if lonlat:
         return _thetaphi2lonlat(theta, phi)
@@ -991,17 +988,6 @@ def _pix2z_equatorial_region_ring(nside: int, iring: ArrayLike) -> Array:
     return (2 * nside - iring) * 2 / 3 / nside
 
 
-def _pix2theta_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
-    z, abs_one_minus_z = _pix2z_ring(nside, iring, pixels)
-    theta = jnp.where(
-        jnp.abs(z) > 0.99,
-        jnp.arctan2(jnp.sqrt(abs_one_minus_z * (2 - abs_one_minus_z)), z),
-        jnp.arccos(z),
-    )
-
-    return theta
-
-
 def _pix2phi_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
     npixel = nside2npix(nside)
     ncap = 2 * nside * (nside - 1)
@@ -1035,12 +1021,6 @@ def _pix2phi_south_cap_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> 
     iphi = 4 * iring + 1 - (npixel - pixels - 2 * iring * (iring - 1))
     phi = (iphi - 0.5) * np.pi / 2 / iring
     return phi
-
-
-def _pix2ang_nest(nside: int, ipix: ArrayLike) -> tuple[Array, Array]:
-    z, sin_theta, phi = _pix2loc_nest(nside, ipix)
-    theta = jnp.where(jnp.abs(z) > 0.99, jnp.arctan2(sin_theta, z), jnp.arccos(z))
-    return theta, phi
 
 
 @jit(static_argnames=['nside', 'nest'])
