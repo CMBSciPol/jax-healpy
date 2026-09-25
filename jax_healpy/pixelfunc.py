@@ -1221,38 +1221,33 @@ def _get_ring_info(nside: int, ring_idx: ArrayLike) -> tuple[Array, Array, Array
     # Convert to scalar for compatibility
     ring = ring_idx
 
-    # HEALPix C++ constants
-    fact1 = 2.0 / (3.0 * nside)  # (nside_<<1)*fact2_ where fact2_ = 4./npix_ = 1/(3*nside**2)
-    fact2 = 4.0 / (12.0 * nside * nside)  # 4./npix_
     ncap = 2 * nside * (nside - 1)
     npix_total = 12 * nside * nside
 
     # Northern hemisphere equivalent ring
     northring = jnp.where(ring > 2 * nside, 4 * nside - ring, ring)
 
+    # Co-latitude: the cosine and sine are selected per region (and hemisphere) before the
+    # single arctan2, so only one transcendental is evaluated per ring instead of one per region
+    costheta, sintheta = _get_ring_costheta_sintheta(nside, ring)
+    theta = jnp.arctan2(sintheta, costheta)
+
     # Polar cap region (northring < nside)
-    polar_tmp = northring * northring * fact2
-    polar_costheta = 1.0 - polar_tmp
-    polar_sintheta = jnp.sqrt(polar_tmp * (2.0 - polar_tmp))
-    polar_theta = jnp.arctan2(polar_sintheta, polar_costheta)
     polar_ringpix = 4 * northring
     polar_shifted = True
     polar_startpix = 2 * northring * (northring - 1)
 
     # Equatorial region (northring >= nside)
-    equatorial_theta = jnp.arccos((2.0 * nside - northring) * fact1)
     equatorial_ringpix = 4 * nside
     equatorial_shifted = ((northring - nside) & 1) == 0
     equatorial_startpix = ncap + (northring - nside) * equatorial_ringpix
 
     # Choose based on region
-    theta = jnp.where(northring < nside, polar_theta, equatorial_theta)
     ringpix = jnp.where(northring < nside, polar_ringpix, equatorial_ringpix)
     shifted = jnp.where(northring < nside, polar_shifted, equatorial_shifted)
     startpix = jnp.where(northring < nside, polar_startpix, equatorial_startpix)
 
     # Southern hemisphere correction
-    theta = jnp.where(northring != ring, np.pi - theta, theta)
     startpix = jnp.where(northring != ring, npix_total - startpix - ringpix, startpix)
 
     # Convert shifted boolean to float (0.0 or 0.5)
@@ -1264,11 +1259,9 @@ def _get_ring_info(nside: int, ring_idx: ArrayLike) -> tuple[Array, Array, Array
 def _get_ring_costheta_sintheta(nside: int, ring_idx: ArrayLike) -> tuple[Array, Array]:
     """Get the cosine and sine of a ring's co-latitude, without forming the angle.
 
-    `_get_ring_info` returns the angle, and recovering the cosine and sine from it would
-    round twice and lose accuracy near the poles, which matters in float32. It computes
-    both directly in its polar branch before collapsing them through `arctan2`, but its
-    equatorial branch goes straight to `arccos` and never forms a sine, so that half has
-    to be computed here regardless.
+    `_get_ring_info` derives its angle from these through `arctan2`. Recovering the
+    cosine and sine from that angle instead would round twice and lose accuracy near the
+    poles, which matters in float32.
 
     Parameters
     ----------
