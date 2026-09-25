@@ -52,6 +52,17 @@ def test_isnpixok_array() -> None:
     np.testing.assert_array_equal(hp.isnpixok([12, 768, 1002, 0, -12]), [True, True, False, False, False])
 
 
+@pytest.mark.parametrize('nside', [0, -1, 2.5, np.nan, True])
+def test_nside2npix_rejects_invalid_nside(nside) -> None:
+    with pytest.raises(ValueError, match='not a valid nside'):
+        hp.nside2npix(nside)
+
+
+def test_nside2npix_npix2nside_roundtrip() -> None:
+    for nside in [1, 3, 7, 16, 2**29]:
+        assert hp.npix2nside(hp.nside2npix(nside)) == nside
+
+
 def test_npix2nside_rejects_empty_map() -> None:
     with pytest.raises(ValueError, match='Wrong pixel number'):
         hp.npix2nside(0)

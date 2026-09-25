@@ -208,7 +208,8 @@ def check_theta_valid(theta):
 def check_nside(nside: int, nest: bool = False) -> None:
     """Raises exception is nside is not valid"""
     if not np.all(isnsideok(nside, nest=nest)):
-        raise ValueError(f'{nside} is not a valid nside parameter (must be a power of 2, less than 2**30)')
+        requirement = 'a power of 2' if nest else 'a positive integer'
+        raise ValueError(f'{nside} is not a valid nside parameter (must be {requirement}, less than 2**30)')
 
 
 def _pixel_dtype_for(nside: int) -> jnp.dtype:
@@ -321,6 +322,11 @@ def nside2npix(nside: int) -> int:
     npix : int
       corresponding number of pixels
 
+    Notes
+    -----
+    Raise a ValueError exception if nside is not valid (in RING ordering). Unlike healpy,
+    which returns a pixel count for any input, e.g. 0 for nside=0.
+
     Examples
     --------
     >>> import jax_healpy as hp
@@ -333,7 +339,13 @@ def nside2npix(nside: int) -> int:
 
     >>> hp.nside2npix(7)
     588
+
+    >>> hp.nside2npix(0)
+    Traceback (most recent call last):
+        ...
+    ValueError: 0 is not a valid nside parameter (must be a positive integer, less than 2**30)
     """
+    check_nside(nside)
     return 12 * nside * nside
 
 
