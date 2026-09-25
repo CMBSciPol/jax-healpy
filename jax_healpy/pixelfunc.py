@@ -1115,24 +1115,38 @@ def _xy2fpix(nside: int, ix: Array, iy: Array) -> Array:
     return fpix
 
 
-# ring index of south corner for each face (0 = North pole)
-_JRLL = np.array([2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4], dtype=np.int32)
+# The two lookup tables of the HEALPix C++ library, indexed by face number, are computed
+# arithmetically: a gather from a table does not fuse with the surrounding elementwise
+# operations on CPU.
 
-# longitude index of south corner for each face (0 = longitude zero)
-_JPLL = np.array([1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7], dtype=np.int32)
+
+def _jrll(face_num: Array) -> Array:
+    """Ring index of the south corner of each face, in units of nside (0 = North pole).
+
+    Equivalent to indexing ``[2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4]``.
+    """
+    return 2 + (face_num >> 2)
+
+
+def _jpll(face_num: Array) -> Array:
+    """Longitude index of the south corner of each face, in units of pi/4 (0 = longitude zero).
+
+    Equivalent to indexing ``[1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7]``.
+    """
+    return 2 * (face_num & 3) + 1 - ((face_num >> 2) & 1)
 
 
 def _xyf2pix_ring(nside: int, ix: Array, iy: Array, face_num: Array) -> Array:
     """Convert (x, y, face) to a pixel number in RING ordering"""
     # ring index of the pixel center
-    jr = (jnp.asarray(_JRLL)[face_num] * nside) - ix - iy - 1
+    jr = (_jrll(face_num) * nside) - ix - iy - 1
 
     ringpix = _npix_on_ring(nside, jr)
     startpix = _start_pixel_ring(nside, jr)
     kshift = 1 - _ring_shifted(nside, jr)
 
     # pixel number in the ring
-    jp = (jnp.asarray(_JPLL)[face_num] * ringpix // 4 + ix - iy + 1 + kshift) // 2
+    jp = (_jpll(face_num) * ringpix // 4 + ix - iy + 1 + kshift) // 2
     jp = jnp.where(jp < 1, jp + 4 * nside, jp)
 
     return startpix - 1 + jp
@@ -1403,13 +1417,17 @@ def _pix2xyf_ring(nside: int, pix: Array) -> tuple[Array, Array, Array]:
     ifm = (iphi - ire // 2 + nside - 1) // nside
     ifp = (iphi - irm // 2 + nside - 1) // nside
 
+    # in the polar caps, the face is the quarter of the ring holding the pixel: (iphi - 1) // nr,
+    # which lies in [0, 3], counted with comparisons since an integer division by an array
+    # does not vectorize on CPU
+    quarter = (iphi > nr).astype(iphi.dtype) + (iphi > 2 * nr) + (iphi > 3 * nr)
     face_num = jnp.where(
         pix < ncap,
-        (iphi - 1) // nr,  # north polar cap
+        quarter,  # north polar cap
         jnp.where(
             pix < (npix - ncap),
             jnp.where(ifp == ifm, ifp | 4, jnp.where(ifp < ifm, ifp, ifm + 8)),
-            8 + (iphi - 1) // nr,  # south polar cap
+            8 + quarter,  # south polar cap
         ),
     )
 
@@ -1419,8 +1437,8 @@ def _pix2xyf_ring(nside: int, pix: Array) -> tuple[Array, Array, Array]:
         4 * nside - iring,  # south polar cap
     )  # ring number counted from North pole or South pole
 
-    irt = iring_for_irt - (jnp.asarray(_JRLL)[face_num] * nside) + 1
-    ipt = 2 * iphi - jnp.asarray(_JPLL)[face_num] * nr - kshift - 1
+    irt = iring_for_irt - (_jrll(face_num) * nside) + 1
+    ipt = 2 * iphi - _jpll(face_num) * nr - kshift - 1
     ipt -= jnp.where(ipt >= nl2, 8 * nside, 0)
 
     ix = (ipt - irt) // 2
@@ -1612,7 +1630,7 @@ def _pix2loc_nest(nside: int, pixels: ArrayLike) -> tuple[Array, Array, Array]:
     ix, iy, face_num = _pix2xyf_nest(nside, jnp.asarray(pixels).astype(_pixel_dtype_for(nside)))
 
     # ring index of the pixel center, counted from the North pole
-    jr = jnp.asarray(_JRLL)[face_num] * nside - ix - iy - 1
+    jr = _jrll(face_num) * nside - ix - iy - 1
     north_cap = jr < nside
     south_cap = jr > 3 * nside
     # number of pixels in a quarter of the ring
@@ -1635,7 +1653,7 @@ def _pix2loc_nest(nside: int, pixels: ArrayLike) -> tuple[Array, Array, Array]:
     )
 
     # pixel index in the ring, counted from longitude zero, in units of half pixels
-    kk = jnp.asarray(_JPLL)[face_num] * nr + ix - iy
+    kk = _jpll(face_num) * nr + ix - iy
     kk = jnp.where(kk < 0, kk + 8 * nr, kk)
     phi = kk.astype(float) * np.pi / 4 / fnr
     return z, sin_theta, phi
