@@ -1,3 +1,8 @@
+"""Port of healpy's pixelfunc unit tests (https://github.com/healpy/healpy/blob/main/test/test_pixelfunc.py).
+
+Tests of functions that jax-healpy does not implement yet are kept as expected failures.
+"""
+
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -118,7 +123,6 @@ def test_get_interp_weights() -> None:
     np.testing.assert_array_almost_equal(w0, w1)
 
 
-@pytest.mark.xfail(reason='get_all_neighbours not implemented')
 def test_get_all_neighbours() -> None:
     ipix0 = np.array([8, 4, 0, -1, 1, 6, 9, -1])
     ipix1 = hp.get_all_neighbours(1, np.pi / 2, np.pi / 2)
@@ -176,7 +180,6 @@ def test_ring(lg_nside: int, nest: bool) -> None:
         assert np.logical_or(first == second, first == second - 1).all()
 
 
-@pytest.mark.xfail(reason='ud_grade not implemented')
 def test_accept_ma_allows_only_keywords() -> None:
     """Test whether the accept_ma wrapper accepts calls using only keywords."""
     ma = np.zeros(12 * 16**2)
