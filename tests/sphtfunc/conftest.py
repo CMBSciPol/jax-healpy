@@ -12,17 +12,6 @@ from s2fft.sampling.s2_samples import flm_2d_to_hp  # noqa: E402
 from s2fft.utils import signal_generator  # noqa: E402
 
 
-def pad_cl(cl: np.ndarray, lmax: int) -> np.ndarray:
-    """Zero-pad spectra along the last axis to ``lmax + 1`` multipoles.
-
-    healpy's ``synalm``/``synfast`` do not bounds-check the input spectra: with
-    ``lmax >= cl.shape[-1]`` they read past the end of the array, so the generated
-    maps depend on whatever happens to be in memory there (nondeterministic, often
-    ~1e40). jax-healpy zero-pads instead, so pad before handing spectra to healpy.
-    """
-    return np.pad(cl, [(0, 0)] * (cl.ndim - 1) + [(0, max(0, lmax + 1 - cl.shape[-1]))])
-
-
 # JIT time for s2fft is very slow, so drop 128; nside=64 alone costs ~2/3 of the
 # sphtfunc suite in CI, so it only runs with the slow tests (`pytest -m slow`)
 @pytest.fixture(scope='session', params=[32, pytest.param(64, marks=pytest.mark.slow)])
@@ -51,7 +40,7 @@ def synthesized_map(cla: np.ndarray, nside: int) -> np.ndarray:
     old_state = np.random.get_state()
     np.random.seed(seed)
     result = hp.synfast(
-        pad_cl(cla, lmax),
+        cla,
         nside,
         lmax=lmax,
         pixwin=False,
@@ -98,7 +87,7 @@ def synthesized_tqu_map(cla_tqu: np.ndarray, nside: int) -> np.ndarray:
     old_state = np.random.get_state()
     np.random.seed(seed)
     result = hp.synfast(
-        pad_cl(cla_tqu, lmax),
+        cla_tqu,
         nside,
         lmax=lmax,
         pixwin=False,

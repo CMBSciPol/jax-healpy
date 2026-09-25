@@ -131,8 +131,7 @@ def test_synfast_basic(cla: np.ndarray, nside: int) -> None:
     map_jax = jhp.synfast(jax.random.PRNGKey(seed), cla, nside, lmax=lmax, pol=False)
     rng_state = np.random.get_state()
     np.random.seed(seed)
-    # healpy reads past the end of cl when lmax >= len(cl); zero-pad like jax-healpy does
-    map_healpy = hp.synfast(np.pad(cla, (0, lmax + 1 - len(cla))), nside, lmax=lmax, pol=False)
+    map_healpy = hp.synfast(cla, nside, lmax=lmax, pol=False)
     np.random.set_state(rng_state)
 
     # Check output shape
