@@ -175,16 +175,16 @@ import jax
 import jax.numpy as jnp
 import jax_healpy as hp
 
-print(f"JAX version: {jax.__version__}")
-print(f"JAX backend: {jax.default_backend()}")
-print(f"Available devices: {jax.devices()}")
+print(f'JAX version: {jax.__version__}')
+print(f'JAX backend: {jax.default_backend()}')
+print(f'Available devices: {jax.devices()}')
 
 # Test basic functionality
 nside = 32
 npix = hp.nside2npix(nside)
 pixels = jnp.arange(100)
 theta, phi = hp.pix2ang(nside, pixels)
-print(f"Successfully converted {len(pixels)} pixels to coordinates")
+print(f'Successfully converted {len(pixels)} pixels to coordinates')
 ```
 
 ## Troubleshooting
@@ -213,7 +213,8 @@ For large computations, consider:
 
 ```python
 # Use 32-bit precision
-jax.config.update("jax_enable_x64", False)
+jax.config.update('jax_enable_x64', False)
+
 
 # Process in smaller batches
 def batch_process(data, batch_size=1000):
@@ -252,6 +253,7 @@ Functions are compiled on first use. For best performance:
 def my_healpix_function(nside, data):
     # Your code here
     return result
+
 
 # First call compiles the function
 result = my_healpix_function(64, test_data)

@@ -116,11 +116,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 
-def example_function(
-    nside: int,
-    coordinates: Float[Array, "n 2"],
-    nest: bool = False
-) -> Float[Array, "n"]:
+def example_function(nside: int, coordinates: Float[Array, 'n 2'], nest: bool = False) -> Float[Array, 'n']:
     """
     Brief description of what the function does.
 
@@ -174,7 +170,7 @@ from jax_healpy import example_function
 def test_example_function_basic():
     """Test basic functionality of example_function."""
     nside = 64
-    coords = jnp.array([[0.0, 0.0], [jnp.pi/2, 0.0]])
+    coords = jnp.array([[0.0, 0.0], [jnp.pi / 2, 0.0]])
 
     result = example_function(nside, coords)
 
@@ -184,7 +180,7 @@ def test_example_function_basic():
 
 def test_example_function_invalid_nside():
     """Test that invalid nside raises appropriate error."""
-    with pytest.raises(ValueError, match="nside must be"):
+    with pytest.raises(ValueError, match='nside must be'):
         example_function(3, jnp.array([[0.0, 0.0]]))
 ```
 
@@ -352,14 +348,14 @@ cd docs && make clean && make html
 import jax
 import jax_healpy as hp
 
-print(f"JAX version: {jax.__version__}")
-print(f"JAX devices: {jax.devices()}")
-print(f"jax-healpy version: {hp.__version__ if hasattr(hp, '__version__') else 'dev'}")
+print(f'JAX version: {jax.__version__}')
+print(f'JAX devices: {jax.devices()}')
+print(f'jax-healpy version: {hp.__version__ if hasattr(hp, "__version__") else "dev"}')
 
 # Test basic functionality
 nside = 32
 npix = hp.nside2npix(nside)
-print(f"Basic test: nside={nside} → npix={npix}")
+print(f'Basic test: nside={nside} → npix={npix}')
 ```
 
 Thank you for contributing to jax-healpy! 🚀

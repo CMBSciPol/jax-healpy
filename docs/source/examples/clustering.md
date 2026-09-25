@@ -16,11 +16,11 @@ from jax_healpy.clustering import (
     get_cutout_from_mask,
     get_fullmap_from_cutout,
     combine_masks,
-    normalize_by_first_occurrence
+    normalize_by_first_occurrence,
 )
 
 # Enable 64-bit precision for better accuracy
-jax.config.update("jax_enable_x64", True)
+jax.config.update('jax_enable_x64', True)
 ```
 
 ## K-Means Clustering on the Sphere
@@ -39,7 +39,7 @@ key = jax.random.PRNGKey(0)
 mask = jax.random.bernoulli(key, p=0.1, shape=(npix,))
 valid_indices = jnp.where(mask)[0]
 
-print(f"Number of valid pixels: {len(valid_indices)}")
+print(f'Number of valid pixels: {len(valid_indices)}')
 
 # Perform K-Means clustering
 # We want to divide the valid pixels into 5 regions
@@ -49,10 +49,10 @@ clustered_map = find_kmeans_clusters(
     valid_indices,
     n_regions=n_regions,
     key=key,
-    max_centroids=10 # Maximum buffer for centroids (useful for JIT)
+    max_centroids=10,  # Maximum buffer for centroids (useful for JIT)
 )
 
-print(f"Unique labels in map: {jnp.unique(clustered_map)}")
+print(f'Unique labels in map: {jnp.unique(clustered_map)}')
 ```
 
 ### Normalizing Labels
@@ -61,13 +61,9 @@ After clustering, you might want to normalize the labels so they are contiguous 
 
 ```python
 # Normalize labels
-normalized_map = normalize_by_first_occurrence(
-    clustered_map,
-    n_regions=n_regions,
-    max_centroids=10
-)
+normalized_map = normalize_by_first_occurrence(clustered_map, n_regions=n_regions, max_centroids=10)
 
-print(f"Normalized labels: {jnp.unique(normalized_map)}")
+print(f'Normalized labels: {jnp.unique(normalized_map)}')
 ```
 
 ## Working with Cutouts
@@ -83,8 +79,8 @@ full_map = jax.random.normal(key, (npix,))
 # Extract values only for our valid pixels
 cutout = get_cutout_from_mask(full_map, valid_indices)
 
-print(f"Full map shape: {full_map.shape}")
-print(f"Cutout shape: {cutout.shape}")
+print(f'Full map shape: {full_map.shape}')
+print(f'Cutout shape: {cutout.shape}')
 ```
 
 ### Reconstructing the Full Map
@@ -97,16 +93,12 @@ processed_cutout = cutout * 2.0
 
 # Put it back into the full map structure
 # Pixels not in the cutout will be filled with hp.UNSEEN
-reconstructed_map = get_fullmap_from_cutout(
-    processed_cutout,
-    valid_indices,
-    nside=nside
-)
+reconstructed_map = get_fullmap_from_cutout(processed_cutout, valid_indices, nside=nside)
 
 # Check a pixel
 idx = valid_indices[0]
-print(f"Original value: {full_map[idx]:.4f}")
-print(f"Processed value: {reconstructed_map[idx]:.4f}") # Should be ~2x
+print(f'Original value: {full_map[idx]:.4f}')
+print(f'Processed value: {reconstructed_map[idx]:.4f}')  # Should be ~2x
 ```
 
 ## Combining Masks
@@ -118,21 +110,17 @@ You can combine multiple masks or cutouts into a single map structure. This is u
 indices1 = jnp.array([1, 2, 3])
 indices2 = jnp.array([10, 11, 12])
 
-cutout1 = jnp.array([100., 200., 300.]) # Data for region 1
-cutout2 = jnp.array([1000., 2000., 3000.]) # Data for region 2
+cutout1 = jnp.array([100.0, 200.0, 300.0])  # Data for region 1
+cutout2 = jnp.array([1000.0, 2000.0, 3000.0])  # Data for region 2
 
 # Combine them into a single map
 # Note: You need to provide the indices for each cutout
-combined_map = combine_masks(
-    [cutout1, cutout2],
-    [indices1, indices2],
-    nside=nside
-)
+combined_map = combine_masks([cutout1, cutout2], [indices1, indices2], nside=nside)
 
 # Check values
-print(f"Pixel 1 value: {combined_map[1]}")
-print(f"Pixel 10 value: {combined_map[10]}")
-print(f"Pixel 50 value (unseen): {combined_map[50]}") # Should be UNSEEN
+print(f'Pixel 1 value: {combined_map[1]}')
+print(f'Pixel 10 value: {combined_map[10]}')
+print(f'Pixel 50 value (unseen): {combined_map[50]}')  # Should be UNSEEN
 ```
 
 ## Advanced: Performance Tips

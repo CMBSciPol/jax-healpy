@@ -79,7 +79,8 @@ jax-healpy follows JAX's precision setting and **does not enable 64-bit precisio
 
 ```python
 import jax
-jax.config.update("jax_enable_x64", True)   # process-wide
+
+jax.config.update('jax_enable_x64', True)  # process-wide
 # or scope it locally:
 with jax.enable_x64(True):
     ...

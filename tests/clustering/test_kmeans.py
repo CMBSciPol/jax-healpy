@@ -60,7 +60,7 @@ def test_kmeans(mask: tuple[str, Array]) -> None:
 
 
 def test_kmeans_jit(mask: tuple[str, Array]) -> None:
-    name, mask = mask
+    _name, mask = mask
 
     (indices,) = jnp.where(mask == 1)
 
@@ -95,7 +95,7 @@ def test_kmeans_jit(mask: tuple[str, Array]) -> None:
 
 
 def test_cutout_and_reconstruct(mask: tuple[str, Array], nside: int) -> None:
-    name, mask = mask
+    _name, mask = mask
 
     (indices,) = jnp.where(mask == 1)
     (inv_indices,) = jnp.where(mask != 1)
@@ -116,7 +116,7 @@ def test_cutout_and_reconstruct(mask: tuple[str, Array], nside: int) -> None:
 def test_frequency_map_cutout(mask: tuple[str, Array], nside: int) -> None:
     # This is usually done to get a cutout out of d the Frequency landscape object from furax
 
-    name, mask = mask
+    _name, mask = mask
 
     (indices,) = jnp.where(mask == 1)
     (inv_indices,) = jnp.where(mask != 1)
@@ -131,7 +131,7 @@ def test_frequency_map_cutout(mask: tuple[str, Array], nside: int) -> None:
 
 
 def test_normalize_from_clusters(mask: tuple[str, Array], nside: int) -> None:
-    name, mask = mask
+    _name, mask = mask
     (indices,) = jnp.where(mask == 1)
 
     n_regions = 25

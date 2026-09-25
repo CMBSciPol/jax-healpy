@@ -37,9 +37,8 @@ def call_back_check(n_regions: Array, max_centroids: None) -> None:
     Raises:
         RuntimeError: If n_regions exceeds max_centroids.
     """
-    if max_centroids is not None:
-        if n_regions > max_centroids:
-            raise RuntimeError("""
+    if max_centroids is not None and n_regions > max_centroids:
+        raise RuntimeError("""
             In function [get_clusters] in the comp_sep module:
             Number of regions (n_regions) is greater than max_centroids.
             Either:

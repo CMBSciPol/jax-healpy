@@ -122,6 +122,7 @@ extend-select = [
 ]
 ignore = [
     'B905', # zip() without strict=
+    'RUF022', # unsorted __all__
 ]
 
 [tool.ruff.format]
