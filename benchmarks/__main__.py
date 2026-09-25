@@ -70,9 +70,11 @@ def bench_it(
     else:
         raise ValueError(f'Invalid precision {precision}')
 
-    args = _get_args(library, func_name, nside, n, dtype, rng)
-    func = _get_func(library, func_name, *args)
-    with jax.experimental.enable_x64(precision == '64'):
+    # the inputs must be put on the device and the function compiled under the same x64 setting
+    # as the timed calls, otherwise float64 inputs are silently truncated to float32
+    with jax.enable_x64(precision == '64'):
+        args = _get_args(library, func_name, nside, n, dtype, rng)
+        func = _get_func(library, func_name, *args)
         return time_it(func)
 
 
