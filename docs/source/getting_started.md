@@ -67,7 +67,7 @@ import jax.numpy as jnp
 import jax_healpy as hp
 
 # Enable 64-bit precision (recommended for astronomical calculations)
-jax.config.update("jax_enable_x64", True)
+jax.config.update('jax_enable_x64', True)
 ```
 
 ### HEALPix Basics
@@ -76,7 +76,7 @@ jax.config.update("jax_enable_x64", True)
 # Set up a HEALPix map
 nside = 64
 npix = hp.nside2npix(nside)
-print(f"Number of pixels: {npix}")
+print(f'Number of pixels: {npix}')
 
 # Create some test data
 pixels = jnp.arange(npix)
@@ -92,7 +92,7 @@ theta, phi = hp.pix2ang(nside, pixels)
 recovered_pixels = hp.ang2pix(nside, theta, phi, nest=False)
 
 # Verify the conversion
-print(f"Conversion successful: {jnp.allclose(pixels, recovered_pixels)}")
+print(f'Conversion successful: {jnp.allclose(pixels, recovered_pixels)}')
 ```
 
 ### Vector Operations
@@ -104,7 +104,7 @@ vectors = hp.pix2vec(nside, pixels)
 # Convert vectors back to pixels
 recovered_pixels_vec = hp.vec2pix(nside, vectors[0], vectors[1], vectors[2])
 
-print(f"Vector conversion successful: {jnp.allclose(pixels, recovered_pixels_vec)}")
+print(f'Vector conversion successful: {jnp.allclose(pixels, recovered_pixels_vec)}')
 ```
 
 ### Coordinate System Conversions
@@ -115,7 +115,7 @@ ring_pixels = jnp.arange(100)  # First 100 pixels in RING scheme
 nest_pixels = hp.ring2nest(nside, ring_pixels)
 back_to_ring = hp.nest2ring(nside, nest_pixels)
 
-print(f"Scheme conversion successful: {jnp.allclose(ring_pixels, back_to_ring)}")
+print(f'Scheme conversion successful: {jnp.allclose(ring_pixels, back_to_ring)}')
 ```
 
 ## Working with Maps
@@ -147,9 +147,9 @@ try:
     # Inverse transform: coefficients back to map
     reconstructed_map = hp.alm2map(alm, nside=nside)
 
-    print(f"SHT round-trip error: {jnp.mean(jnp.abs(test_map - reconstructed_map))}")
+    print(f'SHT round-trip error: {jnp.mean(jnp.abs(test_map - reconstructed_map))}')
 except ImportError:
-    print("s2fft not installed - spherical harmonics not available")
+    print('s2fft not installed - spherical harmonics not available')
 ```
 
 ## Performance Benefits
@@ -158,7 +158,8 @@ except ImportError:
 
 ```python
 # Operations automatically run on GPU if available
-print(f"JAX backend: {jax.default_backend()}")
+print(f'JAX backend: {jax.default_backend()}')
+
 
 # Compile functions for maximum performance
 @jax.jit
@@ -166,8 +167,10 @@ def fast_coordinate_conversion(nside, pixels):
     theta, phi = hp.pix2ang(nside, pixels)
     return hp.ang2pix(nside, theta, phi)
 
+
 # Time the compiled function
 import time
+
 pixels = jnp.arange(hp.nside2npix(128))
 
 start = time.time()
@@ -175,7 +178,7 @@ result = fast_coordinate_conversion(128, pixels)
 result.block_until_ready()  # Wait for GPU computation
 end = time.time()
 
-print(f"Conversion time: {end - start:.4f} seconds")
+print(f'Conversion time: {end - start:.4f} seconds')
 ```
 
 ### Vectorized Operations
@@ -193,7 +196,7 @@ batch_maps = jnp.random.normal(0, 1, (batch_size, npix))
 pixels = jnp.arange(npix)
 theta_batch, phi_batch = jax.vmap(lambda m: hp.pix2ang(nside, pixels))(batch_maps)
 
-print(f"Processed {batch_size} maps with {npix} pixels each")
+print(f'Processed {batch_size} maps with {npix} pixels each')
 ```
 
 ## Next Steps
@@ -211,7 +214,7 @@ Now that you have jax-healpy working, explore:
 For large maps, consider using 32-bit precision:
 
 ```python
-jax.config.update("jax_enable_x64", False)
+jax.config.update('jax_enable_x64', False)
 ```
 
 ### GPU Memory
@@ -222,7 +225,7 @@ For very large operations, you may need to batch your computations:
 def process_in_batches(data, batch_size=10000):
     results = []
     for i in range(0, len(data), batch_size):
-        batch = data[i:i+batch_size]
+        batch = data[i : i + batch_size]
         result = your_function(batch)
         results.append(result)
     return jnp.concatenate(results)

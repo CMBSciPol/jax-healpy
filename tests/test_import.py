@@ -13,5 +13,6 @@ def test_no_eager_backend_init():
         [sys.executable, '-c', script],
         capture_output=True,
         text=True,
+        check=False,
     )
     assert result.returncode == 0, result.stderr

@@ -224,7 +224,7 @@ def test_get_interp_weights_sum_to_one(nside):
     theta = jnp.linspace(0.1, jnp.pi - 0.1, n_points)
     phi = jnp.linspace(0.0, 2 * jnp.pi - 0.1, n_points)
 
-    pixels, weights = jhp.get_interp_weights(nside, theta, phi)
+    _pixels, weights = jhp.get_interp_weights(nside, theta, phi)
 
     # Check that weights sum to 1 for each point
     weight_sums = jnp.sum(weights, axis=0)
@@ -257,7 +257,7 @@ def test_get_interp_weights_gradient():
     nside = 16
 
     def test_func(theta, phi):
-        pixels, weights = jhp.get_interp_weights(nside, theta, phi)
+        _pixels, weights = jhp.get_interp_weights(nside, theta, phi)
         # Return a scalar for gradient testing - sum of weights (should be 1)
         return jnp.sum(weights)
 

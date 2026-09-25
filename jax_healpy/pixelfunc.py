@@ -936,7 +936,7 @@ def pix2ang(nside: int, ipix: ArrayLike, nest: bool = False, lonlat: bool = Fals
 
     >>> hp.pix2ang([1, 2, 4, 8], 11, lonlat=True)
     (array([ 315. ,  337.5,  337.5,  337.5]), array([-41.8103149 ,  41.8103149 ,  66.44353569,  78.28414761]))
-    """  # noqa: E501
+    """
 
     z, sin_theta, phi = pix2loc(nside, ipix, nest=nest)
     # both are accurate, so arctan2 is well conditioned everywhere, near the poles included
@@ -2680,9 +2680,9 @@ def ud_grade(
     nside_out: int,
     pess: bool = False,
     order_in: str = 'RING',
-    order_out: str = None,
-    power: float = None,
-    dtype: type = None,
+    order_out: str | None = None,
+    power: float | None = None,
+    dtype: type | None = None,
 ) -> Array:
     """Upgrade or degrade the resolution (nside) of a map.
 
@@ -2871,10 +2871,9 @@ def _ud_grade_core(
     elif order_out == 'NESTED' and order_in == 'RING':
         # Map was converted to NESTED in step 1, keep it
         pass
-    elif order_out == order_in:
-        # Convert back if we changed it
-        if order_in == 'RING':
-            result = reorder(result, n2r=True)
+    elif order_out == order_in == 'RING':
+        # Convert back since we changed it in step 1
+        result = reorder(result, n2r=True)
 
     # Apply output dtype
     result = result.astype(output_dtype)

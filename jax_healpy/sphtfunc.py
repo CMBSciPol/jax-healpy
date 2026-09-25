@@ -76,7 +76,7 @@ def requires_s2fft(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnT
 
 @requires_s2fft
 def precompute_temperature_harmonic_transforms(
-    nside: int, lmax: int = None, sampling: str = 'healpix', pix2harm: bool = False
+    nside: int, lmax: int | None = None, sampling: str = 'healpix', pix2harm: bool = False
 ) -> list:
     """Pre-compute recursion coefficients for s2fft temperature transforms (spin=0).
 
@@ -123,7 +123,7 @@ def precompute_temperature_harmonic_transforms(
 
 @requires_s2fft
 def precompute_polarization_harmonic_transforms(
-    nside: int, lmax: int = None, sampling: str = 'healpix', pix2harm: bool = False
+    nside: int, lmax: int | None = None, sampling: str = 'healpix', pix2harm: bool = False
 ) -> tuple:
     """Pre-compute recursion coefficients for s2fft polarization transforms (spin=±2).
 
@@ -276,7 +276,7 @@ def _getn(k: int) -> int:
     Mirrors ``healpy.sphtfunc._sphtools._getn``; used to map a flat list of
     n(n+1)/2 cross-spectra to the number of underlying fields n.
     """
-    n = int(round((np.sqrt(8 * k + 1) - 1) / 2))
+    n = round((np.sqrt(8 * k + 1) - 1) / 2)
     return n if n * (n + 1) // 2 == k else -1
 
 
@@ -750,9 +750,8 @@ def alm2map(
     else:
         L = lmax + 1
 
-    if mmax is not None:
-        if lmax is None or mmax != lmax:
-            raise NotImplementedError('Specifying mmax != lmax (or without lmax) is not implemented.')
+    if mmax is not None and (lmax is None or mmax != lmax):
+        raise NotImplementedError('Specifying mmax != lmax (or without lmax) is not implemented.')
 
     # Apply smoothing if requested (scalar spin-0 beam; mirrors the polarized branch above).
     if fwhm != 0 or sigma is not None:

@@ -194,7 +194,7 @@ def estimate_disc_radius(nside: int, pixel_count: int) -> float:
 
 
 def _query_disc_ring_single(
-    nside: int, vec: Array, radius: float, inclusive: bool = False, fact: int = 4, max_length: int = None
+    nside: int, vec: Array, radius: float, inclusive: bool = False, fact: int = 4, max_length: int | None = None
 ) -> Array:
     """True geometric single-disc query for RING scheme following HEALPix C++ algorithm.
 
@@ -535,7 +535,7 @@ def _query_disc_ring_single(
         init_carry = (init_result, 0)
 
         # #step6c: Scan through all pixels to collect valid ones
-        (final_result, final_count) = lax.fori_loop(0, npix, fori_body, init_carry)
+        (final_result, _final_count) = lax.fori_loop(0, npix, fori_body, init_carry)
 
         return final_result
 

@@ -143,9 +143,9 @@ def _get_func(library: str, func_name: str, *args: Any):
     func = getattr(module, func_name)
     if library == 'healpy':
         if func_name == 'reorder':
-            func_ = lambda: func(*args, r2n=True)  # noqa: E731
+            func_ = lambda: func(*args, r2n=True)
         else:
-            func_ = lambda: func(*args)  # noqa: E731
+            func_ = lambda: func(*args)
     else:
         if func_name in {'pix2ang', 'vec2ang'}:
 

@@ -20,13 +20,13 @@ try:
     from setuptools_scm import get_version
 
     release = get_version(root='../..')
-except Exception:
+except (ImportError, LookupError):
     # Fallback if setuptools_scm fails
     try:
         from importlib.metadata import version
 
         release = version('jax-healpy')
-    except Exception:
+    except ImportError:  # PackageNotFoundError
         release = '0.0.0'
 
 # -- General configuration ---------------------------------------------------
