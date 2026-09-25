@@ -236,6 +236,11 @@ def isnsideok(nside: int, nest: bool = False) -> bool:
     ok : bool, scalar or array-like
       :const:`True` if given value is a valid nside, :const:`False` otherwise.
 
+    Notes
+    -----
+    Unlike healpy, booleans are not valid nside values, and infinite or NaN values
+    return :const:`False` instead of raising an exception.
+
     Examples
     --------
     >>> import jax_healpy as hp
@@ -275,6 +280,10 @@ def isnpixok(npix: int) -> bool:
     -------
     ok : bool, scalar or array-like
       :const:`True` if given value is a valid number of pixel, :const:`False` otherwise
+
+    Notes
+    -----
+    Unlike healpy, zero and infinite values are not valid numbers of pixels.
 
     Examples
     --------
@@ -345,6 +354,7 @@ def npix2nside(npix: int) -> int:
     -----
     Raise a ValueError exception if number of pixel does not correspond to
     the number of pixel of a healpix map.
+    Unlike healpy, an empty map (npix=0) is rejected instead of giving nside=0.
 
     Examples
     --------
