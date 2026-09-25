@@ -97,11 +97,10 @@ addopts = [
     '-rfEX',
     '--cov=jax_healpy',
     '--doctest-modules',
-    '--strict-config',
-    '--strict-markers',
     '-m', 'not slow',
 ]
 minversion = "9"
+strict = true
 testpaths = [
     'tests',
 ]
