@@ -14,8 +14,8 @@ import jax
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import typer
 import yaml
+from cyclopts import App
 from jaxtyping import ArrayLike
 from matplotlib.ticker import ScalarFormatter
 
@@ -37,11 +37,10 @@ BENCHMARKED_FUNCS = [
 ]
 CHART_PATH_NAME = 'chart-{style}-n{n}.png'
 
-# TODO: use those when typer supports Literals
 LibraryType = Literal['healpy', 'jax-healpy']
 PrecisionType = Literal['32', '64']
 
-app = typer.Typer()
+app = App()
 
 
 @dataclass(frozen=True)
@@ -56,11 +55,11 @@ class BenchmarkResult:
 
 
 def bench_it(
-    library: str,
+    library: LibraryType,
     func_name: str,
     nside: int,
     n: int,
-    precision: str,
+    precision: PrecisionType,
     rng: np.random.Generator,
 ) -> float:
     if precision == '32':
@@ -70,9 +69,11 @@ def bench_it(
     else:
         raise ValueError(f'Invalid precision {precision}')
 
-    args = _get_args(library, func_name, nside, n, dtype, rng)
-    func = _get_func(library, func_name, *args)
-    with jax.experimental.enable_x64(precision == '64'):
+    # the inputs must be put on the device and the function compiled under the same x64 setting
+    # as the timed calls, otherwise float64 inputs are silently truncated to float32
+    with jax.enable_x64(precision == '64'):
+        args = _get_args(library, func_name, nside, n, dtype, rng)
+        func = _get_func(library, func_name, *args)
         return time_it(func)
 
 
@@ -198,10 +199,10 @@ def time_it(func: Callable[[], None]) -> float:
 
 @app.command()
 def run(
-    library: str,
+    library: LibraryType,
     nside: int = 512,
     n: int = 10_000_000,
-    precision: str = '64',
+    precision: PrecisionType = '64',
 ) -> None:
     if library == 'jax-healpy':
         version = f'jax({jax.__version__})'

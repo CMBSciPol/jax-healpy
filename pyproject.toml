@@ -55,6 +55,7 @@ repository = 'https://github.com/CMBSciPol/jax-healpy'
 dev = [
     {include-group = 'docs'},
     'chex',
+    'cyclopts',
     'healpy',
     'matplotlib',
     'pandas',
@@ -63,7 +64,6 @@ dev = [
     'pytest-mock',
     'pytest-rerunfailures',
     'PyYAML',
-    'typer',
 ]
 docs = [
     'ipykernel>=6.0',

@@ -85,13 +85,12 @@ Map data manipulation
   at given angular coordinates, using 4 nearest neighbours
 """
 
-from functools import partial
 from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import jit, lax, vmap
+from jax import jit, lax
 from jaxtyping import Array, ArrayLike
 
 __all__ = [
@@ -209,7 +208,8 @@ def check_theta_valid(theta):
 def check_nside(nside: int, nest: bool = False) -> None:
     """Raises exception is nside is not valid"""
     if not np.all(isnsideok(nside, nest=nest)):
-        raise ValueError(f'{nside} is not a valid nside parameter (must be a power of 2, less than 2**30)')
+        requirement = 'a power of 2' if nest else 'a positive integer'
+        raise ValueError(f'{nside} is not a valid nside parameter (must be {requirement}, less than 2**30)')
 
 
 def _pixel_dtype_for(nside: int) -> jnp.dtype:
@@ -237,6 +237,11 @@ def isnsideok(nside: int, nest: bool = False) -> bool:
     ok : bool, scalar or array-like
       :const:`True` if given value is a valid nside, :const:`False` otherwise.
 
+    Notes
+    -----
+    Unlike healpy, booleans are not valid nside values, and infinite or NaN values
+    return :const:`False` instead of raising an exception.
+
     Examples
     --------
     >>> import jax_healpy as hp
@@ -252,18 +257,16 @@ def isnsideok(nside: int, nest: bool = False) -> bool:
     >>> hp.isnsideok([1, 2, 3, 4, 8, 16], nest=True)
     array([ True,  True, False,  True,  True,  True], dtype=bool)
     """
-    # we use standard bithacks from http://graphics.stanford.edu/~seander/bithacks.html#DetermineIfPowerOf2
-    if hasattr(nside, '__len__'):
-        if not isinstance(nside, np.ndarray):
-            nside = np.asarray(nside)
-        is_nside_ok = (nside == nside.astype(int)) & (nside > 0) & (nside <= MAX_NSIDE)
-        if nest:
-            is_nside_ok &= (nside.astype(int) & (nside.astype(int) - 1)) == 0
-    else:
-        is_nside_ok = nside == int(nside) and 0 < nside <= MAX_NSIDE
-        if nest:
-            is_nside_ok = is_nside_ok and (int(nside) & (int(nside) - 1)) == 0
-    return is_nside_ok
+    nside = np.asarray(nside)
+    is_nside_ok = (
+        (nside.dtype != bool) & np.isfinite(nside) & (nside == np.floor(nside)) & (nside > 0) & (nside <= MAX_NSIDE)
+    )
+    if nest:
+        # invalid values are zeroed before the cast to an integer, so that it cannot overflow
+        int_nside = np.where(is_nside_ok, nside, 0).astype(np.int64)
+        # we use standard bithacks from http://graphics.stanford.edu/~seander/bithacks.html#DetermineIfPowerOf2
+        is_nside_ok &= (int_nside & (int_nside - 1)) == 0
+    return _bool_or_array(is_nside_ok)
 
 
 def isnpixok(npix: int) -> bool:
@@ -279,6 +282,10 @@ def isnpixok(npix: int) -> bool:
     ok : bool, scalar or array-like
       :const:`True` if given value is a valid number of pixel, :const:`False` otherwise
 
+    Notes
+    -----
+    Unlike healpy, zero and infinite values are not valid numbers of pixels.
+
     Examples
     --------
     >>> import jax_healpy as hp
@@ -291,8 +298,15 @@ def isnpixok(npix: int) -> bool:
     >>> hp.isnpixok([12, 768, 1002])
     array([ True,  True, False], dtype=bool)
     """
-    nside = np.sqrt(np.asarray(npix) / 12.0)
-    return nside == np.floor(nside)
+    npix = np.asarray(npix)
+    # sqrt is only taken on positive sizes, so that it raises no warning on negative ones
+    nside = np.sqrt(np.where(npix > 0, npix, 0) / 12.0)
+    return _bool_or_array(np.isfinite(npix) & (npix > 0) & (nside == np.floor(nside)))
+
+
+def _bool_or_array(mask: np.ndarray) -> bool | np.ndarray:
+    """Returns a Python bool for a scalar input, and the boolean array otherwise"""
+    return bool(mask) if mask.ndim == 0 else mask
 
 
 def nside2npix(nside: int) -> int:
@@ -308,6 +322,11 @@ def nside2npix(nside: int) -> int:
     npix : int
       corresponding number of pixels
 
+    Notes
+    -----
+    Raise a ValueError exception if nside is not valid (in RING ordering). Unlike healpy,
+    which returns a pixel count for any input, e.g. 0 for nside=0.
+
     Examples
     --------
     >>> import jax_healpy as hp
@@ -320,7 +339,13 @@ def nside2npix(nside: int) -> int:
 
     >>> hp.nside2npix(7)
     588
+
+    >>> hp.nside2npix(0)
+    Traceback (most recent call last):
+        ...
+    ValueError: 0 is not a valid nside parameter (must be a positive integer, less than 2**30)
     """
+    check_nside(nside)
     return 12 * nside * nside
 
 
@@ -341,6 +366,7 @@ def npix2nside(npix: int) -> int:
     -----
     Raise a ValueError exception if number of pixel does not correspond to
     the number of pixel of a healpix map.
+    Unlike healpy, an empty map (npix=0) is rejected instead of giving nside=0.
 
     Examples
     --------
@@ -734,13 +760,10 @@ def ang2pix(
     [   4   12   72  336 1440]
     """
     # check_theta_valid(theta)
-    check_nside(nside, nest=nest)
-
     if lonlat:
         theta, phi = _lonlat2thetaphi(theta, phi)
 
-    loc2pix_scheme = _loc2pix_nest if nest else _zphi2pix_ring
-    pixels = loc2pix_scheme(nside, jnp.cos(theta), jnp.sin(theta), phi)
+    pixels = loc2pix(nside, jnp.cos(theta), jnp.sin(theta), phi, nest=nest)
     return jnp.where((theta < 0) | (theta > np.pi + 1e-5), -1, pixels)
 
 
@@ -915,14 +938,9 @@ def pix2ang(nside: int, ipix: ArrayLike, nest: bool = False, lonlat: bool = Fals
     (array([ 315. ,  337.5,  337.5,  337.5]), array([-41.8103149 ,  41.8103149 ,  66.44353569,  78.28414761]))
     """  # noqa: E501
 
-    check_nside(nside, nest=nest)
-
-    if nest:
-        theta, phi = _pix2ang_nest(nside, ipix)
-    else:
-        iring = _pix2i_ring(nside, ipix)
-        theta = _pix2theta_ring(nside, iring, ipix)
-        phi = _pix2phi_ring(nside, iring, ipix)
+    z, sin_theta, phi = pix2loc(nside, ipix, nest=nest)
+    # both are accurate, so arctan2 is well conditioned everywhere, near the poles included
+    theta = jnp.arctan2(sin_theta, z)
 
     if lonlat:
         return _thetaphi2lonlat(theta, phi)
@@ -932,22 +950,19 @@ def pix2ang(nside: int, ipix: ArrayLike, nest: bool = False, lonlat: bool = Fals
 def _pix2i_ring(nside: int, pixels: ArrayLike) -> Array:
     npixel = nside2npix(nside)
     ncap = 2 * nside * (nside - 1)
-    iring = jnp.where(
-        pixels < ncap,
-        _pix2i_north_cap_ring(nside, pixels),
-        jnp.where(
-            pixels < npixel - ncap,
-            _pix2i_equatorial_region_ring(nside, pixels),
-            _pix2i_south_cap_ring(nside, pixels),
-        ),
-    )
-    return iring
+    equatorial = (pixels >= ncap) & (pixels < npixel - ncap)
+    return jnp.where(equatorial, _pix2i_equatorial_region_ring(nside, pixels), _pix2i_cap_ring(nside, pixels))
 
 
-def _pix2i_north_cap_ring(nside: int, pixels: ArrayLike) -> Array:
+def _pix2i_cap_ring(nside: int, pixels: ArrayLike) -> Array:
+    """Ring index counted from the closest pole, for pixels in the polar caps"""
+    # both caps share the same formula, on the pixel index counted from their own pole,
+    # so select its argument first and evaluate a single square root
+    npixel = nside2npix(nside)
+    ncap = 2 * nside * (nside - 1)
+    arg = jnp.where(pixels < ncap, 1 + 2 * pixels, 2 * (npixel - pixels) - 1)
     # cast to float before sqrt so it follows the x64 flag regardless of pixels dtype
-    p = (1 + 2 * pixels).astype(float)
-    return (1 + jnp.sqrt(p).astype(int)) >> 1  # counted from North Pole
+    return (1 + jnp.sqrt(arg.astype(float)).astype(int)) >> 1
 
 
 def _pix2i_equatorial_region_ring(nside: int, pixels: ArrayLike) -> Array:
@@ -959,88 +974,51 @@ def _pix2i_equatorial_region_ring(nside: int, pixels: ArrayLike) -> Array:
     return tmp + nside
 
 
-def _pix2i_south_cap_ring(nside: int, pixels: ArrayLike) -> Array:
-    npixel = nside2npix(nside)
-    ip = npixel - pixels
-    p = (2 * ip - 1).astype(float)
-    return (1 + jnp.sqrt(p).astype(int)) >> 1  # counted from South Pole
+def _ring2z(
+    nside: int, ring_from_pole: Array, ring_from_north: Array, north_cap: Array, south_cap: Array
+) -> tuple[Array, Array]:
+    """Cosine and sine of the co-latitude of a ring.
 
-
-def _pix2z_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> tuple[Array, Array]:
+    The polar caps use the ring index counted from the closest pole, the equatorial region
+    the ring index counted from the North pole.
+    """
     npixel = nside2npix(nside)
-    ncap = 2 * nside * (nside - 1)
-    abs_one_minus_z = _pix2z_polar_caps_ring(nside, iring)
+    # cast to float so the result follows the x64 flag regardless of the pixel dtype
+    fnr = ring_from_pole.astype(float)
+    abs_one_minus_z = fnr * fnr * 4 / npixel
     z = jnp.where(
-        pixels < ncap,
+        north_cap,
         1 - abs_one_minus_z,
+        jnp.where(south_cap, abs_one_minus_z - 1, (2 * nside - ring_from_north).astype(float) * 2 / 3 / nside),
+    )
+    # near the poles, 1 - |z| is known exactly, and keeps the precision that 1 - z**2 loses
+    sin_theta = jnp.sqrt(
         jnp.where(
-            pixels < npixel - ncap,
-            _pix2z_equatorial_region_ring(nside, iring),
-            abs_one_minus_z - 1,
-        ),
+            jnp.abs(z) > 0.99,
+            abs_one_minus_z * (2 - abs_one_minus_z),
+            (1 - z) * (1 + z),
+        )
     )
-    return z, abs_one_minus_z
-
-
-def _pix2z_polar_caps_ring(nside: int, iring: ArrayLike) -> Array:
-    npixel = nside2npix(nside)
-    return iring * iring * 4 / npixel
-
-
-def _pix2z_equatorial_region_ring(nside: int, iring: ArrayLike) -> Array:
-    return (2 * nside - iring) * 2 / 3 / nside
-
-
-def _pix2theta_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
-    z, abs_one_minus_z = _pix2z_ring(nside, iring, pixels)
-    theta = jnp.where(
-        jnp.abs(z) > 0.99,
-        jnp.arctan2(jnp.sqrt(abs_one_minus_z * (2 - abs_one_minus_z)), z),
-        jnp.arccos(z),
-    )
-
-    return theta
+    return z, sin_theta
 
 
 def _pix2phi_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
     npixel = nside2npix(nside)
     ncap = 2 * nside * (nside - 1)
-    phi = jnp.where(
+    # pixel centers sit half a pixel off longitude zero, except on unshifted equatorial rings
+    fodd = ((iring + nside) & 1) * 0.5 + 0.5  # iring + nside odd -> 1 else 0.5
+    # Each region divides by its own quarter-ring pixel count (iring in the caps, nside on the
+    # equator). Dividing once by a selected count instead makes XLA on CPU materialize
+    # intermediates, which slows pix2vec down by about 40%.
+    return jnp.where(
         pixels < ncap,
-        _pix2phi_north_cap_ring(nside, iring, pixels),
+        (_pix2iphi_north_cap_ring(nside, iring, pixels) - 0.5) * np.pi / 2 / iring,
         jnp.where(
             pixels < npixel - ncap,
-            _pix2phi_equatorial_region_ring(nside, iring, pixels),
-            _pix2phi_south_cap_ring(nside, iring, pixels),
+            (_pix2iphi_equatorial_region_ring(nside, iring, pixels) - fodd) * np.pi / 2 / nside,
+            (_pix2iphi_south_cap_ring(nside, iring, pixels) - 0.5) * np.pi / 2 / iring,
         ),
     )
-    return phi
-
-
-def _pix2phi_north_cap_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
-    iphi = pixels + 1 - 2 * iring * (iring - 1)
-    phi = (iphi - 0.5) * np.pi / 2 / iring
-    return phi
-
-
-def _pix2phi_equatorial_region_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
-    iphi = pixels + 2 * nside * (nside + 1) - 4 * nside * iring + 1
-    fodd = ((iring + nside) & 1) * 0.5 + 0.5  # iring + nside odd -> 1 else 0.5
-    phi = (iphi - fodd) * np.pi / 2 / nside
-    return phi
-
-
-def _pix2phi_south_cap_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
-    npixel = nside2npix(nside)
-    iphi = 4 * iring + 1 - (npixel - pixels - 2 * iring * (iring - 1))
-    phi = (iphi - 0.5) * np.pi / 2 / iring
-    return phi
-
-
-def _pix2ang_nest(nside: int, ipix: ArrayLike) -> tuple[Array, Array]:
-    z, sin_theta, phi = _pix2loc_nest(nside, ipix)
-    theta = jnp.where(jnp.abs(z) > 0.99, jnp.arctan2(sin_theta, z), jnp.arccos(z))
-    return theta, phi
 
 
 @jit(static_argnames=['nside', 'nest'])
@@ -1115,24 +1093,38 @@ def _xy2fpix(nside: int, ix: Array, iy: Array) -> Array:
     return fpix
 
 
-# ring index of south corner for each face (0 = North pole)
-_JRLL = np.array([2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4], dtype=np.int32)
+# The two lookup tables of the HEALPix C++ library, indexed by face number, are computed
+# arithmetically: a gather from a table does not fuse with the surrounding elementwise
+# operations on CPU.
 
-# longitude index of south corner for each face (0 = longitude zero)
-_JPLL = np.array([1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7], dtype=np.int32)
+
+def _jrll(face_num: Array) -> Array:
+    """Ring index of the south corner of each face, in units of nside (0 = North pole).
+
+    Equivalent to indexing ``[2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4]``.
+    """
+    return 2 + (face_num >> 2)
+
+
+def _jpll(face_num: Array) -> Array:
+    """Longitude index of the south corner of each face, in units of pi/4 (0 = longitude zero).
+
+    Equivalent to indexing ``[1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7]``.
+    """
+    return 2 * (face_num & 3) + 1 - ((face_num >> 2) & 1)
 
 
 def _xyf2pix_ring(nside: int, ix: Array, iy: Array, face_num: Array) -> Array:
     """Convert (x, y, face) to a pixel number in RING ordering"""
     # ring index of the pixel center
-    jr = (jnp.asarray(_JRLL)[face_num] * nside) - ix - iy - 1
+    jr = (_jrll(face_num) * nside) - ix - iy - 1
 
     ringpix = _npix_on_ring(nside, jr)
     startpix = _start_pixel_ring(nside, jr)
     kshift = 1 - _ring_shifted(nside, jr)
 
     # pixel number in the ring
-    jp = (jnp.asarray(_JPLL)[face_num] * ringpix // 4 + ix - iy + 1 + kshift) // 2
+    jp = (_jpll(face_num) * ringpix // 4 + ix - iy + 1 + kshift) // 2
     jp = jnp.where(jp < 1, jp + 4 * nside, jp)
 
     return startpix - 1 + jp
@@ -1218,45 +1210,15 @@ def _get_ring_info(nside: int, ring_idx: ArrayLike) -> tuple[Array, Array, Array
 
     Returns: theta, startpix, ringpix, shifted
     """
-    # Convert to scalar for compatibility
-    ring = ring_idx
+    # Co-latitude: the cosine and sine are selected per region (and hemisphere) before the
+    # single arctan2, so only one transcendental is evaluated per ring instead of one per region
+    costheta, sintheta = _get_ring_costheta_sintheta(nside, ring_idx)
+    theta = jnp.arctan2(sintheta, costheta)
 
-    # HEALPix C++ constants
-    fact1 = 2.0 / (3.0 * nside)  # (nside_<<1)*fact2_ where fact2_ = 4./npix_ = 1/(3*nside**2)
-    fact2 = 4.0 / (12.0 * nside * nside)  # 4./npix_
-    ncap = 2 * nside * (nside - 1)
-    npix_total = 12 * nside * nside
-
-    # Northern hemisphere equivalent ring
-    northring = jnp.where(ring > 2 * nside, 4 * nside - ring, ring)
-
-    # Polar cap region (northring < nside)
-    polar_tmp = northring * northring * fact2
-    polar_costheta = 1.0 - polar_tmp
-    polar_sintheta = jnp.sqrt(polar_tmp * (2.0 - polar_tmp))
-    polar_theta = jnp.arctan2(polar_sintheta, polar_costheta)
-    polar_ringpix = 4 * northring
-    polar_shifted = True
-    polar_startpix = 2 * northring * (northring - 1)
-
-    # Equatorial region (northring >= nside)
-    equatorial_theta = jnp.arccos((2.0 * nside - northring) * fact1)
-    equatorial_ringpix = 4 * nside
-    equatorial_shifted = ((northring - nside) & 1) == 0
-    equatorial_startpix = ncap + (northring - nside) * equatorial_ringpix
-
-    # Choose based on region
-    theta = jnp.where(northring < nside, polar_theta, equatorial_theta)
-    ringpix = jnp.where(northring < nside, polar_ringpix, equatorial_ringpix)
-    shifted = jnp.where(northring < nside, polar_shifted, equatorial_shifted)
-    startpix = jnp.where(northring < nside, polar_startpix, equatorial_startpix)
-
-    # Southern hemisphere correction
-    theta = jnp.where(northring != ring, np.pi - theta, theta)
-    startpix = jnp.where(northring != ring, npix_total - startpix - ringpix, startpix)
-
+    startpix = _start_pixel_ring(nside, ring_idx)
+    ringpix = _npix_on_ring(nside, ring_idx)
     # Convert shifted boolean to float (0.0 or 0.5)
-    shift = jnp.where(shifted, 0.5, 0.0)
+    shift = jnp.where(_ring_shifted(nside, ring_idx), 0.5, 0.0)
 
     return theta, startpix, ringpix, shift
 
@@ -1264,11 +1226,9 @@ def _get_ring_info(nside: int, ring_idx: ArrayLike) -> tuple[Array, Array, Array
 def _get_ring_costheta_sintheta(nside: int, ring_idx: ArrayLike) -> tuple[Array, Array]:
     """Get the cosine and sine of a ring's co-latitude, without forming the angle.
 
-    `_get_ring_info` returns the angle, and recovering the cosine and sine from it would
-    round twice and lose accuracy near the poles, which matters in float32. It computes
-    both directly in its polar branch before collapsing them through `arctan2`, but its
-    equatorial branch goes straight to `arccos` and never forms a sine, so that half has
-    to be computed here regardless.
+    `_get_ring_info` derives its angle from these through `arctan2`. Recovering the
+    cosine and sine from that angle instead would round twice and lose accuracy near the
+    poles, which matters in float32.
 
     Parameters
     ----------
@@ -1288,7 +1248,7 @@ def _get_ring_costheta_sintheta(nside: int, ring_idx: ArrayLike) -> tuple[Array,
     fact2 = 4.0 / (12.0 * nside * nside)
 
     # Northern hemisphere equivalent ring
-    northring = jnp.where(ring > 2 * nside, 4 * nside - ring, ring)
+    northring = _northern_ring(nside, ring)
 
     # Polar cap region (northring < nside): both are exact rearrangements of the
     # HEALPix ring definition, with no cancellation in sin near the pole.
@@ -1410,24 +1370,28 @@ def _pix2xyf_ring(nside: int, pix: Array) -> tuple[Array, Array, Array]:
     ifm = (iphi - ire // 2 + nside - 1) // nside
     ifp = (iphi - irm // 2 + nside - 1) // nside
 
+    # in the polar caps, the face is the quarter of the ring holding the pixel: (iphi - 1) // nr,
+    # which lies in [0, 3], counted with comparisons since an integer division by an array
+    # does not vectorize on CPU
+    quarter = (iphi > nr).astype(iphi.dtype) + (iphi > 2 * nr) + (iphi > 3 * nr)
     face_num = jnp.where(
         pix < ncap,
-        (iphi - 1) // nr,  # north polar cap
+        quarter,  # north polar cap
         jnp.where(
             pix < (npix - ncap),
             jnp.where(ifp == ifm, ifp | 4, jnp.where(ifp < ifm, ifp, ifm + 8)),
-            8 + (iphi - 1) // nr,  # south polar cap
+            8 + quarter,  # south polar cap
         ),
     )
 
     iring_for_irt = jnp.where(
-        jnp.logical_or(pix < ncap, pix < (npix - ncap)),
+        pix < (npix - ncap),
         iring,  # north polar cap and equatorial region
         4 * nside - iring,  # south polar cap
     )  # ring number counted from North pole or South pole
 
-    irt = iring_for_irt - (jnp.asarray(_JRLL)[face_num] * nside) + 1
-    ipt = 2 * iphi - jnp.asarray(_JPLL)[face_num] * nr - kshift - 1
+    irt = iring_for_irt - (_jrll(face_num) * nside) + 1
+    ipt = 2 * iphi - _jpll(face_num) * nr - kshift - 1
     ipt -= jnp.where(ipt >= nl2, 8 * nside, 0)
 
     ix = (ipt - irt) // 2
@@ -1502,23 +1466,8 @@ def vec2pix(nside: int, x: ArrayLike, y: ArrayLike, z: ArrayLike, nest: bool = F
     >>> print(hp.vec2pix([1, 2, 4, 8], 1, 0, 0))
     [  4  20  88 368]
     """
-    check_nside(nside, nest=nest)
     dnorm = 1 / jnp.sqrt(x**2 + y**2 + z**2)
-    loc2pix_scheme = _loc2pix_nest if nest else _zphi2pix_ring
-    return loc2pix_scheme(nside, z * dnorm, jnp.sqrt(x**2 + y**2) * dnorm, jnp.arctan2(y, x))
-
-
-def vec2pix2(nside: int, vec: ArrayLike, nest: bool = False) -> Array:
-    return vec2pix2_ring(nside, vec)
-
-
-@jit(static_argnames='nside')
-@partial(vmap, in_axes=(None, 1))
-def vec2pix2_ring(nside: int, vec: ArrayLike) -> Array:
-    vec /= jnp.sqrt(jnp.sum(vec**2))
-    phi = jnp.arctan2(vec[1], vec[0])
-    # return _zphi2pix_ring(nside, vec[2], jnp.sqrt(vec[0] ** 2 + vec[1] ** 2), phi)
-    return _zphi2pix_ring(nside, vec[2], jnp.sqrt(vec[0] ** 2 + vec[1] ** 2), phi)
+    return loc2pix(nside, z * dnorm, jnp.sqrt(x**2 + y**2) * dnorm, jnp.arctan2(y, x), nest=nest)
 
 
 @jit(static_argnames=['nside', 'nest'])
@@ -1555,8 +1504,7 @@ def pix2vec(nside: int, ipix: ArrayLike, nest: bool = False) -> Array:
     >>> hp.pix2vec([1, 2], 11)
     (array([ 0.52704628,  0.68861915]), array([-0.52704628, -0.28523539]), array([-0.66666667,  0.66666667]))
     """
-    check_nside(nside, nest=nest)
-    z, sin_theta, phi = _pix2loc_nest(nside, ipix) if nest else _pix2loc_ring(nside, ipix)
+    z, sin_theta, phi = pix2loc(nside, ipix, nest=nest)
     return jnp.stack([sin_theta * jnp.cos(phi), sin_theta * jnp.sin(phi), z], axis=-1)
 
 
@@ -1600,51 +1548,33 @@ def pix2loc(nside: int, ipix: ArrayLike, nest: bool = False) -> tuple[Array, Arr
 
 
 def _pix2loc_ring(nside: int, pixels: ArrayLike) -> tuple[Array, Array, Array]:
+    npixel = nside2npix(nside)
+    ncap = 2 * nside * (nside - 1)
+    # in the polar caps, iring is counted from the closest pole
     iring = _pix2i_ring(nside, pixels)
-    z, abs_one_minus_z = _pix2z_ring(nside, iring, pixels)
+    z, sin_theta = _ring2z(nside, iring, iring, pixels < ncap, pixels >= npixel - ncap)
     phi = _pix2phi_ring(nside, iring, pixels)
-    sin_theta = jnp.sqrt(
-        jnp.where(
-            jnp.abs(z) > 0.99,
-            abs_one_minus_z * (2 - abs_one_minus_z),
-            (1 - z) * (1 + z),
-        )
-    )
     return z, sin_theta, phi
 
 
 def _pix2loc_nest(nside: int, pixels: ArrayLike) -> tuple[Array, Array, Array]:
     """Convert a pixel number in NESTED ordering to (z, sin_theta, phi) (Healpix C++ pix2loc)"""
-    npixel = nside2npix(nside)
     ix, iy, face_num = _pix2xyf_nest(nside, jnp.asarray(pixels).astype(_pixel_dtype_for(nside)))
 
     # ring index of the pixel center, counted from the North pole
-    jr = jnp.asarray(_JRLL)[face_num] * nside - ix - iy - 1
+    jr = _jrll(face_num) * nside - ix - iy - 1
     north_cap = jr < nside
     south_cap = jr > 3 * nside
-    # number of pixels in a quarter of the ring
+    # number of pixels in a quarter of the ring, which in the polar caps is also the ring
+    # index counted from the closest pole
     nr = jnp.where(north_cap, jr, jnp.where(south_cap, 4 * nside - jr, nside))
 
-    # cast to float so the result follows the x64 flag regardless of the pixel dtype
-    fnr = nr.astype(float)
-    abs_one_minus_z = fnr * fnr * 4 / npixel
-    z = jnp.where(
-        north_cap,
-        1 - abs_one_minus_z,
-        jnp.where(south_cap, abs_one_minus_z - 1, (2 * nside - jr).astype(float) * 2 / 3 / nside),
-    )
-    sin_theta = jnp.sqrt(
-        jnp.where(
-            jnp.abs(z) > 0.99,
-            abs_one_minus_z * (2 - abs_one_minus_z),
-            (1 - z) * (1 + z),
-        )
-    )
+    z, sin_theta = _ring2z(nside, nr, jr, north_cap, south_cap)
 
     # pixel index in the ring, counted from longitude zero, in units of half pixels
-    kk = jnp.asarray(_JPLL)[face_num] * nr + ix - iy
+    kk = _jpll(face_num) * nr + ix - iy
     kk = jnp.where(kk < 0, kk + 8 * nr, kk)
-    phi = kk.astype(float) * np.pi / 4 / fnr
+    phi = kk.astype(float) * np.pi / 4 / nr.astype(float)
     return z, sin_theta, phi
 
 
@@ -2131,22 +2061,25 @@ def _get_interp_weights_ring(
     dphi1 = 2.0 * jnp.pi / nr1
     dphi2 = 2.0 * jnp.pi / nr2
 
-    # Phi interpolation indices and weights
-    phi1_norm = (phi_coords / dphi1 - shift1) % nr1
-    phi2_norm = (phi_coords / dphi2 - shift2) % nr2
+    # Phi interpolation position, in units of pixels along each ring
+    phi1_norm = phi_coords / dphi1 - shift1
+    phi2_norm = phi_coords / dphi2 - shift2
 
-    # Compute pixel indices (for pixel selection only)
-    # Stop gradient: Floor+cast operations are non-differentiable and only used for indexing
-    i1_1 = lax.stop_gradient(jnp.floor(phi1_norm).astype(jnp.int32))
-    i1_2 = lax.stop_gradient(jnp.floor(phi2_norm).astype(jnp.int32))
+    # Stop gradient: Floor operations are non-differentiable and only used for indexing
+    floor1 = lax.stop_gradient(jnp.floor(phi1_norm))
+    floor2 = lax.stop_gradient(jnp.floor(phi2_norm))
 
-    # Compute weights using gradient-friendly fractional parts
-    # Use modulo instead of floor subtraction for better gradient behavior
-    w_phi1 = phi1_norm % 1.0
-    w_phi2 = phi2_norm % 1.0
+    # Fractional parts: the weights keep the unit gradient with respect to phi. Wrapping
+    # the position onto the ring (a float remainder) is left to the integer indices, as
+    # it does not change the fractional part.
+    w_phi1 = phi1_norm - floor1
+    w_phi2 = phi2_norm - floor2
 
-    i2_1 = (i1_1 + 1) % nr1
-    i2_2 = (i1_2 + 1) % nr2
+    # Pixel indices within each ring, and their eastern neighbours
+    i1_1 = floor1.astype(jnp.int32) % nr1
+    i1_2 = floor2.astype(jnp.int32) % nr2
+    i2_1 = jnp.where(i1_1 == nr1 - 1, 0, i1_1 + 1)
+    i2_2 = jnp.where(i1_2 == nr2 - 1, 0, i1_2 + 1)
 
     # Theta interpolation weight computation
     theta_denom = jnp.where(is_normal, theta2 - theta1, 1.0)  # Avoid div by 0
@@ -2202,16 +2135,20 @@ def _get_interp_weights_ring(
     # Final assembly - single stack operation
     # Stop gradient: Pixel indices are discrete array selectors, not part of interpolation math
     pixels = lax.stop_gradient(jnp.stack([pixels_ring1_1, pixels_ring1_2, pixels_ring2_1, pixels_ring2_2]))
-    weights = jnp.stack([w1_final, w2_final, w3_final, w4_final])
 
     # Clamp weights to ensure non-negativity (handles floating point precision issues)
-    weights = jnp.maximum(weights, 0.0)
+    w1_final = jnp.maximum(w1_final, 0.0)
+    w2_final = jnp.maximum(w2_final, 0.0)
+    w3_final = jnp.maximum(w3_final, 0.0)
+    w4_final = jnp.maximum(w4_final, 0.0)
 
     # Ensure weights sum to exactly 1.0 for gradient consistency
     # This enforces the mathematical constraint sum(weights) = 1.0, making gradients
-    # of the sum exactly zero while preserving gradients of individual weights
-    weight_sum = jnp.sum(weights, axis=0, keepdims=True)
-    weights = weights / weight_sum
+    # of the sum exactly zero while preserving gradients of individual weights.
+    # The sum is spelled out elementwise rather than reduced over a stacked axis: XLA
+    # otherwise emits a reduction fusion that recomputes the whole weight graph.
+    weight_sum = w1_final + w2_final + w3_final + w4_final
+    weights = jnp.stack([w1_final, w2_final, w3_final, w4_final]) / weight_sum
 
     if not with_centers:
         return pixels, weights
@@ -2326,9 +2263,7 @@ def get_interp_val(
         phi = jnp.asarray(phi)
 
     # Determine nside from map size
-    npix = m.shape[-1]
-    nside = int(np.sqrt(npix / 12))  # Use numpy sqrt to avoid tracer issues
-    check_nside(nside, nest=nest)
+    nside = npix2nside(m.shape[-1])
 
     # Handle multiple maps vs single map
     single_map = m.ndim == 1
@@ -2452,10 +2387,7 @@ def get_all_neighbours(
         # theta, phi contain angular coordinates - convert to pixels
         phi = jnp.asarray(phi)
         if lonlat:
-            # Convert longitude, latitude in degrees to colatitude, longitude in radians
-            lon, lat = theta, phi
-            theta = jnp.deg2rad(90.0 - lat)
-            phi = jnp.deg2rad(lon)
+            theta, phi = _lonlat2thetaphi(theta, phi)
 
         # Ensure theta and phi can be broadcast together
         theta_bc, phi_bc = jnp.broadcast_arrays(theta, phi)
