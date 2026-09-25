@@ -923,22 +923,19 @@ def pix2ang(nside: int, ipix: ArrayLike, nest: bool = False, lonlat: bool = Fals
 def _pix2i_ring(nside: int, pixels: ArrayLike) -> Array:
     npixel = nside2npix(nside)
     ncap = 2 * nside * (nside - 1)
-    iring = jnp.where(
-        pixels < ncap,
-        _pix2i_north_cap_ring(nside, pixels),
-        jnp.where(
-            pixels < npixel - ncap,
-            _pix2i_equatorial_region_ring(nside, pixels),
-            _pix2i_south_cap_ring(nside, pixels),
-        ),
-    )
-    return iring
+    equatorial = (pixels >= ncap) & (pixels < npixel - ncap)
+    return jnp.where(equatorial, _pix2i_equatorial_region_ring(nside, pixels), _pix2i_cap_ring(nside, pixels))
 
 
-def _pix2i_north_cap_ring(nside: int, pixels: ArrayLike) -> Array:
+def _pix2i_cap_ring(nside: int, pixels: ArrayLike) -> Array:
+    """Ring index counted from the closest pole, for pixels in the polar caps"""
+    # both caps share the same formula, on the pixel index counted from their own pole,
+    # so select its argument first and evaluate a single square root
+    npixel = nside2npix(nside)
+    ncap = 2 * nside * (nside - 1)
+    arg = jnp.where(pixels < ncap, 1 + 2 * pixels, 2 * (npixel - pixels) - 1)
     # cast to float before sqrt so it follows the x64 flag regardless of pixels dtype
-    p = (1 + 2 * pixels).astype(float)
-    return (1 + jnp.sqrt(p).astype(int)) >> 1  # counted from North Pole
+    return (1 + jnp.sqrt(arg.astype(float)).astype(int)) >> 1
 
 
 def _pix2i_equatorial_region_ring(nside: int, pixels: ArrayLike) -> Array:
@@ -948,13 +945,6 @@ def _pix2i_equatorial_region_ring(nside: int, pixels: ArrayLike) -> Array:
     #   I tmp = (order_>=0) ? ip>>(order_+2) : ip/nl4;
     tmp = ip >> (order + 2)
     return tmp + nside
-
-
-def _pix2i_south_cap_ring(nside: int, pixels: ArrayLike) -> Array:
-    npixel = nside2npix(nside)
-    ip = npixel - pixels
-    p = (2 * ip - 1).astype(float)
-    return (1 + jnp.sqrt(p).astype(int)) >> 1  # counted from South Pole
 
 
 def _pix2z_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> tuple[Array, Array]:
