@@ -85,13 +85,12 @@ Map data manipulation
   at given angular coordinates, using 4 nearest neighbours
 """
 
-from functools import partial
 from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import jit, lax, vmap
+from jax import jit, lax
 from jaxtyping import Array, ArrayLike
 
 __all__ = [
@@ -734,13 +733,10 @@ def ang2pix(
     [   4   12   72  336 1440]
     """
     # check_theta_valid(theta)
-    check_nside(nside, nest=nest)
-
     if lonlat:
         theta, phi = _lonlat2thetaphi(theta, phi)
 
-    loc2pix_scheme = _loc2pix_nest if nest else _zphi2pix_ring
-    pixels = loc2pix_scheme(nside, jnp.cos(theta), jnp.sin(theta), phi)
+    pixels = loc2pix(nside, jnp.cos(theta), jnp.sin(theta), phi, nest=nest)
     return jnp.where((theta < 0) | (theta > np.pi + 1e-5), -1, pixels)
 
 
@@ -915,9 +911,7 @@ def pix2ang(nside: int, ipix: ArrayLike, nest: bool = False, lonlat: bool = Fals
     (array([ 315. ,  337.5,  337.5,  337.5]), array([-41.8103149 ,  41.8103149 ,  66.44353569,  78.28414761]))
     """  # noqa: E501
 
-    check_nside(nside, nest=nest)
-
-    z, sin_theta, phi = _pix2loc_nest(nside, ipix) if nest else _pix2loc_ring(nside, ipix)
+    z, sin_theta, phi = pix2loc(nside, ipix, nest=nest)
     # both are accurate, so arctan2 is well conditioned everywhere, near the poles included
     theta = jnp.arctan2(sin_theta, z)
 
@@ -1412,7 +1406,7 @@ def _pix2xyf_ring(nside: int, pix: Array) -> tuple[Array, Array, Array]:
     )
 
     iring_for_irt = jnp.where(
-        jnp.logical_or(pix < ncap, pix < (npix - ncap)),
+        pix < (npix - ncap),
         iring,  # north polar cap and equatorial region
         4 * nside - iring,  # south polar cap
     )  # ring number counted from North pole or South pole
@@ -1493,23 +1487,8 @@ def vec2pix(nside: int, x: ArrayLike, y: ArrayLike, z: ArrayLike, nest: bool = F
     >>> print(hp.vec2pix([1, 2, 4, 8], 1, 0, 0))
     [  4  20  88 368]
     """
-    check_nside(nside, nest=nest)
     dnorm = 1 / jnp.sqrt(x**2 + y**2 + z**2)
-    loc2pix_scheme = _loc2pix_nest if nest else _zphi2pix_ring
-    return loc2pix_scheme(nside, z * dnorm, jnp.sqrt(x**2 + y**2) * dnorm, jnp.arctan2(y, x))
-
-
-def vec2pix2(nside: int, vec: ArrayLike, nest: bool = False) -> Array:
-    return vec2pix2_ring(nside, vec)
-
-
-@jit(static_argnames='nside')
-@partial(vmap, in_axes=(None, 1))
-def vec2pix2_ring(nside: int, vec: ArrayLike) -> Array:
-    vec /= jnp.sqrt(jnp.sum(vec**2))
-    phi = jnp.arctan2(vec[1], vec[0])
-    # return _zphi2pix_ring(nside, vec[2], jnp.sqrt(vec[0] ** 2 + vec[1] ** 2), phi)
-    return _zphi2pix_ring(nside, vec[2], jnp.sqrt(vec[0] ** 2 + vec[1] ** 2), phi)
+    return loc2pix(nside, z * dnorm, jnp.sqrt(x**2 + y**2) * dnorm, jnp.arctan2(y, x), nest=nest)
 
 
 @jit(static_argnames=['nside', 'nest'])
@@ -1546,8 +1525,7 @@ def pix2vec(nside: int, ipix: ArrayLike, nest: bool = False) -> Array:
     >>> hp.pix2vec([1, 2], 11)
     (array([ 0.52704628,  0.68861915]), array([-0.52704628, -0.28523539]), array([-0.66666667,  0.66666667]))
     """
-    check_nside(nside, nest=nest)
-    z, sin_theta, phi = _pix2loc_nest(nside, ipix) if nest else _pix2loc_ring(nside, ipix)
+    z, sin_theta, phi = pix2loc(nside, ipix, nest=nest)
     return jnp.stack([sin_theta * jnp.cos(phi), sin_theta * jnp.sin(phi), z], axis=-1)
 
 
@@ -2324,9 +2302,7 @@ def get_interp_val(
         phi = jnp.asarray(phi)
 
     # Determine nside from map size
-    npix = m.shape[-1]
-    nside = int(np.sqrt(npix / 12))  # Use numpy sqrt to avoid tracer issues
-    check_nside(nside, nest=nest)
+    nside = npix2nside(m.shape[-1])
 
     # Handle multiple maps vs single map
     single_map = m.ndim == 1
@@ -2450,10 +2426,7 @@ def get_all_neighbours(
         # theta, phi contain angular coordinates - convert to pixels
         phi = jnp.asarray(phi)
         if lonlat:
-            # Convert longitude, latitude in degrees to colatitude, longitude in radians
-            lon, lat = theta, phi
-            theta = jnp.deg2rad(90.0 - lat)
-            phi = jnp.deg2rad(lon)
+            theta, phi = _lonlat2thetaphi(theta, phi)
 
         # Ensure theta and phi can be broadcast together
         theta_bc, phi_bc = jnp.broadcast_arrays(theta, phi)
