@@ -251,18 +251,16 @@ def isnsideok(nside: int, nest: bool = False) -> bool:
     >>> hp.isnsideok([1, 2, 3, 4, 8, 16], nest=True)
     array([ True,  True, False,  True,  True,  True], dtype=bool)
     """
-    # we use standard bithacks from http://graphics.stanford.edu/~seander/bithacks.html#DetermineIfPowerOf2
-    if hasattr(nside, '__len__'):
-        if not isinstance(nside, np.ndarray):
-            nside = np.asarray(nside)
-        is_nside_ok = (nside == nside.astype(int)) & (nside > 0) & (nside <= MAX_NSIDE)
-        if nest:
-            is_nside_ok &= (nside.astype(int) & (nside.astype(int) - 1)) == 0
-    else:
-        is_nside_ok = nside == int(nside) and 0 < nside <= MAX_NSIDE
-        if nest:
-            is_nside_ok = is_nside_ok and (int(nside) & (int(nside) - 1)) == 0
-    return is_nside_ok
+    nside = np.asarray(nside)
+    is_nside_ok = (
+        (nside.dtype != bool) & np.isfinite(nside) & (nside == np.floor(nside)) & (nside > 0) & (nside <= MAX_NSIDE)
+    )
+    if nest:
+        # invalid values are zeroed before the cast to an integer, so that it cannot overflow
+        int_nside = np.where(is_nside_ok, nside, 0).astype(np.int64)
+        # we use standard bithacks from http://graphics.stanford.edu/~seander/bithacks.html#DetermineIfPowerOf2
+        is_nside_ok &= (int_nside & (int_nside - 1)) == 0
+    return _bool_or_array(is_nside_ok)
 
 
 def isnpixok(npix: int) -> bool:
@@ -290,8 +288,15 @@ def isnpixok(npix: int) -> bool:
     >>> hp.isnpixok([12, 768, 1002])
     array([ True,  True, False], dtype=bool)
     """
-    nside = np.sqrt(np.asarray(npix) / 12.0)
-    return nside == np.floor(nside)
+    npix = np.asarray(npix)
+    # sqrt is only taken on positive sizes, so that it raises no warning on negative ones
+    nside = np.sqrt(np.where(npix > 0, npix, 0) / 12.0)
+    return _bool_or_array(np.isfinite(npix) & (npix > 0) & (nside == np.floor(nside)))
+
+
+def _bool_or_array(mask: np.ndarray) -> bool | np.ndarray:
+    """Returns a Python bool for a scalar input, and the boolean array otherwise"""
+    return bool(mask) if mask.ndim == 0 else mask
 
 
 def nside2npix(nside: int) -> int:
