@@ -981,12 +981,22 @@ def _ring2z(
 
 
 def _pix2phi_ring(nside: int, iring: ArrayLike, pixels: ArrayLike) -> Array:
-    iphi = _pix2iphi_ring(nside, iring, pixels)
-    # number of pixels in a quarter of the ring
-    nr = _npix_on_ring(nside, iring) // 4
-    # pixel centers sit half a pixel off longitude zero, except on unshifted rings
-    fodd = jnp.where(_ring_shifted(nside, iring), 0.5, 1.0)
-    return (iphi - fodd) * np.pi / 2 / nr
+    npixel = nside2npix(nside)
+    ncap = 2 * nside * (nside - 1)
+    # pixel centers sit half a pixel off longitude zero, except on unshifted equatorial rings
+    fodd = ((iring + nside) & 1) * 0.5 + 0.5  # iring + nside odd -> 1 else 0.5
+    # Each region divides by its own quarter-ring pixel count (iring in the caps, nside on the
+    # equator). Dividing once by a selected count instead makes XLA on CPU materialize
+    # intermediates, which slows pix2vec down by about 40%.
+    return jnp.where(
+        pixels < ncap,
+        (_pix2iphi_north_cap_ring(nside, iring, pixels) - 0.5) * np.pi / 2 / iring,
+        jnp.where(
+            pixels < npixel - ncap,
+            (_pix2iphi_equatorial_region_ring(nside, iring, pixels) - fodd) * np.pi / 2 / nside,
+            (_pix2iphi_south_cap_ring(nside, iring, pixels) - 0.5) * np.pi / 2 / iring,
+        ),
+    )
 
 
 @jit(static_argnames=['nside', 'nest'])
