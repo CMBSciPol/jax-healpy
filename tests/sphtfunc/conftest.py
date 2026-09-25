@@ -12,9 +12,10 @@ from s2fft.sampling.s2_samples import flm_2d_to_hp  # noqa: E402
 from s2fft.utils import signal_generator  # noqa: E402
 
 
-# JIT time for s2fft is very slow, so drop 128; nside=64 alone costs ~2/3 of the
-# sphtfunc suite in CI, so it only runs with the slow tests (`pytest -m slow`)
-@pytest.fixture(scope='session', params=[32, pytest.param(64, marks=pytest.mark.slow)])
+@pytest.fixture(
+    scope='session',
+    params=[32, pytest.param(64, marks=pytest.mark.slow), pytest.param(128, marks=pytest.mark.slow)],
+)
 def nside(request):
     return request.param
 
