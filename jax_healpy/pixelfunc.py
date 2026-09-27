@@ -2051,6 +2051,13 @@ def _get_interp_weights_ring(
 
     theta1, _, nr1, shift1 = _get_ring_info(nside, ir1_safe)
     theta2, _, nr2, shift2 = _get_ring_info(nside, ir2_safe)
+    if 4 * nside < theta_coords.size:
+        # Fewer rings than samples: evaluate the co-latitude once per ring and look it up,
+        # rather than two arctan2 per sample. Same expression, so the same bits; the
+        # arctan2 above is then dead and removed by XLA.
+        ring_theta, _, _, _ = _get_ring_info(nside, jnp.arange(1, 4 * nside, dtype=ir1_safe.dtype))
+        theta1 = ring_theta[ir1_safe - 1]
+        theta2 = ring_theta[ir2_safe - 1]
 
     # Phi interpolation position, in units of pixels along each ring
     phi1_norm = phi_coords / (2.0 * jnp.pi / nr1) - shift1
