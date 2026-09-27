@@ -2106,8 +2106,12 @@ def _get_interp_weights_ring(
         north_factor,
         jnp.where(is_south_pole, w2_phi * (1.0 - w_theta) + south_factor, w2_phi * (1.0 - w_theta)),
     )
-    w3 = jnp.where(is_north_pole, w3_phi * w_theta + north_factor, jnp.where(is_south_pole, south_factor, w3_phi * w_theta))
-    w4 = jnp.where(is_north_pole, w4_phi * w_theta + north_factor, jnp.where(is_south_pole, south_factor, w4_phi * w_theta))
+    w3 = jnp.where(
+        is_north_pole, w3_phi * w_theta + north_factor, jnp.where(is_south_pole, south_factor, w3_phi * w_theta)
+    )
+    w4 = jnp.where(
+        is_north_pole, w4_phi * w_theta + north_factor, jnp.where(is_south_pole, south_factor, w4_phi * w_theta)
+    )
 
     # Clamp weights to ensure non-negativity (handles floating point precision issues)
     w1 = jnp.maximum(w1, 0.0)
