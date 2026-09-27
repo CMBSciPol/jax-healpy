@@ -1254,18 +1254,18 @@ def _get_ring_costheta_sintheta(nside: int, ring_idx: ArrayLike) -> tuple[Array,
     # HEALPix ring definition, with no cancellation in sin near the pole.
     polar_tmp = northring * northring * fact2
     polar_costheta = 1.0 - polar_tmp
-    polar_sintheta = jnp.sqrt(polar_tmp * (2.0 - polar_tmp))
+    polar_sin2 = polar_tmp * (2.0 - polar_tmp)
 
     # Equatorial region (northring >= nside): |z| <= 2/3, so sqrt(1 - z**2) is well
     # conditioned everywhere in this branch. The clamp is for polar rings, where this
-    # branch is discarded but still evaluated, and would otherwise take sqrt of a
-    # negative number.
+    # branch is discarded but still evaluated, and would otherwise be negative.
     equatorial_costheta = (2.0 * nside - northring) * fact1
-    equatorial_sintheta = jnp.sqrt(jnp.maximum(1.0 - equatorial_costheta * equatorial_costheta, 0.0))
+    equatorial_sin2 = jnp.maximum(1.0 - equatorial_costheta * equatorial_costheta, 0.0)
 
+    # The squared sine is selected before the square root, so a single one is evaluated
     is_polar = northring < nside
     costheta = jnp.where(is_polar, polar_costheta, equatorial_costheta)
-    sintheta = jnp.where(is_polar, polar_sintheta, equatorial_sintheta)
+    sintheta = jnp.sqrt(jnp.where(is_polar, polar_sin2, equatorial_sin2))
 
     # Southern hemisphere correction: theta -> pi - theta flips the cosine, keeps the sine
     costheta = jnp.where(northring != ring, -costheta, costheta)
