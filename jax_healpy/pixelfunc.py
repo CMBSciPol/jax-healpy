@@ -1254,18 +1254,18 @@ def _get_ring_costheta_sintheta(nside: int, ring_idx: ArrayLike) -> tuple[Array,
     # HEALPix ring definition, with no cancellation in sin near the pole.
     polar_tmp = northring * northring * fact2
     polar_costheta = 1.0 - polar_tmp
-    polar_sintheta = jnp.sqrt(polar_tmp * (2.0 - polar_tmp))
+    polar_sin2 = polar_tmp * (2.0 - polar_tmp)
 
     # Equatorial region (northring >= nside): |z| <= 2/3, so sqrt(1 - z**2) is well
     # conditioned everywhere in this branch. The clamp is for polar rings, where this
-    # branch is discarded but still evaluated, and would otherwise take sqrt of a
-    # negative number.
+    # branch is discarded but still evaluated, and would otherwise be negative.
     equatorial_costheta = (2.0 * nside - northring) * fact1
-    equatorial_sintheta = jnp.sqrt(jnp.maximum(1.0 - equatorial_costheta * equatorial_costheta, 0.0))
+    equatorial_sin2 = jnp.maximum(1.0 - equatorial_costheta * equatorial_costheta, 0.0)
 
+    # The squared sine is selected before the square root, so a single one is evaluated
     is_polar = northring < nside
     costheta = jnp.where(is_polar, polar_costheta, equatorial_costheta)
-    sintheta = jnp.where(is_polar, polar_sintheta, equatorial_sintheta)
+    sintheta = jnp.sqrt(jnp.where(is_polar, polar_sin2, equatorial_sin2))
 
     # Southern hemisphere correction: theta -> pi - theta flips the cosine, keeps the sine
     costheta = jnp.where(northring != ring, -costheta, costheta)
@@ -1943,8 +1943,9 @@ def get_interp_weights(
     That is not automatic: the centers are read from the same ring geometry the weights
     are built from, and giving those shared nodes a second consumer lets XLA fuse them
     differently. The co-latitude weight divides by theta2 - theta1 ~ 1/nside, so a
-    one-ulp change upstream is amplified by roughly nside. A `lax.optimization_barrier`
-    on the shared ring quantities pins the fusion and keeps the two paths identical;
+    one-ulp change upstream is amplified by roughly nside. With centers, the finished
+    weights and the ring indices go through a `lax.optimization_barrier`, so the centers
+    are built from them and cannot reach back into the weight computation.
 
     Precision and Algorithmic Considerations:
     ----------------------------------------
@@ -2009,14 +2010,16 @@ def _get_interp_weights_ring(
     nside: int, theta_coords: Array, phi_coords: Array, with_centers: bool = False
 ) -> tuple[Array, Array] | tuple[Array, Array, InterpCenters]:
     """
-    Memory-optimized implementation of bilinear interpolation for RING ordering.
+    Bilinear interpolation for RING ordering.
 
-    This optimized version reduces temporary memory usage by 2.8x while maintaining
-    full numerical precision by:
-    1. Eliminating excessive conditional operations that create intermediate arrays
-    2. Using direct computation instead of conditional masking
-    3. Streamlined special case handling with mathematical formulas
-    4. Efficient array construction using stack operations
+    The work is split in two stages. The first computes everything that needs a
+    transcendental (the ring above the target, the co-latitude of the two rings) and
+    reduces it to a small per-sample state: the ring index, the index of the western
+    neighbour on each ring, and the four finished weights. The second rebuilds the
+    pixels, and the centers when asked for, from that state with integer arithmetic.
+    Outputs are assembled with `jnp.stack`, which XLA lowers to concatenate kernels
+    that read the state once; the fewer arrays the first stage hands over, the less
+    memory traffic, which is what bounds this function on GPU in single precision.
 
     Gradient Compatibility:
     ----------------------
@@ -2034,36 +2037,31 @@ def _get_interp_weights_ring(
     1. Pixel indices are discrete selectors that don't affect the interpolation mathematics
     2. Weight values depend continuously on input coordinates within each pixel region
     3. The fundamental constraint sum(weights) = 1.0 must hold regardless of pixel selection
-
-    This design allows proper gradient flow for meaningful computations (like map
-    interpolation) while maintaining numerical precision and memory efficiency.
     """
-
-    # Core computation - minimal intermediate arrays
+    # First stage: ring geometry, longitude grid position and weights
     z = jnp.cos(theta_coords)
     ir1 = _ring_above(nside, z)
-    ir2 = ir1 + 1
 
-    # Special case flags - compute once
+    # Inside ring 1 (or the last ring) the target is surrounded by a single ring and the
+    # pole. The clamped ring indices then collapse onto that ring.
     is_north_pole = ir1 == 0
-    is_south_pole = ir2 == (4 * nside)
-    is_normal = ~is_north_pole & ~is_south_pole
-
-    # Safe ring indices for _get_ring_info calls
+    is_south_pole = ir1 == 4 * nside - 1
     ir1_safe = jnp.maximum(ir1, 1)
-    ir2_safe = jnp.minimum(ir2, 4 * nside - 1)
+    ir2_safe = jnp.minimum(ir1 + 1, 4 * nside - 1)
 
-    # Get ring properties - only two function calls needed
-    theta1, sp1, nr1, shift1 = _get_ring_info(nside, ir1_safe)
-    theta2, sp2, nr2, shift2 = _get_ring_info(nside, ir2_safe)
-
-    # Core phi interpolation computation
-    dphi1 = 2.0 * jnp.pi / nr1
-    dphi2 = 2.0 * jnp.pi / nr2
+    theta1, _, nr1, shift1 = _get_ring_info(nside, ir1_safe)
+    theta2, _, nr2, shift2 = _get_ring_info(nside, ir2_safe)
+    if 4 * nside < theta_coords.size:
+        # Fewer rings than samples: evaluate the co-latitude once per ring and look it up,
+        # rather than two arctan2 per sample. Same expression, so the same bits; the
+        # arctan2 above is then dead and removed by XLA.
+        ring_theta, _, _, _ = _get_ring_info(nside, jnp.arange(1, 4 * nside, dtype=ir1_safe.dtype))
+        theta1 = ring_theta[ir1_safe - 1]
+        theta2 = ring_theta[ir2_safe - 1]
 
     # Phi interpolation position, in units of pixels along each ring
-    phi1_norm = phi_coords / dphi1 - shift1
-    phi2_norm = phi_coords / dphi2 - shift2
+    phi1_norm = phi_coords / (2.0 * jnp.pi / nr1) - shift1
+    phi2_norm = phi_coords / (2.0 * jnp.pi / nr2) - shift2
 
     # Stop gradient: Floor operations are non-differentiable and only used for indexing
     floor1 = lax.stop_gradient(jnp.floor(phi1_norm))
@@ -2075,108 +2073,127 @@ def _get_interp_weights_ring(
     w_phi1 = phi1_norm - floor1
     w_phi2 = phi2_norm - floor2
 
-    # Pixel indices within each ring, and their eastern neighbours
-    i1_1 = floor1.astype(jnp.int32) % nr1
-    i1_2 = floor2.astype(jnp.int32) % nr2
-    i2_1 = jnp.where(i1_1 == nr1 - 1, 0, i1_1 + 1)
-    i2_2 = jnp.where(i1_2 == nr2 - 1, 0, i1_2 + 1)
+    # Index of the western neighbour on each ring, wrapped onto [0, nr). The ring sizes
+    # are positive, so a truncated remainder needs a single sign fix, cheaper than the
+    # general floored `%`.
+    rem1 = lax.rem(floor1.astype(jnp.int32), nr1)
+    rem2 = lax.rem(floor2.astype(jnp.int32), nr2)
+    i1_1 = jnp.where(rem1 < 0, rem1 + nr1, rem1)
+    i1_2 = jnp.where(rem2 < 0, rem2 + nr2, rem2)
 
-    # Theta interpolation weight computation
-    theta_denom = jnp.where(is_normal, theta2 - theta1, 1.0)  # Avoid div by 0
-    w_theta_base = jnp.where(is_normal, (theta_coords - theta1) / theta_denom, 0.0)
+    # Theta interpolation weight. Near a pole the missing ring is replaced by the pole
+    # itself, at theta = 0 or pi. Numerator and denominator are selected first so that
+    # a single division is evaluated rather than one per branch.
+    w_theta = jnp.where(is_north_pole, theta_coords, theta_coords - theta1) / jnp.where(
+        is_north_pole, theta2, jnp.where(is_south_pole, jnp.pi - theta1, theta2 - theta1)
+    )
 
-    # Special case adjustments using mathematical formulas
-    w_theta_north = jnp.where(is_north_pole, theta_coords / theta2, w_theta_base)
-    w_theta_south = jnp.where(is_south_pole, (theta_coords - theta1) / (jnp.pi - theta1), w_theta_base)
-
-    # Pixel computation - direct mathematical approach
-    # Normal case pixels
-    pixels_ring1_1 = sp1 + i1_1
-    pixels_ring1_2 = sp1 + i2_1
-    pixels_ring2_1 = sp2 + i1_2
-    pixels_ring2_2 = sp2 + i2_2
-
-    # North pole pixel adjustments
-    npix_total = 12 * nside * nside
-    pixels_ring1_1 = jnp.where(is_north_pole, (pixels_ring2_1 + 2) & 3, pixels_ring1_1)
-    pixels_ring1_2 = jnp.where(is_north_pole, (pixels_ring2_2 + 2) & 3, pixels_ring1_2)
-
-    # South pole pixel adjustments
-    pixels_ring2_1 = jnp.where(is_south_pole, ((pixels_ring1_1 + 2) & 3) + npix_total - 4, pixels_ring2_1)
-    pixels_ring2_2 = jnp.where(is_south_pole, ((pixels_ring1_2 + 2) & 3) + npix_total - 4, pixels_ring2_2)
-
-    # Weight computation - optimized mathematical approach
-    # Base phi weights
+    # Weights. Near a pole, the share of the missing ring goes in equal parts to the
+    # four pixels of the cap ring.
     w1_phi = 1.0 - w_phi1
     w2_phi = w_phi1
     w3_phi = 1.0 - w_phi2
     w4_phi = w_phi2
-
-    # Apply theta interpolation
-    w1_base = w1_phi * (1.0 - w_theta_base)
-    w2_base = w2_phi * (1.0 - w_theta_base)
-    w3_base = w3_phi * w_theta_base
-    w4_base = w4_phi * w_theta_base
-
-    # North pole weight adjustments
-    north_factor = (1.0 - w_theta_north) * 0.25
-    w1_north = jnp.where(is_north_pole, north_factor, w1_base)
-    w2_north = jnp.where(is_north_pole, north_factor, w2_base)
-    w3_north = jnp.where(is_north_pole, w3_phi * w_theta_north + north_factor, w3_base)
-    w4_north = jnp.where(is_north_pole, w4_phi * w_theta_north + north_factor, w4_base)
-
-    # South pole weight adjustments
-    south_factor = w_theta_south * 0.25
-    w1_final = jnp.where(is_south_pole, w1_north * (1.0 - w_theta_south) + south_factor, w1_north)
-    w2_final = jnp.where(is_south_pole, w2_north * (1.0 - w_theta_south) + south_factor, w2_north)
-    w3_final = jnp.where(is_south_pole, south_factor, w3_north)
-    w4_final = jnp.where(is_south_pole, south_factor, w4_north)
-
-    # Final assembly - single stack operation
-    # Stop gradient: Pixel indices are discrete array selectors, not part of interpolation math
-    pixels = lax.stop_gradient(jnp.stack([pixels_ring1_1, pixels_ring1_2, pixels_ring2_1, pixels_ring2_2]))
+    north_factor = (1.0 - w_theta) * 0.25
+    south_factor = w_theta * 0.25
+    w1 = jnp.where(
+        is_north_pole,
+        north_factor,
+        jnp.where(is_south_pole, w1_phi * (1.0 - w_theta) + south_factor, w1_phi * (1.0 - w_theta)),
+    )
+    w2 = jnp.where(
+        is_north_pole,
+        north_factor,
+        jnp.where(is_south_pole, w2_phi * (1.0 - w_theta) + south_factor, w2_phi * (1.0 - w_theta)),
+    )
+    w3 = jnp.where(
+        is_north_pole, w3_phi * w_theta + north_factor, jnp.where(is_south_pole, south_factor, w3_phi * w_theta)
+    )
+    w4 = jnp.where(
+        is_north_pole, w4_phi * w_theta + north_factor, jnp.where(is_south_pole, south_factor, w4_phi * w_theta)
+    )
 
     # Clamp weights to ensure non-negativity (handles floating point precision issues)
-    w1_final = jnp.maximum(w1_final, 0.0)
-    w2_final = jnp.maximum(w2_final, 0.0)
-    w3_final = jnp.maximum(w3_final, 0.0)
-    w4_final = jnp.maximum(w4_final, 0.0)
+    w1 = jnp.maximum(w1, 0.0)
+    w2 = jnp.maximum(w2, 0.0)
+    w3 = jnp.maximum(w3, 0.0)
+    w4 = jnp.maximum(w4, 0.0)
 
     # Ensure weights sum to exactly 1.0 for gradient consistency
     # This enforces the mathematical constraint sum(weights) = 1.0, making gradients
     # of the sum exactly zero while preserving gradients of individual weights.
     # The sum is spelled out elementwise rather than reduced over a stacked axis: XLA
     # otherwise emits a reduction fusion that recomputes the whole weight graph.
-    weight_sum = w1_final + w2_final + w3_final + w4_final
-    weights = jnp.stack([w1_final, w2_final, w3_final, w4_final]) / weight_sum
+    weight_sum = w1 + w2 + w3 + w4
+    state = (ir1, i1_1, i1_2, w1 / weight_sum, w2 / weight_sum, w3 / weight_sum, w4 / weight_sum)
+
+    # With centers, pass the state through a barrier. The centers share subexpressions
+    # with the weights, and without this XLA fuses those shared nodes differently once
+    # they have a second consumer. The co-latitude weight divides by theta2 - theta1
+    # ~ 1/nside, so a one-ulp change there is amplified by about nside, which would make
+    # the weights depend on whether centers were requested. Without centers there is no
+    # second consumer, and a barrier would only cost an extra kernel.
+    if with_centers:
+        state = lax.optimization_barrier(state)
+    ir1, i1_1, i1_2, w1, w2, w3, w4 = state
+    weights = jnp.stack([w1, w2, w3, w4])
+
+    # Second stage: pixel indices, from the ring index and the in-ring indices
+    ir1 = lax.stop_gradient(ir1)
+    is_north_pole = ir1 == 0
+    is_south_pole = ir1 == 4 * nside - 1
+    ir1_safe = jnp.maximum(ir1, 1)
+    ir2_safe = jnp.minimum(ir1 + 1, 4 * nside - 1)
+    sp1, nr1 = _start_pixel_ring(nside, ir1_safe), _npix_on_ring(nside, ir1_safe)
+    sp2, nr2 = _start_pixel_ring(nside, ir2_safe), _npix_on_ring(nside, ir2_safe)
+
+    # Eastern neighbours
+    i2_1 = jnp.where(i1_1 == nr1 - 1, 0, i1_1 + 1)
+    i2_2 = jnp.where(i1_2 == nr2 - 1, 0, i1_2 + 1)
+
+    pixels_ring2_1 = sp2 + i1_2
+    pixels_ring2_2 = sp2 + i2_2
+
+    # Near a pole the missing ring is replaced by the cap ring pixels across the pole
+    npix_total = 12 * nside * nside
+    pixels_ring1_1 = jnp.where(is_north_pole, (pixels_ring2_1 + 2) & 3, sp1 + i1_1)
+    pixels_ring1_2 = jnp.where(is_north_pole, (pixels_ring2_2 + 2) & 3, sp1 + i2_1)
+    pixels_ring2_1 = jnp.where(is_south_pole, ((pixels_ring1_1 + 2) & 3) + npix_total - 4, pixels_ring2_1)
+    pixels_ring2_2 = jnp.where(is_south_pole, ((pixels_ring1_2 + 2) & 3) + npix_total - 4, pixels_ring2_2)
+
+    # Stop gradient: Pixel indices are discrete array selectors, not part of interpolation math
+    pixels = lax.stop_gradient(jnp.stack([pixels_ring1_1, pixels_ring1_2, pixels_ring2_1, pixels_ring2_2]))
 
     if not with_centers:
         return pixels, weights
 
-    # Read the ring geometry through a barrier. The centers share subexpressions with the
-    # weights, and without this XLA fuses those shared nodes differently once they have a
-    # second consumer. The co-latitude weight divides by theta2 - theta1 ~ 1/nside, so a
-    # one-ulp change there is amplified by about nside, which would make the weights
-    # depend on whether centers were requested.
-    (ir1_c, ir2_c, i1_1c, i2_1c, i1_2c, i2_2c, shift1_c, shift2_c, dphi1_c, dphi2_c) = lax.optimization_barrier(
-        (ir1_safe, ir2_safe, i1_1, i2_1, i1_2, i2_2, shift1, shift2, dphi1, dphi2)
-    )
-
     # Co-latitude of the two rings. Safe in every branch: inside a cap the clamps above
     # collapse ir1_safe and ir2_safe onto the same ring, which is the ring the four
     # replacement pixels lie on, so the two entries simply coincide.
-    z1, sth1 = _get_ring_costheta_sintheta(nside, ir1_c)
-    z2, sth2 = _get_ring_costheta_sintheta(nside, ir2_c)
+    z1, sth1 = _get_ring_costheta_sintheta(nside, ir1_safe)
+    z2, sth2 = _get_ring_costheta_sintheta(nside, ir2_safe)
 
-    # Longitude. The ring grid describes the pixels that would have been returned, so it
-    # is only valid where the pole branches did not replace them. The four cap pixels sit
-    # at (k + 1/2) * pi/2, and their index modulo 4 is k in both caps, so read them off
-    # the final pixel values instead.
-    quarter_pi = 0.5 * jnp.pi
-    phi_ring1_1 = jnp.where(is_north_pole, ((pixels[0] & 3) + 0.5) * quarter_pi, (i1_1c + shift1_c) * dphi1_c)
-    phi_ring1_2 = jnp.where(is_north_pole, ((pixels[1] & 3) + 0.5) * quarter_pi, (i2_1c + shift1_c) * dphi1_c)
-    phi_ring2_1 = jnp.where(is_south_pole, ((pixels[2] & 3) + 0.5) * quarter_pi, (i1_2c + shift2_c) * dphi2_c)
-    phi_ring2_2 = jnp.where(is_south_pole, ((pixels[3] & 3) + 0.5) * quarter_pi, (i2_2c + shift2_c) * dphi2_c)
+    # Longitude, read back from the final pixel indices. They are materialized through
+    # a barrier: otherwise XLA recomputes them here and has to keep the eastern
+    # neighbour indices around for both uses. The ring grid is only valid where the pole
+    # branches did not replace the pixels. The four cap pixels sit at (k + 1/2) * pi/2,
+    # and their index modulo 4 is k in both caps.
+    pixels_c = lax.optimization_barrier(pixels)
+    shift1 = jnp.where(_ring_shifted(nside, ir1_safe), 0.5, 0.0)
+    shift2 = jnp.where(_ring_shifted(nside, ir2_safe), 0.5, 0.0)
+
+    def longitude(pixel, start, npix_ring, shift, in_cap):
+        on_grid = (pixel - start + shift) * (2.0 * jnp.pi / npix_ring)
+        return jnp.where(in_cap, ((pixel & 3) + 0.5) * (0.5 * jnp.pi), on_grid)
+
+    phi_c = jnp.stack(
+        [
+            longitude(pixels_c[0], sp1, nr1, shift1, is_north_pole),
+            longitude(pixels_c[1], sp1, nr1, shift1, is_north_pole),
+            longitude(pixels_c[2], sp2, nr2, shift2, is_south_pole),
+            longitude(pixels_c[3], sp2, nr2, shift2, is_south_pole),
+        ]
+    )
 
     # Stop gradient: centers are fixed points of the HEALPix grid, piecewise constant in
     # the input coordinates. Keeping them constant is also what leaves an interpolation
@@ -2186,7 +2203,7 @@ def _get_interp_weights_ring(
         InterpCenters(
             z=jnp.stack([z1, z2]).astype(dtype),
             sth=jnp.stack([sth1, sth2]).astype(dtype),
-            phi=jnp.stack([phi_ring1_1, phi_ring1_2, phi_ring2_1, phi_ring2_2]).astype(dtype),
+            phi=phi_c.astype(dtype),
         )
     )
 
