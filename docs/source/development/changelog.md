@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-28
+
+### Changed
+
+- Faster `get_interp_weights` (#34)
+
+## [0.8.1] - 2026-09-25
+
+### Changed
+
+- `nside2npix` raises `ValueError` on an invalid nside (#25)
+- `isnsideok` and `isnpixok` return a Python `bool` for scalar inputs; booleans, zero, infinite and NaN values are invalid (#25)
+- `equinox` and `optax` are no longer dependencies; `numpy>=2.0` is (#28)
+- Faster pixel functions (#25)
+
 ## [0.8] - 2026-09-24
 
 ### Added
@@ -122,7 +137,9 @@ Initial tagged release.
 - `nside2npix`, `npix2nside`, `nside2order`, `order2nside`, `order2npix`, `npix2order`, `nside2resol` and `nside2pixarea`
 - `isnsideok`, `isnpixok` and `maptype`
 
-[unreleased]: https://github.com/CMBSciPol/jax-healpy/compare/v0.8...HEAD
+[unreleased]: https://github.com/CMBSciPol/jax-healpy/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/CMBSciPol/jax-healpy/compare/v0.8.1...v0.8.2
+[0.8.1]: https://github.com/CMBSciPol/jax-healpy/compare/v0.8...v0.8.1
 [0.8]: https://github.com/CMBSciPol/jax-healpy/compare/v0.7.1...v0.8
 [0.7.1]: https://github.com/CMBSciPol/jax-healpy/compare/v0.7...v0.7.1
 [0.7]: https://github.com/CMBSciPol/jax-healpy/compare/v0.6...v0.7
