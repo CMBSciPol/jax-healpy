@@ -19,6 +19,16 @@ Key Features
 * **Spherical Harmonics**: Integration with s2fft for spherical harmonic transforms
 * **Clustering Tools**: Advanced clustering algorithms for astronomical data analysis
 
+Acknowledgements
+----------------
+
+.. image:: _static/scipol.png
+   :alt: SciPol logo
+   :width: 200px
+   :target: https://scipol.in2p3.fr/
+
+jax-healpy is developed within the `SciPol <https://scipol.in2p3.fr/>`_ project.
+
 .. toctree::
    :maxdepth: 2
    :caption: User Guide
