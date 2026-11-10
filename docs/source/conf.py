@@ -15,19 +15,15 @@ project = 'jax-healpy'
 copyright = '2024, Pierre Chanial, Simon Biquard, Wassim Kabalan'
 author = 'Pierre Chanial, Simon Biquard, Wassim Kabalan'
 
-# Get version from setuptools_scm
+# Get the version from the installed package metadata
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as get_version
+
 try:
-    from setuptools_scm import get_version
-
-    release = get_version(root='../..')
-except (ImportError, LookupError):
-    # Fallback if setuptools_scm fails
-    try:
-        from importlib.metadata import version
-
-        release = version('jax-healpy')
-    except ImportError:  # PackageNotFoundError
-        release = '0.0.0'
+    release = get_version('jax-healpy')
+except PackageNotFoundError:
+    release = '0.0.0'
+version = '.'.join(release.split('.')[:2])
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
