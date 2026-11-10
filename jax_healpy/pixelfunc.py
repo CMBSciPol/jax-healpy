@@ -1938,7 +1938,7 @@ def get_interp_weights(
     >>> sorted_weights = jnp.take_along_axis(weights, sorted_indices, axis=0)
 
     Requesting centers does not change the weights:
-    ----------------------------------------------
+    -----------------------------------------------
     `pixels` and `weights` are bit-identical whether `with_centers` is True or False.
     That is not automatic: the centers are read from the same ring geometry the weights
     are built from, and giving those shared nodes a second consumer lets XLA fuse them
@@ -1948,7 +1948,7 @@ def get_interp_weights(
     are built from them and cannot reach back into the weight computation.
 
     Precision and Algorithmic Considerations:
-    ----------------------------------------
+    -----------------------------------------
     The phi interpolation calculation can exhibit precision differences compared to healpy,
     particularly for coordinates near the poles and for high nside values (256+). This is due to:
 
