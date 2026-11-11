@@ -10,3 +10,13 @@ __pycache__
 /.venv*/
 /benchmarks/results/
 Healpix*
+
+# Documentation: built site, and Markdown pages generated from the user guide notebooks
+/site/
+/.cache/
+docs/user-guide/basic-usage.md
+docs/user-guide/clustering.md
+docs/user-guide/getting-started.md
+docs/user-guide/performance-tips.md
+docs/user-guide/pixelization.md
+docs/user-guide/*_files/

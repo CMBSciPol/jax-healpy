@@ -1,0 +1,26 @@
+/* Hide the intra-page table of contents: the left sidebar carries the whole
+   inter-page navigation, and the API page links its members from the summary
+   tables at the top. The copy embedded in the navigation drawer is untouched.
+   !important, as the theme shows it with the higher-specificity selector
+   `.md-sidebar--secondary:not([hidden])`. */
+.md-sidebar--secondary {
+  display: none !important;
+}
+
+/* Distinguish the section headers from their pages in the navigation: muted
+   uppercase headers, pages indented under a guide line. Scoped to the pinned
+   sidebar; the drawer keeps the theme's mobile navigation. */
+@media screen and (min-width: 60em) {
+  .md-nav--primary .md-nav__item--section > .md-nav__link {
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--md-default-fg-color--light);
+  }
+
+  .md-nav--primary .md-nav__item--section > .md-nav {
+    padding-left: 0.4rem;
+    border-left: 0.05rem solid var(--md-default-fg-color--lightest);
+  }
+}

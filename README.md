@@ -74,7 +74,7 @@ recovered_pixels = hp.ang2pix(nside, theta, phi, nest=False)
 # Spherical harmonics transform (requires s2fft)
 skymap = jax.random.normal(jax.random.PRNGKey(0), (npix,))
 alm = hp.map2alm(skymap, lmax=128)
-reconstructed_map = hp.alm2map(alm, nside=nside)
+reconstructed_map = hp.alm2map(alm, nside=nside, lmax=128)
 ```
 
 ## Numerical Precision
@@ -114,9 +114,9 @@ jax-healpy demonstrates significant performance improvements, especially for GPU
 
 Complete documentation is available at [jax-healpy.readthedocs.io](https://jax-healpy.readthedocs.io/)
 
-- [Getting Started Guide](https://jax-healpy.readthedocs.io/en/latest/user-guide/getting-started.html)
-- [API Reference](https://jax-healpy.readthedocs.io/en/latest/api/pixelfunc.html)
-- [Examples and Tutorials](https://jax-healpy.readthedocs.io/en/latest/user-guide/basic-usage.html)
+- [Getting Started Guide](https://jax-healpy.readthedocs.io/en/latest/user-guide/getting-started/)
+- [API Reference](https://jax-healpy.readthedocs.io/en/latest/api/pixelfunc/)
+- [Examples and Tutorials](https://jax-healpy.readthedocs.io/en/latest/user-guide/basic-usage/)
 
 ## Development
 
@@ -164,7 +164,7 @@ Ensure JAX is properly configured for your GPU architecture. See the [JAX GPU in
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](https://jax-healpy.readthedocs.io/en/latest/development/contributing.html) for details on:
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on:
 
 - Setting up the development environment
 - Code style and testing requirements
