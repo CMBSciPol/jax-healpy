@@ -12,8 +12,8 @@ import sys
 sys.path.insert(0, os.path.abspath('../../'))
 
 project = 'jax-healpy'
-copyright = '2024, Pierre Chanial, Simon Biquard, Wassim Kabalan'
-author = 'Pierre Chanial, Simon Biquard, Wassim Kabalan'
+copyright = '2024, Pierre Chanial, Simon Biquard, Wassim Kabalan, Morshed Magdy'
+author = 'Pierre Chanial, Simon Biquard, Wassim Kabalan, Morshed Magdy'
 
 # Get the version from the installed package metadata
 from importlib.metadata import PackageNotFoundError

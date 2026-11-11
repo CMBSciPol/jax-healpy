@@ -31,20 +31,26 @@ Install via PyPI:
 pip install jax-healpy
 ```
 
+If JAX is not already installed, this command installs its CPU version. JAX and jax-healpy can also be installed together, for instance with NVIDIA CUDA 13 support:
+
+```bash
+pip install jax-healpy "jax[cuda13]"
+```
+
 For spherical harmonics functionality, install with recommended dependencies:
 
 ```bash
-pip install jax-healpy[recommended]
+pip install "jax-healpy[recommended]"
 ```
 
 ### Development Installation
 
-Clone the repository and install in editable mode:
+Clone the repository and set up the development environment with [uv](https://docs.astral.sh/uv/):
 
 ```bash
 git clone https://github.com/CMBSciPol/jax-healpy.git
 cd jax-healpy
-pip install -e .
+uv sync --all-extras
 ```
 
 ## Quick Start
@@ -108,9 +114,9 @@ jax-healpy demonstrates significant performance improvements, especially for GPU
 
 Complete documentation is available at [jax-healpy.readthedocs.io](https://jax-healpy.readthedocs.io/)
 
-- [Getting Started Guide](https://jax-healpy.readthedocs.io/en/latest/getting_started.html)
-- [API Reference](https://jax-healpy.readthedocs.io/en/latest/api/)
-- [Examples and Tutorials](https://jax-healpy.readthedocs.io/en/latest/examples/)
+- [Getting Started Guide](https://jax-healpy.readthedocs.io/en/latest/user-guide/getting-started.html)
+- [API Reference](https://jax-healpy.readthedocs.io/en/latest/api/pixelfunc.html)
+- [Examples and Tutorials](https://jax-healpy.readthedocs.io/en/latest/user-guide/basic-usage.html)
 
 ## Development
 

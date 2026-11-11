@@ -20,31 +20,30 @@ Key Features
 * **Clustering Tools**: Advanced clustering algorithms for astronomical data analysis
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
+   :hidden:
    :caption: User Guide
 
-   getting_started
-   installation
-   user_guide/pixelization
+   user-guide/installation
+   user-guide/getting-started
+   user-guide/basic-usage
+   user-guide/pixelization
+   user-guide/clustering
+   user-guide/performance-tips
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Examples
-
-   examples/basic_usage
-   examples/clustering
-
-.. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
+   :hidden:
    :caption: API Reference
 
    api/pixelfunc
    api/sphtfunc
    api/clustering
-   api/query_disc
+   api/query-disc
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
+   :hidden:
    :caption: Development
 
    development/contributing
