@@ -8,10 +8,11 @@ repo_url = "https://github.com/CMBSciPol/jax-healpy"
 repo_name = "CMBSciPol/jax-healpy"
 edit_uri = "edit/main/docs/"
 
-# Only the logo is published from docs/logo/, not the scripts and the CMB maps they use.
+# Only the logos are published from docs/logo/, not the scripts and the CMB maps they use.
 exclude_docs = """
 logo/*
 !logo/jax-healpy-logo.png
+!logo/jax-healpy-logo-dark.png
 """
 
 # https://zensical.org/docs/setup/navigation/

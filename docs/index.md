@@ -1,4 +1,5 @@
-![jax-healpy logo](logo/jax-healpy-logo.png){ width="600" style="display: block; margin: 0 auto" }
+![jax-healpy logo](logo/jax-healpy-logo.png#only-light){ width="600" .centered }
+![jax-healpy logo](logo/jax-healpy-logo-dark.png#only-dark){ width="600" .centered }
 
 # HEALPix with JAX
 

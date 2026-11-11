@@ -7,12 +7,14 @@ result is displayed in Mollweide projection with a colormap inspired by the JAX 
 
 The CMB map is downloaded by ``download-cmb-map.py``. With the default parameters, the logo
 ``jax-healpy-logo.png`` is reproduced up to a few pixels on the edges of the letters, which
-depend on the versions of the rendering libraries.
+depend on the versions of the rendering libraries. The version of the logo for the dark theme
+is then derived from it by ``make-dark-logo.py``.
 
 Usage::
 
     uv run python docs/logo/download-cmb-map.py
     uv run --with scipy python docs/logo/make-logo.py --no-show
+    uv run python docs/logo/make-dark-logo.py
 """
 
 import argparse
