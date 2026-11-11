@@ -193,6 +193,10 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ## Acknowledgments
 
+jax-healpy is developed within the [SciPol](https://scipol.in2p3.fr/) project, funded by the
+[European Research Council](https://erc.europa.eu/) (ERC) of the [European Union](https://european-union.europa.eu/),
+with the support of the [CNRS](https://www.cnrs.fr/).
+
 - Built on [JAX](https://github.com/google/jax) for high-performance computing
 - Compatible with [HEALPix](https://healpix.jpl.nasa.gov/) pixelization scheme
 - Integrates with [s2fft](https://github.com/astro-informatics/s2fft) for spherical harmonics
