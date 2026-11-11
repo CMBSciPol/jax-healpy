@@ -6,7 +6,7 @@ We welcome contributions to jax-healpy! This guide will help you get started wit
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.11+
 - Git
 - JAX (CPU or GPU version)
 
@@ -49,11 +49,16 @@ We welcome contributions to jax-healpy! This guide will help you get started wit
 
 4. **Update documentation** if needed:
    ```bash
-   # Update docstrings, README, or add examples
-   # Build docs locally to check formatting
-   cd docs
-   make html
+   # Update docstrings, README, or the user guide notebooks
+   # Build the site locally into site/ to check the formatting
+   uv run --group docs sh docs/build.sh
    ```
+
+   The user guide pages are Jupyter notebooks under `docs/user-guide/`. They are committed
+   without their outputs, executed as regression tests by `pytest`, and converted to Markdown
+   pages by `docs/build.sh` before the site is built by [Zensical](https://zensical.org).
+   To preview the site with live reload while editing a Markdown page, run `uv run zensical serve`
+   after a first build.
 
 5. **Commit your changes**:
    ```bash
@@ -282,7 +287,7 @@ Releases are handled by maintainers following semantic versioning:
 
 ## Getting Help
 
-- **Documentation**: Check the [user guide](../user-guide/pixelization.md) and [API reference](../api/pixelfunc.rst)
+- **Documentation**: Check the [user guide](https://jax-healpy.readthedocs.io/en/latest/user-guide/getting-started/) and [API reference](https://jax-healpy.readthedocs.io/en/latest/api/pixelfunc/)
 - **Discussions**: Use GitHub Discussions for questions and ideas
 - **Issues**: Report bugs and request features via GitHub Issues
 - **Email**: Contact maintainers for sensitive issues
@@ -327,7 +332,7 @@ uv run pytest tests/
 
 **Documentation Build Issues**:
 ```bash
-uv run sphinx-build -E -b html docs/source docs/build/html
+uv run --group docs sh docs/build.sh
 ```
 
 ### Environment Debugging

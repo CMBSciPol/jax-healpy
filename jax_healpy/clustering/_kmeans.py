@@ -31,13 +31,20 @@ _PIOVER2 = pi * 0.5
 class KMeansState(NamedTuple):
     """Holds the state of the KMeans clustering process.
 
-    Attributes:
-        ra_dec (Array): The array of RA and DEC coordinates.
-        centroids (Array): The array of current centroid coordinates.
-        labels (Array): Labels assigning each point to a centroid.
-        mean_distance (Array): Current mean distance between points and centroids.
-        previous_mean_distance (Array): Previous mean distance for convergence check.
-        count (int): Iteration count.
+    Attributes
+    ----------
+    ra_dec : Array
+        The array of RA and DEC coordinates.
+    centroids : Array
+        The array of current centroid coordinates.
+    labels : Array
+        Labels assigning each point to a centroid.
+    mean_distance : Array
+        Current mean distance between points and centroids.
+    previous_mean_distance : Array
+        Previous mean distance for convergence check.
+    count : int
+        Iteration count.
     """
 
     ra_dec: Array
@@ -61,12 +68,18 @@ class KMeans:
     ) -> None:
         """Initialize the KMeans instance.
 
-        Args:
-            ncenters (int): Number of clusters.
-            max_centroids (Optional[int]): Maximum number of centroids to consider.
-            tol (float): Tolerance for convergence.
-            maxiter (int): Maximum number of iterations.
-            initial_sample_size (int): Initial sample size.
+        Parameters
+        ----------
+        ncenters : int
+            Number of clusters.
+        max_centroids : int, optional
+            Maximum number of centroids to consider.
+        tol : float
+            Tolerance for convergence.
+        maxiter : int
+            Maximum number of iterations.
+        initial_sample_size : int
+            Initial sample size.
         """
         self.ncenters = ncenters
         self.max_centroids = max_centroids
@@ -77,12 +90,17 @@ class KMeans:
     def sample_initial(self: Self, ra_dec: Array, key: PRNGKeyArray) -> tuple[Array, Array]:
         """Sample initial data points and centroids.
 
-        Args:
-            ra_dec (Array): Array of RA and DEC coordinates.
-            key (PPRNGKeyArrayRNGKey): JAX random key.
+        Parameters
+        ----------
+        ra_dec : Array
+            Array of RA and DEC coordinates.
+        key : PRNGKeyArray
+            JAX random key.
 
-        Returns:
-            tuple[Array, Array]: Sampled RA/DEC points and initial centroids.
+        Returns
+        -------
+        tuple[Array, Array]
+            Sampled RA/DEC points and initial centroids.
         """
         if self.max_centroids is None:
             nsamples = int(max(2 * np.sqrt(ra_dec.shape[0]), self.initial_sample_size * self.ncenters))
@@ -107,12 +125,17 @@ class KMeans:
     def kmeans_init(self: Self, ra_dec: Array, centroids: Array) -> KMeansState:
         """Initialize the KMeans state.
 
-        Args:
-            ra_dec (Array): Array of RA and DEC coordinates.
-            centroids (Array): Initial centroid coordinates.
+        Parameters
+        ----------
+        ra_dec : Array
+            Array of RA and DEC coordinates.
+        centroids : Array
+            Initial centroid coordinates.
 
-        Returns:
-            KMeansState: Initialized KMeans state.
+        Returns
+        -------
+        KMeansState
+            Initialized KMeans state.
         """
         return KMeansState(
             ra_dec=ra_dec,
@@ -126,12 +149,17 @@ class KMeans:
     def fit(self: Self, ra_dec: Array, centroids: Array) -> KMeansState:
         """Run the KMeans clustering algorithm.
 
-        Args:
-            ra_dec (Array): Array of RA and DEC coordinates.
-            centroids (Array): Initial centroid coordinates.
+        Parameters
+        ----------
+        ra_dec : Array
+            Array of RA and DEC coordinates.
+        centroids : Array
+            Initial centroid coordinates.
 
-        Returns:
-            KMeansState: Final state after clustering.
+        Returns
+        -------
+        KMeansState
+            Final state after clustering.
         """
         centroid_mask = jnp.arange(centroids.shape[0]) < self.ncenters
 
@@ -140,11 +168,15 @@ class KMeans:
         ) -> tuple[Array, Array, tuple[Array, Array, Array], KMeansState]:
             """Perform a single step of the KMeans algorithm.
 
-            Args:
-                carry (tuple): Tuple containing current data and state.
+            Parameters
+            ----------
+            carry : tuple
+                Tuple containing current data and state.
 
-            Returns:
-                tuple: Updated data and state.
+            Returns
+            -------
+            tuple
+                Updated data and state.
             """
             ra_dec, indices, XYZ, state = carry
             Xs, Ys, Zs = XYZ
@@ -162,12 +194,17 @@ class KMeans:
             def for_loop_body(center_indx: int, carry: tuple[Array, Array]) -> tuple[Array, Array]:
                 """Update centroids in the for loop.
 
-                Args:
-                    center_indx (int): Index of the centroid.
-                    carry (tuple): Current centroids and labels.
+                Parameters
+                ----------
+                center_indx : int
+                    Index of the centroid.
+                carry : tuple
+                    Current centroids and labels.
 
-                Returns:
-                    tuple: Updated centroids and labels.
+                Returns
+                -------
+                tuple
+                    Updated centroids and labels.
                 """
                 centroids, labels = carry
                 mask = jnp.where(labels == center_indx, 1, 0)
@@ -199,11 +236,15 @@ class KMeans:
         def kmeans_continue_criteria(carry: tuple[Array, Array, tuple[Array, Array, Array], KMeansState]) -> Array:
             """Check convergence criteria for KMeans.
 
-            Args:
-                carry (tuple): Tuple containing current data and state.
+            Parameters
+            ----------
+            carry : tuple
+                Tuple containing current data and state.
 
-            Returns:
-                Array: Boolean array indicating whether to continue.
+            Returns
+            -------
+            Array
+                Boolean array indicating whether to continue.
             """
             _, _, _, state = carry
 
@@ -225,12 +266,17 @@ class KMeans:
 def cdist_radec(a1: Array, a2: Array) -> Array:
     """Compute pairwise spherical distances between two sets of points.
 
-    Args:
-        a1 (Array): First array of RA and DEC coordinates.
-        a2 (Array): Second array of RA and DEC coordinates.
+    Parameters
+    ----------
+    a1 : Array
+        First array of RA and DEC coordinates.
+    a2 : Array
+        Second array of RA and DEC coordinates.
 
-    Returns:
-        Array: Pairwise spherical distances.
+    Returns
+    -------
+    Array
+        Pairwise spherical distances.
     """
     ra1 = a1[:, 0][:, newaxis]
     dec1 = a1[:, 1][:, newaxis]
@@ -252,13 +298,19 @@ def cdist_radec(a1: Array, a2: Array) -> Array:
 def random_sample(key: PRNGKeyArray, ra_dec: Array, nsamples: int) -> Array:
     """Randomly sample points from the RA/DEC array.
 
-    Args:
-        key (PRNGKeyArray): JAX random key.
-        ra_dec (Array): Array of RA and DEC coordinates.
-        nsamples (int): Number of samples to draw.
+    Parameters
+    ----------
+    key : PRNGKeyArray
+        JAX random key.
+    ra_dec : Array
+        Array of RA and DEC coordinates.
+    nsamples : int
+        Number of samples to draw.
 
-    Returns:
-        Array: Randomly sampled RA/DEC points.
+    Returns
+    -------
+    Array
+        Randomly sampled RA/DEC points.
     """
     nra_dec = ra_dec.shape[0]
     indices = jr.choice(key, nra_dec, shape=(nsamples,), replace=False)
@@ -268,13 +320,19 @@ def random_sample(key: PRNGKeyArray, ra_dec: Array, nsamples: int) -> Array:
 def xyz2radec(x: Array, y: Array, z: Array) -> Array:
     """Convert Cartesian coordinates to spherical (RA/DEC).
 
-    Args:
-        x (Array): X coordinate.
-        y (Array): Y coordinate.
-        z (Array): Z coordinate.
+    Parameters
+    ----------
+    x : Array
+        X coordinate.
+    y : Array
+        Y coordinate.
+    z : Array
+        Z coordinate.
 
-    Returns:
-        Array: Array containing RA and DEC.
+    Returns
+    -------
+    Array
+        Array containing RA and DEC.
     """
     r = sqrt(x**2 + y**2 + z**2)
     theta = arccos(z / r)
@@ -288,12 +346,17 @@ def xyz2radec(x: Array, y: Array, z: Array) -> Array:
 def radec2xyz(ra: Array, dec: Array) -> tuple[Array, Array, Array]:
     """Convert spherical coordinates (RA/DEC) to Cartesian.
 
-    Args:
-        ra (Array): Right Ascension.
-        dec (Array): Declination.
+    Parameters
+    ----------
+    ra : Array
+        Right Ascension.
+    dec : Array
+        Declination.
 
-    Returns:
-        tuple[Array, Array, Array]: Cartesian coordinates (X, Y, Z).
+    Returns
+    -------
+    tuple[Array, Array, Array]
+        Cartesian coordinates (X, Y, Z).
     """
     phi, theta = deg2rad(ra), _PIOVER2 - deg2rad(dec)
     sintheta = sin(theta)
@@ -303,13 +366,19 @@ def radec2xyz(ra: Array, dec: Array) -> tuple[Array, Array, Array]:
 def atbound1(longitude_in: Array, minval: float, maxval: float) -> Array:
     """Ensure longitude is within specified bounds.
 
-    Args:
-        longitude_in (Array): Input longitude values.
-        minval (float): Minimum bound.
-        maxval (float): Maximum bound.
+    Parameters
+    ----------
+    longitude_in : Array
+        Input longitude values.
+    minval : float
+        Minimum bound.
+    maxval : float
+        Maximum bound.
 
-    Returns:
-        Array: Longitude values within specified bounds.
+    Returns
+    -------
+    Array
+        Longitude values within specified bounds.
     """
     range_size = maxval - minval
     longitude = (longitude_in - minval) % range_size + minval
@@ -327,17 +396,27 @@ def kmeans_sample(
 ) -> KMeansState:
     """Perform KMeans clustering on RA/DEC data.
 
-    Args:
-        key (PRNGKeyArray): JAX random key.
-        ra_dec (Array): Array of RA and DEC coordinates.
-        ncenters (int): Number of clusters.
-        max_centroids (Optional[int]): Maximum number of centroids.
-        tol (float): Tolerance for convergence.
-        maxiter (int): Maximum number of iterations.
-        initial_sample_size (int): Initial sample size.
+    Parameters
+    ----------
+    key : PRNGKeyArray
+        JAX random key.
+    ra_dec : Array
+        Array of RA and DEC coordinates.
+    ncenters : int
+        Number of clusters.
+    max_centroids : int, optional
+        Maximum number of centroids.
+    tol : float
+        Tolerance for convergence.
+    maxiter : int
+        Maximum number of iterations.
+    initial_sample_size : int
+        Initial sample size.
 
-    Returns:
-        KMeansState: Final state after clustering.
+    Returns
+    -------
+    KMeansState
+        Final state after clustering.
     """
     if not jnp.isscalar(ncenters):
         raise ValueError('ncenters must be a scalar')

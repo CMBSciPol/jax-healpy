@@ -223,7 +223,7 @@ def _pixel_dtype_for(nside: int) -> jnp.dtype:
 
 
 def isnsideok(nside: int, nest: bool = False) -> bool:
-    """Returns :const:`True` if nside is a valid nside parameter, :const:`False` otherwise.
+    """Returns `True` if nside is a valid nside parameter, `False` otherwise.
 
     NSIDE needs to be a power of 2 only for nested ordering
 
@@ -235,12 +235,12 @@ def isnsideok(nside: int, nest: bool = False) -> bool:
     Returns
     -------
     ok : bool, scalar or array-like
-      :const:`True` if given value is a valid nside, :const:`False` otherwise.
+      `True` if given value is a valid nside, `False` otherwise.
 
     Notes
     -----
     Unlike healpy, booleans are not valid nside values, and infinite or NaN values
-    return :const:`False` instead of raising an exception.
+    return `False` instead of raising an exception.
 
     Examples
     --------
@@ -270,7 +270,7 @@ def isnsideok(nside: int, nest: bool = False) -> bool:
 
 
 def isnpixok(npix: int) -> bool:
-    """Return :const:`True` if npix is a valid value for healpix map size, :const:`False` otherwise.
+    """Return `True` if npix is a valid value for healpix map size, `False` otherwise.
 
     Parameters
     ----------
@@ -280,7 +280,7 @@ def isnpixok(npix: int) -> bool:
     Returns
     -------
     ok : bool, scalar or array-like
-      :const:`True` if given value is a valid number of pixel, :const:`False` otherwise
+      `True` if given value is a valid number of pixel, `False` otherwise
 
     Notes
     -----
@@ -653,7 +653,7 @@ def _thetaphi2lonlat(theta, phi):
 def maptype(m):
     """Describe the type of the map (valid, single, sequence of maps).
     Checks : the number of maps, that all maps have same length and that this
-    length is a valid map size (using :func:`isnpixok`).
+    length is a valid map size (using [`isnpixok`][]).
 
     Parameters
     ----------
@@ -771,9 +771,9 @@ def ang2pix(
 def loc2pix(nside: int, z: ArrayLike, sin_theta: ArrayLike, phi: ArrayLike, nest: bool = False) -> Array:
     """loc2pix : nside,z,sin_theta,phi,nest=False -> ipix (default:RING)
 
-    Same as :func:`ang2pix`, but takes the colatitude through its cosine and sine, which spares
+    Same as [`ang2pix`][], but takes the colatitude through its cosine and sine, which spares
     the trigonometric functions when they are already at hand (e.g. from a rotation). This is
-    the inverse of :func:`pix2loc`.
+    the inverse of [`pix2loc`][].
 
     Parameters
     ----------
@@ -1512,8 +1512,8 @@ def pix2vec(nside: int, ipix: ArrayLike, nest: bool = False) -> Array:
 def pix2loc(nside: int, ipix: ArrayLike, nest: bool = False) -> tuple[Array, Array, Array]:
     """pix2loc : nside,ipix,nest=False -> z,sin_theta,phi (default RING)
 
-    Same as :func:`pix2ang`, but returns the colatitude through its cosine and sine, which the
-    pixel scheme gives without trigonometric functions. This is the inverse of :func:`loc2pix`.
+    Same as [`pix2ang`][], but returns the colatitude through its cosine and sine, which the
+    pixel scheme gives without trigonometric functions. This is the inverse of [`loc2pix`][].
 
     Parameters
     ----------
@@ -1933,12 +1933,13 @@ def get_interp_weights(
     -----
     For exact healpy compatibility, sort the output by pixel values:
 
-    >>> sorted_indices = jnp.argsort(pixels, axis=0)
-    >>> sorted_pixels = jnp.take_along_axis(pixels, sorted_indices, axis=0)
-    >>> sorted_weights = jnp.take_along_axis(weights, sorted_indices, axis=0)
+    ```python
+    sorted_indices = jnp.argsort(pixels, axis=0)
+    sorted_pixels = jnp.take_along_axis(pixels, sorted_indices, axis=0)
+    sorted_weights = jnp.take_along_axis(weights, sorted_indices, axis=0)
+    ```
 
-    Requesting centers does not change the weights:
-    -----------------------------------------------
+    **Requesting centers does not change the weights.**
     `pixels` and `weights` are bit-identical whether `with_centers` is True or False.
     That is not automatic: the centers are read from the same ring geometry the weights
     are built from, and giving those shared nodes a second consumer lets XLA fuse them
@@ -1947,8 +1948,7 @@ def get_interp_weights(
     weights and the ring indices go through a `lax.optimization_barrier`, so the centers
     are built from them and cannot reach back into the weight computation.
 
-    Precision and Algorithmic Considerations:
-    -----------------------------------------
+    **Precision and algorithmic considerations.**
     The phi interpolation calculation can exhibit precision differences compared to healpy,
     particularly for coordinates near the poles and for high nside values (256+). This is due to:
 
@@ -1965,12 +1965,12 @@ def get_interp_weights(
        variations, though weights still sum to 1.0 and maintain interpolation accuracy.
 
     Expected precision levels:
+
     - nside ≤ 64: Machine precision matching (< 1e-25 weight error)
     - nside 128-256: High precision (< 1e-15 weight error)
     - nside ≥ 512: Good precision (< 1e-12 to 1e-5 weight error depending on nside)
 
-    Automatic Differentiation:
-    --------------------------
+    **Automatic differentiation.**
     This function is fully compatible with JAX's automatic differentiation.
     The gradients behave as follows:
 
@@ -1980,7 +1980,9 @@ def get_interp_weights(
     - Neighbour centers likewise have zero gradients: they are fixed points of the
       HEALPix grid, piecewise constant in (theta, phi)
 
-    Example gradient usage:
+    Examples
+    --------
+    Gradient of a bilinear interpolation with respect to the coordinates:
 
     >>> def interpolate_map(m, theta, phi):
     ...     pixels, weights = get_interp_weights(nside, theta, phi)
@@ -2021,8 +2023,7 @@ def _get_interp_weights_ring(
     that read the state once; the fewer arrays the first stage hands over, the less
     memory traffic, which is what bounds this function on GPU in single precision.
 
-    Gradient Compatibility:
-    ----------------------
+    **Gradient compatibility.**
     This function is fully compatible with JAX's automatic differentiation system.
     The implementation carefully separates discrete operations (pixel selection) from
     continuous operations (weight computation):
@@ -2374,11 +2375,13 @@ def get_all_neighbours(
     jax-healpy-specific extension that does not exist in healpy.
 
     When `get_center=False` (default):
+
     - Returns 8 neighbors in identical order to healpy: [SW, W, NW, N, NE, E, SE, S]
     - Produces bit-for-bit identical results to healpy for all input modes
     - Maintains backward compatibility with existing healpy-based code
 
     When `get_center=True` (jax-healpy extension):
+
     - Returns 9 pixels: center pixel + 8 neighbors in order [CENTER, SW, W, NW, N, NE, E, SE, S]
     - Center pixel is always the first element (index 0)
     - Neighbor ordering matches healpy convention starting from index 1
@@ -2676,7 +2679,7 @@ def mask_bad(m: ArrayLike, badval: float = UNSEEN, rtol: float = 1.0e-5, atol: f
     m : array-like
         HEALPix map.
     badval : float, optional
-        Value considered bad (:const:`UNSEEN` by default).
+        Value considered bad ([`UNSEEN`][jax_healpy.pixelfunc.UNSEEN] by default).
     rtol, atol : float, optional
         Relative and absolute tolerances.
 

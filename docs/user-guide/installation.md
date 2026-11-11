@@ -60,7 +60,7 @@ uv sync --all-extras
 uv sync --all-extras --group cuda
 ```
 
-See the [contributing guide](../development/contributing.md) for more details.
+See the [contributing guide](../contributing.md) for more details.
 
 ## High-Performance Computing Systems
 
