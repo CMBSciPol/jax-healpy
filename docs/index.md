@@ -1,4 +1,5 @@
-![jax-healpy logo](logo/jax-healpy-logo.png){ width="600" style="display: block; margin: 0 auto" }
+![jax-healpy logo](assets/jax-healpy-logo.png#only-light){ width="600" .centered }
+![jax-healpy logo](assets/jax-healpy-logo-dark.png#only-dark){ width="600" .centered }
 
 # HEALPix with JAX
 
@@ -61,3 +62,10 @@ smoothed_map = hp.alm2map(alm, nside=nside, lmax=2 * nside)
   [Clustering](api/clustering.md)
 - [**Changelog**](changelog.md)
 - [**Contributing**](contributing.md)
+
+## Acknowledgements
+
+[![Logos of SciPol, the European Union, the ERC and the CNRS](assets/scipol-banner.png#only-light){ width="500" }](https://scipol.in2p3.fr/)
+[![Logos of SciPol, the European Union, the ERC and the CNRS](assets/scipol-banner-dark.png#only-dark){ width="500" }](https://scipol.in2p3.fr/)
+
+jax-healpy is developed within the [SciPol](https://scipol.in2p3.fr/) project.
