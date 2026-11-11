@@ -5,16 +5,19 @@ The text "jax-healpy" is rendered on a plate carree image, projected onto a low-
 HEALPix map to give it a pixelated look, and filled with the Planck CMB temperature map. The
 result is displayed in Mollweide projection with a colormap inspired by the JAX logo colors.
 
-The CMB map is downloaded by ``download-cmb-map.py``. With the default parameters, the logo
-``jax-healpy-logo.png`` is reproduced up to a few pixels on the edges of the letters, which
-depend on the versions of the rendering libraries. The version of the logo for the dark theme
-is then derived from it by ``make-dark-logo.py``.
+The inside of the ellipse is transparent, and the letters and the ellipse are outlined in black,
+or in white for the dark theme (``--dark``).
+
+The CMB map is downloaded by ``download-cmb-map.py``. The logos in ``docs/assets`` are
+generated with the default parameters, and depend on the version of matplotlib: from version
+3.11, the Mollweide image is resampled with a sub-pixel offset, which changes about 2% of the
+pixels.
 
 Usage::
 
     uv run python docs/logo/download-cmb-map.py
     uv run --with scipy python docs/logo/make-logo.py --no-show
-    uv run python docs/logo/make-dark-logo.py
+    uv run --with scipy python docs/logo/make-logo.py --no-show --dark
 """
 
 import argparse
@@ -36,6 +39,7 @@ import jax_healpy as jhp
 jax.config.update('jax_enable_x64', True)
 
 SCRIPT_DIR = Path(__file__).parent
+ASSETS_DIR = SCRIPT_DIR.parent / 'assets'
 
 # Colors inspired by the JAX logo, from negative to positive temperatures.
 JAX_COLORS = ['#2a56c6', '#5e97f6', '#ffffff', '#9c27b0', '#ea80fc']
@@ -43,11 +47,14 @@ JAX_COLORS = ['#2a56c6', '#5e97f6', '#ffffff', '#9c27b0', '#ea80fc']
 # Temperature range of the colormap, in K.
 CMB_RANGE = 300e-6
 
-# Color used to detect the outside of the Mollweide ellipse, which is made transparent.
+# Key colors of the outside of the Mollweide ellipse and of the UNSEEN pixels, which are made
+# transparent. They are not in the colormaps: the colormap inspired by the JAX logo is white
+# at zero temperature, so white cannot be used for the UNSEEN pixels.
 CHROMA = '#ff00ff'
+UNSEEN_KEY = '#00ff00'
 
-# Color of the outlines of the letters and of the Mollweide ellipse.
-OUTLINE_COLOR = [60, 60, 60, 255]
+# Colors of the outlines of the letters and of the Mollweide ellipse.
+OUTLINE_COLOR = {'light': [0, 0, 0, 255], 'dark': [255, 255, 255, 255]}
 
 
 def create_text_mask_plate_carree(
@@ -207,11 +214,11 @@ def get_colormap(name: str) -> Colormap:
     return LinearSegmentedColormap('jax', cmap_data, N=256)
 
 
-def render_logo(masked_cmb: np.ndarray, cmap: Colormap, dpi: int) -> np.ndarray:
+def render_logo(masked_cmb: np.ndarray, cmap: Colormap, dpi: int, outline_color: list[int]) -> np.ndarray:
     """Render the masked CMB map in Mollweide projection and return the RGBA image.
 
-    The outside of the Mollweide ellipse is made transparent, and the letters and the ellipse
-    are outlined.
+    The UNSEEN pixels and the outside of the Mollweide ellipse are made transparent, and the
+    letters and the ellipse are outlined.
     """
     hp.mollview(
         masked_cmb,
@@ -221,7 +228,7 @@ def render_logo(masked_cmb: np.ndarray, cmap: Colormap, dpi: int) -> np.ndarray:
         title='',
         cbar=False,
         xsize=2000,
-        badcolor='white',
+        badcolor=UNSEEN_KEY,
         bgcolor=CHROMA,
     )
     plt.gca().set_facecolor(CHROMA)
@@ -231,26 +238,26 @@ def render_logo(masked_cmb: np.ndarray, cmap: Colormap, dpi: int) -> np.ndarray:
     buffer.seek(0)
     data = np.array(Image.open(buffer).convert('RGBA'))
 
-    # The white pixels are the UNSEEN pixels, around the letters, inside the ellipse.
-    bg_tol = 8
-    is_unseen = np.all(data[:, :, :3].astype(int) > 255 - bg_tol, axis=-1)
+    # The UNSEEN pixels, around the letters, inside the ellipse.
+    tolerance = 8
+    rgb = data[:, :, :3].astype(int)
+    is_unseen = np.all(np.abs(rgb - np.array(to_rgb(UNSEEN_KEY)) * 255) <= tolerance, axis=-1)
 
     # Flood-fill from the corners through the non-UNSEEN pixels to find the outside of the
     # ellipse: the UNSEEN pixels act as a barrier.
     labeled, _ = label(~is_unseen)
     corner_labels = {labeled[0, 0], labeled[0, -1], labeled[-1, 0], labeled[-1, -1]} - {0}
     outside = np.isin(labeled, list(corner_labels))
-    data[outside, 3] = 0
+    is_cmb = ~outside & ~is_unseen
 
-    # Outline the letters
-    is_opaque = data[:, :, 3] > 0
-    is_unseen_opaque = is_unseen & is_opaque
-    is_cmb = is_opaque & ~is_unseen_opaque
-    data[binary_dilation(is_cmb, iterations=3) & is_unseen_opaque] = OUTLINE_COLOR
+    # The outlines of the letters, on the UNSEEN pixels, and of the ellipse, on the outside
+    # pixels. The pixels of the ellipse edge, where the key colors are blended, are covered.
+    letters_outline = binary_dilation(is_cmb, iterations=3) & is_unseen
+    ellipse_outline = binary_dilation(~outside, iterations=3) & outside
+    ellipse_outline |= binary_dilation(outside, iterations=2) & is_unseen
 
-    # Outline the ellipse
-    is_opaque = data[:, :, 3] > 0
-    data[binary_dilation(is_opaque, iterations=3) & ~is_opaque] = OUTLINE_COLOR
+    data[outside | is_unseen, 3] = 0
+    data[letters_outline | ellipse_outline] = outline_color
     return data
 
 
@@ -270,6 +277,7 @@ def make_logo(
     lon_span: float = 360.0,
     lat_span: float = 120.0,
     cmap: str = 'jax',
+    dark: bool = False,
     show: bool = True,
     dpi: int = 300,
 ) -> np.ndarray:
@@ -292,7 +300,8 @@ def make_logo(
     cmb_file : str or Path, optional
         Path to the CMB FITS file. Default: the file written by ``download-cmb-map.py``.
     output_file : str or Path, optional
-        Path to the logo. Default: ``jax-healpy-logo.png`` in this directory.
+        Path to the logo. Default: ``jax-healpy-logo.png``, or ``jax-healpy-logo-dark.png``
+        for the dark theme, in ``docs/assets``.
     mask_file : str or Path, optional
         If provided, path to an image of the text mask in Mollweide projection.
     lon_center : float
@@ -305,6 +314,9 @@ def make_logo(
         Latitude span of the text in degrees.
     cmap : str
         Colormap: `jax` for the colormap inspired by the JAX logo, or a matplotlib colormap.
+    dark : bool
+        Whether to outline the letters and the ellipse in white, for the dark theme, instead
+        of black.
     show : bool
         Whether to display the logo.
     dpi : int
@@ -318,7 +330,7 @@ def make_logo(
     if cmb_file is None:
         cmb_file = SCRIPT_DIR / f'COM_CMB_I-nilc_{nside}_R3.00_full.fits'
     if output_file is None:
-        output_file = SCRIPT_DIR / 'jax-healpy-logo.png'
+        output_file = ASSETS_DIR / ('jax-healpy-logo-dark.png' if dark else 'jax-healpy-logo.png')
 
     mask = create_text_mask_healpix(
         text=text,
@@ -341,7 +353,7 @@ def make_logo(
     masked_cmb = np.where(mask, cmb, hp.UNSEEN)
 
     print(f'Saving the logo to {output_file}...')
-    data = render_logo(masked_cmb, get_colormap(cmap), dpi)
+    data = render_logo(masked_cmb, get_colormap(cmap), dpi, OUTLINE_COLOR['dark' if dark else 'light'])
     Image.fromarray(data).save(output_file)
 
     if mask_file is not None:
@@ -371,13 +383,14 @@ def main() -> None:
     parser.add_argument('--height-scale', type=float, default=1.5, help='Scale factor for the text height')
     parser.add_argument('--text', default='jax-healpy', help='Text of the logo')
     parser.add_argument('--cmb-file', help='Path to the CMB FITS file (default: based on nside)')
-    parser.add_argument('--output', help='Path to the logo (default: jax-healpy-logo.png in this directory)')
+    parser.add_argument('--output', help='Path to the logo (default: jax-healpy-logo[-dark].png in docs/assets)')
     parser.add_argument('--mask-output', help='Path to an image of the text mask')
     parser.add_argument('--lon-center', type=float, default=0.0, help='Center longitude of the text (degrees)')
     parser.add_argument('--lat-center', type=float, default=0.0, help='Center latitude of the text (degrees)')
     parser.add_argument('--lon-span', type=float, default=360.0, help='Longitude span of the text (degrees)')
     parser.add_argument('--lat-span', type=float, default=120.0, help='Latitude span of the text (degrees)')
     parser.add_argument('--cmap', default='jax', help='Colormap')
+    parser.add_argument('--dark', action='store_true', help='Outline in white, for the dark theme')
     parser.add_argument('--dpi', type=int, default=300, help='Output DPI')
     parser.add_argument('--no-show', action='store_true', help='Do not display the logo')
     args = parser.parse_args()
@@ -397,6 +410,7 @@ def main() -> None:
         lon_span=args.lon_span,
         lat_span=args.lat_span,
         cmap=args.cmap,
+        dark=args.dark,
         show=not args.no_show,
         dpi=args.dpi,
     )

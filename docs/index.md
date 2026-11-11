@@ -1,5 +1,5 @@
-![jax-healpy logo](logo/jax-healpy-logo.png#only-light){ width="600" .centered }
-![jax-healpy logo](logo/jax-healpy-logo-dark.png#only-dark){ width="600" .centered }
+![jax-healpy logo](assets/jax-healpy-logo.png#only-light){ width="600" .centered }
+![jax-healpy logo](assets/jax-healpy-logo-dark.png#only-dark){ width="600" .centered }
 
 # HEALPix with JAX
 
