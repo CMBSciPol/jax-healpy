@@ -30,13 +30,23 @@ jobs:
           prek-version: "0.5.3"
 
   test:
-    name: Run tests on Python ${{ matrix.python-version }}
+    name: Run tests on Python ${{ matrix.python.version }} with JAX ${{ matrix.python.jax }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        # Each Python version is tested with the oldest supported JAX minor version, in its
+        # latest patch release, except the most recent Python, tested with the latest JAX.
+        python:
+          - version: "3.11"
+            jax: ">=0.10,<0.11"
+          - version: "3.12"
+            jax: ">=0.10,<0.11"
+          - version: "3.13"
+            jax: ">=0.10,<0.11"
+          - version: "3.14"
+            jax: ">=0.12"
 
     steps:
       - name: Checkout project
@@ -49,13 +59,22 @@ jobs:
         with:
           version: "0.12.19"
           enable-cache: true
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python.version }}
 
       - name: Install dependencies
         run: uv sync --locked --group dev --extra recommended
 
+      # Override the locked JAX version. The following steps use --no-sync, so that uv run
+      # does not reinstall the locked version.
+      - name: Install JAX ${{ matrix.python.jax }}
+        env:
+          JAX_SPEC: ${{ matrix.python.jax }}
+        run: |
+          uv pip install "jax${JAX_SPEC}" "jaxlib${JAX_SPEC}"
+          uv run --no-sync python -c "import jax, jaxlib; print('jax', jax.__version__, 'jaxlib', jaxlib.__version__)"
+
       - name: Run tests
-        run: uv run pytest -vv -n auto -m "not slow"
+        run: uv run --no-sync pytest -vv -n auto -m "not slow"
 
   docs:
     name: Build documentation
