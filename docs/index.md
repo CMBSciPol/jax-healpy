@@ -27,13 +27,6 @@ just-in-time compilation and seamless integration with modern scientific computi
 
 🗺️ **Clustering tools**: clustering of HEALPix maps into regions
 
-## Acknowledgements
-
-[![Logos of SciPol, the European Union, the ERC and the CNRS](images/scipol-banner.png#only-light){ width="500" }](https://scipol.in2p3.fr/)
-[![Logos of SciPol, the European Union, the ERC and the CNRS](images/scipol-banner-dark.png#only-dark){ width="500" }](https://scipol.in2p3.fr/)
-
-jax-healpy is developed within the [SciPol](https://scipol.in2p3.fr/) project.
-
 ## Quick Start
 
 ```python
@@ -67,3 +60,10 @@ smoothed_map = hp.alm2map(alm, nside=nside, lmax=2 * nside)
   [Clustering](api/clustering.md)
 - [**Changelog**](changelog.md)
 - [**Contributing**](contributing.md)
+
+## Acknowledgements
+
+[![Logos of SciPol, the European Union, the ERC and the CNRS](images/scipol-banner.png#only-light){ width="500" }](https://scipol.in2p3.fr/)
+[![Logos of SciPol, the European Union, the ERC and the CNRS](images/scipol-banner-dark.png#only-dark){ width="500" }](https://scipol.in2p3.fr/)
+
+jax-healpy is developed within the [SciPol](https://scipol.in2p3.fr/) project.
