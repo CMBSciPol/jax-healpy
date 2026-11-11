@@ -21,6 +21,7 @@ Key Features
 
 .. toctree::
    :maxdepth: 1
+   :hidden:
    :caption: User Guide
 
    user-guide/installation
@@ -32,6 +33,7 @@ Key Features
 
 .. toctree::
    :maxdepth: 1
+   :hidden:
    :caption: API Reference
 
    api/pixelfunc
@@ -41,6 +43,7 @@ Key Features
 
 .. toctree::
    :maxdepth: 1
+   :hidden:
    :caption: Development
 
    development/contributing
