@@ -54,8 +54,7 @@ smoothed_map = hp.alm2map(alm, nside=nside, lmax=2 * nside)
 
 - **User Guide**: [Installation](user-guide/installation.md),
   [Getting started](user-guide/getting-started.md), [Basic usage](user-guide/basic-usage.md),
-  [Pixelization](user-guide/pixelization.md), [Polarization](user-guide/polarization.md),
-  [Clustering](user-guide/clustering.md),
+  [Pixelization](user-guide/pixelization.md), [Clustering](user-guide/clustering.md),
   [Performance tips](user-guide/performance-tips.md)
 - **API Reference**: [Pixel functions](api/pixelfunc.md),
   [Disc queries](api/query-disc.md), [Spherical harmonics](api/sphtfunc.md),

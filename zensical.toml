@@ -23,7 +23,6 @@ nav = [
       "user-guide/getting-started.md",
       "user-guide/basic-usage.md",
       "user-guide/pixelization.md",
-      "user-guide/polarization.md",
       "user-guide/clustering.md",
       "user-guide/performance-tips.md",
   ] },
