@@ -29,7 +29,7 @@ just-in-time compilation and seamless integration with modern scientific computi
 
 ## Acknowledgements
 
-[![SciPol logo](images/scipol.png){ width="200" style="background-color: white" }](https://scipol.in2p3.fr/)
+[![Logos of SciPol, the European Union, the ERC and the CNRS](https://scipol.in2p3.fr/wp-content/uploads/2024/01/logo_banner-1024x271.jpg){ width="500" }](https://scipol.in2p3.fr/)
 
 jax-healpy is developed within the [SciPol](https://scipol.in2p3.fr/) project.
 
