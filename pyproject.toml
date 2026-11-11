@@ -28,12 +28,14 @@ classifiers = [
     'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: 3.12',
     'Programming Language :: Python :: 3.13',
+    'Programming Language :: Python :: 3.14',
     'Intended Audience :: Science/Research',
     'Operating System :: OS Independent',
     'Topic :: Scientific/Engineering',
 ]
 requires-python = '>=3.11'
-license = {file = 'LICENSE'}
+license = 'GPL-3.0-or-later'
+license-files = ['LICENSE']
 dependencies = [
     'jax>=0.10.0',
     'jaxtyping>=0.3',
@@ -61,17 +63,15 @@ dev = [
     'pytest>=9.0',
     'pytest-cov',
     'pytest-mock',
+    'pytest-notebook>=0.11',
     'pytest-rerunfailures',
     'pytest-xdist',
     'PyYAML',
 ]
 docs = [
-    'ipykernel>=6.0',
-    'myst-parser>=1.0',
-    'nbsphinx>=0.8',
-    'sphinx>=5.0',
-    'sphinx-book-theme>=1.0',
-    'sphinx-copybutton>=0.5',
+    'jupyter>=1.0',
+    'mkdocstrings-python>=2.0',
+    'zensical>=0.1',
 ]
 cuda = ['jax[cuda13]>=0.10.0']
 
@@ -102,6 +102,13 @@ minversion = "9"
 strict = true
 testpaths = [
     'tests',
+    'docs/user-guide',
+]
+nb_test_files = true
+nb_diff_ignore = [
+    '/cells/*/execution_count',
+    '/cells/*/outputs',
+    '/metadata/language_info',
 ]
 markers = [
     "slow: marks tests as slow (deselected by default in CI)",

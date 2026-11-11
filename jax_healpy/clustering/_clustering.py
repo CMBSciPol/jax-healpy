@@ -17,7 +17,6 @@
 
 import jax
 import numpy as np
-from jax import core
 from jax import numpy as jnp
 from jaxtyping import Array, PRNGKeyArray
 
@@ -30,12 +29,17 @@ from ._kmeans import kmeans_sample
 def call_back_check(n_regions: Array, max_centroids: None) -> None:
     """Check if the number of regions exceeds the maximum centroids.
 
-    Args:
-        n_regions (Array): Number of regions requested.
-        max_centroids (None): Maximum allowed centroids.
+    Parameters
+    ----------
+    n_regions : Array
+        Number of regions requested.
+    max_centroids : int or None
+        Maximum allowed centroids.
 
-    Raises:
-        RuntimeError: If n_regions exceeds max_centroids.
+    Raises
+    ------
+    RuntimeError
+        If `n_regions` exceeds `max_centroids`.
     """
     if max_centroids is not None and n_regions > max_centroids:
         raise RuntimeError("""
@@ -52,27 +56,84 @@ def call_back_check(n_regions: Array, max_centroids: None) -> None:
 def get_cutout_from_mask(ful_map: Array, indices: Array, axis: int = 0) -> Array:
     """Extract a cutout from a full map using given indices.
 
-    Args:
-        ful_map (Array): The full HEALPix map.
-        indices (Array): Indices for the cutout.
-        axis (int, optional): Axis along which to apply the cutout. Defaults to 0.
+    Parameters
+    ----------
+    ful_map : Array or pytree of Arrays
+        The full HEALPix map(s).
+    indices : Array
+        Pixel indices of the cutout.
+    axis : int, optional
+        Axis along which to apply the cutout. Default: 0.
 
-    Returns:
-        Array: The cutout map.
+    Returns
+    -------
+    Array or pytree of Arrays
+        The cutout map(s).
 
-    Example:
+    See Also
+    --------
+    get_fullmap_from_cutout : The inverse operation.
 
-        >>> mask = np.load("GAL20.npy")
-        >>> indices, = jnp.where(mask == 1)
-        >>> full_map = random.normal(random.key(0), shape=(jhp.nside2npix(64),))
-        >>> cutout = get_cutout_from_mask(full_map, indices)
-        >>> print(cutout.shape)
+    Examples
+    --------
+    >>> import jax
+    >>> import jax.numpy as jnp
+    >>> import jax_healpy as jhp
+    >>> nside = 16
+    >>> theta, phi = jhp.pix2ang(nside, jnp.arange(jhp.nside2npix(nside)))
+    >>> mask = jnp.abs(theta - jnp.pi / 2) > jnp.deg2rad(20)  # galactic cut
+    >>> (indices,) = jnp.where(mask)
+    >>> full_map = jax.random.normal(jax.random.key(0), (jhp.nside2npix(nside),))
+    >>> cutout = get_cutout_from_mask(full_map, indices)
+    >>> cutout.shape
+    (1984,)
     """
     return jax.tree.map(lambda x: jnp.take(x, indices, axis=axis), ful_map)
 
 
 @jax.jit(static_argnums=(2, 3))
 def combine_masks(cutouts: list[Array], indices: list[Array], nside: int, axis: int = 0) -> Array:
+    """Combine several cutouts into a full map.
+
+    Parameters
+    ----------
+    cutouts : list of Arrays or of pytrees of Arrays
+        The cutouts, which must all have the same pytree structure.
+    indices : list of Arrays
+        The pixel indices of each cutout.
+    nside : int
+        HEALPix nside of the full map.
+    axis : int, optional
+        The axis of the cutouts that corresponds to the pixel dimension. Default: 0.
+
+    Returns
+    -------
+    Array or pytree of Arrays
+        Full map(s), with `UNSEEN` in the pixels not covered by any cutout. Where cutouts
+        overlap, the last one wins.
+
+    Raises
+    ------
+    ValueError
+        If the numbers of cutouts and indices differ, or if the cutouts do not have the same
+        structure.
+
+    Examples
+    --------
+    >>> import jax
+    >>> import jax.numpy as jnp
+    >>> import jax_healpy as jhp
+    >>> nside = 16
+    >>> theta, phi = jhp.pix2ang(nside, jnp.arange(jhp.nside2npix(nside)))
+    >>> mask = jnp.abs(theta - jnp.pi / 2) > jnp.deg2rad(20)  # galactic cut
+    >>> (indices,) = jnp.where(mask)
+    >>> full_map = jax.random.normal(jax.random.key(0), (jhp.nside2npix(nside),))
+    >>> north, south = indices[:992], indices[992:]
+    >>> cutouts = [get_cutout_from_mask(full_map, north), get_cutout_from_mask(full_map, south)]
+    >>> combined = combine_masks(cutouts, [north, south], nside)
+    >>> bool(jnp.array_equal(combined[indices], full_map[indices]))
+    True
+    """
     if len(cutouts) != len(indices):
         raise ValueError(' The number of cutouts and indices must match.')
     structure = jax.tree.structure(cutouts[0])
@@ -96,25 +157,46 @@ def combine_masks(cutouts: list[Array], indices: list[Array], nside: int, axis: 
 
 @jax.jit(static_argnums=(2, 3))
 def get_fullmap_from_cutout(labels: Array, indices: Array, nside: int, axis: int = 0) -> Array:
-    """
-    Reconstruct the full map from a cutout by inserting values along a specified axis.
+    """Reconstruct the full map from a cutout by inserting values along a specified axis.
 
-    Args:
-        labels (Array): The cutout array, shape [..., npatch, ...].
-        indices (Array): The pixel indices for the cutout.
-        nside (int): HEALPix NSIDE.
-        axis (int): The axis in `labels` that corresponds to the patch dimension (to be expanded to npix).
+    Parameters
+    ----------
+    labels : Array or pytree of Arrays
+        The cutout array(s), of shape `(..., npatch, ...)`.
+    indices : Array
+        The pixel indices of the cutout.
+    nside : int
+        HEALPix nside of the full map.
+    axis : int, optional
+        The axis of `labels` that corresponds to the patch dimension, to be expanded to
+        `npix`. Default: 0.
 
-    Returns:
-        Array: Full map array with shape like `labels`, but with `npatch` → `npix` along the specified axis.
-    Example:
+    Returns
+    -------
+    Array or pytree of Arrays
+        Full map(s) with the shape of `labels`, but with `npatch` replaced by `npix` along
+        `axis`. The pixels outside the cutout are set to `UNSEEN`.
 
-        >>> mask = np.load("GAL20.npy")
-        >>> indices, = jnp.where(mask == 1)
-        >>> full_map = random.normal(random.key(0), shape=(jhp.nside2npix(64),))
-        >>> cutout = get_cutout_from_mask(full_map, indices)
-        >>> reconstructed = get_fullmap_from_cutout(cutout, indices, nside=64)
-        >>> print(jnp.array_equal(reconstructed, full_map))
+    See Also
+    --------
+    get_cutout_from_mask : The inverse operation.
+
+    Examples
+    --------
+    >>> import jax
+    >>> import jax.numpy as jnp
+    >>> import jax_healpy as jhp
+    >>> nside = 16
+    >>> theta, phi = jhp.pix2ang(nside, jnp.arange(jhp.nside2npix(nside)))
+    >>> mask = jnp.abs(theta - jnp.pi / 2) > jnp.deg2rad(20)  # galactic cut
+    >>> (indices,) = jnp.where(mask)
+    >>> full_map = jax.random.normal(jax.random.key(0), (jhp.nside2npix(nside),))
+    >>> cutout = get_cutout_from_mask(full_map, indices)
+    >>> reconstructed = get_fullmap_from_cutout(cutout, indices, nside=nside)
+    >>> bool(jnp.array_equal(reconstructed[mask], full_map[mask]))
+    True
+    >>> bool(jnp.all(reconstructed[~mask] == jhp.UNSEEN))
+    True
     """
     npix = 12 * nside**2
 
@@ -141,44 +223,52 @@ def find_kmeans_clusters(
 ) -> Array:
     """Cluster pixels of a HEALPix map into regions using KMeans.
 
-    Args:
-        mask (Array): HEALPix mask.
-        indices (Array): Indices of valid pixels.
-        n_regions (int): Number of regions to cluster into.
-        key (PRNGKeyArray): JAX random key.
-        max_centroids (int | None, optional): Maximum allowed centroids. Defaults to None.
-        unassigned (float, optional): Value for unassigned pixels. Defaults to jhp.UNSEEN.
-        initial_sample_size (int, optional): Initial sample size for KMeans. Defaults to 3.
-            It is used to initialize the centroids.
-            The sample size is initial_sample_size * n_regions.
+    Parameters
+    ----------
+    mask : Array
+        HEALPix mask. Only its size is used, to determine the map nside.
+    indices : Array
+        Indices of the valid pixels, which are the pixels to be clustered.
+    n_regions : int
+        Number of regions to cluster into.
+    key : PRNGKeyArray
+        JAX random key.
+    max_centroids : int, optional
+        Maximum number of centroids. If provided, `n_regions` can be a tracer, so that the
+        function can be jitted for different numbers of regions without recompilation.
+    unassigned : float, optional
+        Value of the pixels that are not in `indices`. Default: `UNSEEN`.
+    initial_sample_size : int, optional
+        The centroids are initialized from a random sample of
+        `initial_sample_size * n_regions` pixels. Default: 3.
 
-    Returns:
-        Array: Map with clustered region labels.
+    Returns
+    -------
+    Array
+        Map of the region labels, from 0 to `n_regions - 1`, and `unassigned` outside
+        `indices`.
 
-    Raises:
-        RuntimeError: If n_regions exceeds max_centroids when provided.
-        TracerBoolConversionError: If n_regions is a tracer and max_centroids is None.
+    Raises
+    ------
+    RuntimeError
+        If `n_regions` exceeds `max_centroids` when the latter is provided.
+    TracerBoolConversionError
+        If `n_regions` is a tracer and `max_centroids` is None.
 
-    Example:
-        >>> import numpy as np
-        >>> from jax import numpy as jnp, random
-        >>> import jax_healpy as jhp
-
-        # Load mask and identify valid pixels
-        >>> mask = np.load("GAL20.npy")
-        >>> indices, = jnp.where(mask == 1)
-        >>> key = random.key(0)
-
-        # Perform clustering
-        >>> clustered_map = find_kmeans_clusters(mask, indices, n_regions=5, key=key)
-        >>> print(jnp.unique(clustered_map))
-        [0 1 2 3 4]
-
-        # Error example when max_centroids constraint is violated
-        >>> try:
-        ...     clustered_map = find_kmeans_clusters(mask, indices, n_regions=15, key=key, max_centroids=10)
-        ... except RuntimeError as e:
-        ...     print(e)
+    Examples
+    --------
+    >>> import jax
+    >>> import jax.numpy as jnp
+    >>> import jax_healpy as jhp
+    >>> nside = 16
+    >>> theta, phi = jhp.pix2ang(nside, jnp.arange(jhp.nside2npix(nside)))
+    >>> mask = jnp.abs(theta - jnp.pi / 2) > jnp.deg2rad(20)  # galactic cut
+    >>> (indices,) = jnp.where(mask)
+    >>> labels = find_kmeans_clusters(mask, indices, n_regions=5, key=jax.random.key(0))
+    >>> print(jnp.unique(labels[indices]))
+    [0. 1. 2. 3. 4.]
+    >>> bool(jnp.all(labels[~mask] == jhp.UNSEEN))
+    True
     """
     jax.debug.callback(call_back_check, n_regions, max_centroids)
 
@@ -202,30 +292,39 @@ def find_kmeans_clusters(
 
 @jax.jit(static_argnums=(2,))
 def normalize_by_first_occurrence(arr: Array, n_regions: int, max_centroids: int) -> Array:
-    """
-    Normalize an array by mapping each unique value to the index of its first occurrence,
-    preserving order up to `n_regions` values.
+    """Relabel an array by the order of first occurrence of its values.
 
-    Any value not among the first `n_regions` unique elements (determined by order of
-    appearance) is clipped to fit within `[0, n_regions - 1]`, or set to `UNSEEN` if
-    originally marked as such.
+    Each unique value is replaced by the rank of its first appearance, so that the labels
+    are contiguous, compact and order-consistent. Values beyond the first `n_regions`
+    unique values are clipped to `[0, n_regions - 1]`, and `UNSEEN` values are kept.
 
-    This is useful after clustering or segmentation tasks to ensure label indices are
-    contiguous, compact, and order-consistent for downstream processing.
+    This is useful after clustering or segmentation tasks, for downstream processing.
 
-    Args:
-        arr: Integer array (1D or ND) containing raw labels, including possible `UNSEEN` markers.
-        n_regions: Maximum number of regions (unique labels) to preserve. Others are clipped.
-        max_centroids: Maximum number of unique labels expected (must be static for JIT).
+    Parameters
+    ----------
+    arr : Array
+        Array of raw labels, possibly containing `UNSEEN` values.
+    n_regions : int
+        Maximum number of regions (unique labels) to preserve. Others are clipped.
+    max_centroids : int
+        Maximum number of unique labels expected. It must be static under `jax.jit`.
 
-    Returns:
-        An array of same shape as `arr`, where each label is replaced by its first-seen index,
-        or `UNSEEN` if it was originally marked or beyond `n_regions`.
+    Returns
+    -------
+    Array
+        Array of the same shape as `arr`, where each label is replaced by the rank of its
+        first occurrence, and `UNSEEN` values are kept.
 
-    Example:
-        >>> arr = jnp.array([UNSEEN, UNSEEN, 5, 5, 5, 2, 3, 3, 8])
-        >>> normalize_by_first_occurrence(arr, 4, 10)
-        Array([UNSEEN, UNSEEN, 0, 0, 0, 1, 2, 2, 3])
+    Examples
+    --------
+    >>> import jax.numpy as jnp
+    >>> from jax_healpy import UNSEEN
+    >>> arr = jnp.array([UNSEEN, UNSEEN, 5, 5, 5, 2, 3, 3, 8])
+    >>> labels = normalize_by_first_occurrence(arr, 4, 10)
+    >>> print(labels[2:])
+    [0. 0. 0. 1. 2. 2. 3.]
+    >>> bool(jnp.all(labels[:2] == UNSEEN))
+    True
     """
     arr_unseen = jnp.concatenate([jnp.array([UNSEEN]), arr])
 
@@ -244,31 +343,39 @@ def normalize_by_first_occurrence(arr: Array, n_regions: int, max_centroids: int
 
 
 def shuffle_labels(arr: Array) -> Array:
-    """
-    Randomly reassigns label indices using a NumPy-based permutation.
+    """Randomly reassign label indices using a NumPy-based permutation.
 
-    Assumes that input labels are normalized integers in [0, N), with possible `hp.UNSEEN`
-    entries. The function produces a random bijective mapping of present labels, preserving
-    shape and leaving `hp.UNSEEN` values unchanged.
+    The input labels are assumed to be normalized integers in `[0, N)`, with possible
+    `UNSEEN` entries. The function applies a random bijective mapping to the labels,
+    preserving the shape and leaving the `UNSEEN` values unchanged.
 
-    This is intended for visualization purposes — shuffling label indices can reduce
+    This is intended for visualization purposes: shuffling label indices can reduce
     misleading visual patterns (e.g., color clumping) in plots such as `mollview`, making
-    class structure easier to interpret.
+    the class structure easier to interpret.
 
-    Args:
-        arr: Integer array of label indices, e.g., [0, 0, 1, 2, hp.UNSEEN].
+    Parameters
+    ----------
+    arr : Array
+        Array of label indices, e.g. `[0, 0, 1, 2, UNSEEN]`. It cannot be a tracer.
 
-    Returns:
-        A NumPy array of the same shape as `arr`, with valid labels randomly permuted.
-        `hp.UNSEEN` entries are left unchanged.
+    Returns
+    -------
+    numpy.ndarray
+        Array of the same shape as `arr`, with valid labels randomly permuted and `UNSEEN`
+        entries unchanged.
 
-    Example:
-        >>> arr = np.array([0, 0, 1, 1, 2, hp.UNSEEN])
-        >>> shuffle_labels(arr)
-        array([2, 2, 0, 0, 1, hp.UNSEEN])  # result will vary
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from jax_healpy import UNSEEN
+    >>> arr = np.array([0, 0, 1, 1, 2, UNSEEN])
+    >>> shuffle_labels(arr)  # doctest: +SKIP
+    array([ 2.0000e+00,  2.0000e+00,  0.0000e+00,  0.0000e+00,  1.0000e+00, -1.6375e+30])
     """
-    if not core.is_concrete(arr):
-        raise ValueError('shuffle_labels is not compatible with JIT.')
+    try:
+        arr = np.asarray(arr)
+    except jax.errors.TracerArrayConversionError:
+        raise ValueError('shuffle_labels is not compatible with JIT.') from None
 
     unique_vals = np.unique(arr[arr != UNSEEN])
     shuffled_vals = np.random.permutation(unique_vals)

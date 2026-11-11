@@ -6,7 +6,7 @@ We welcome contributions to jax-healpy! This guide will help you get started wit
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.11+
 - Git
 - JAX (CPU or GPU version)
 
@@ -18,21 +18,15 @@ We welcome contributions to jax-healpy! This guide will help you get started wit
    cd jax-healpy
    ```
 
-2. **Create a virtual environment**:
+2. **Install the development dependencies** with [uv](https://docs.astral.sh/uv/):
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   uv sync --all-extras
    ```
 
-3. **Install development dependencies**:
+3. **Install the git hooks** with [prek](https://github.com/j178/prek):
    ```bash
-   pip install -e .[test,recommended]
-   ```
-
-4. **Install pre-commit hooks** (optional but recommended):
-   ```bash
-   pip install pre-commit
-   pre-commit install
+   uv tool install prek
+   prek install
    ```
 
 ## Development Workflow
@@ -55,11 +49,16 @@ We welcome contributions to jax-healpy! This guide will help you get started wit
 
 4. **Update documentation** if needed:
    ```bash
-   # Update docstrings, README, or add examples
-   # Build docs locally to check formatting
-   cd docs
-   make html
+   # Update docstrings, README, or the user guide notebooks
+   # Build the site locally into site/ to check the formatting
+   uv run --group docs sh docs/build.sh
    ```
+
+   The user guide pages are Jupyter notebooks under `docs/user-guide/`. They are committed
+   without their outputs, executed as regression tests by `pytest`, and converted to Markdown
+   pages by `docs/build.sh` before the site is built by [Zensical](https://zensical.org).
+   To preview the site with live reload while editing a Markdown page, run `uv run zensical serve`
+   after a first build.
 
 5. **Commit your changes**:
    ```bash
@@ -90,13 +89,13 @@ pytest -m "not slow"
 We use several tools to maintain code quality:
 
 ```bash
-pre-commit install
+prek install
 
-# Pre-commit hooks will run ruff, mypy and other QA tools automatically at each commit
+# The git hooks run ruff and other QA tools automatically at each commit
 git commit -am "New commit"
 
-# to run the QA tools on the whole repository:
-pre-commit run --all-files
+# To run the QA tools on the whole repository:
+prek run --all-files
 ```
 
 ## Coding Standards
@@ -288,7 +287,7 @@ Releases are handled by maintainers following semantic versioning:
 
 ## Getting Help
 
-- **Documentation**: Check the [user guide](../user_guide/pixelization.md) and [API reference](../api/)
+- **Documentation**: Check the [user guide](https://jax-healpy.readthedocs.io/en/latest/user-guide/getting-started/) and [API reference](https://jax-healpy.readthedocs.io/en/latest/api/pixelfunc/)
 - **Discussions**: Use GitHub Discussions for questions and ideas
 - **Issues**: Report bugs and request features via GitHub Issues
 - **Email**: Contact maintainers for sensitive issues
@@ -316,29 +315,24 @@ Contributors are recognized in:
 
 **JAX Installation Issues**:
 ```bash
-# Ensure correct JAX version for your hardware
-pip install --upgrade jax jaxlib  # CPU
-pip install --upgrade jax[cuda12]  # GPU
+# Install JAX with NVIDIA GPU support (CUDA 13)
+uv sync --all-extras --group cuda
 ```
 
 **Import Errors**:
 ```bash
-# Reinstall in development mode
-pip install -e .
+# Resynchronize the development environment
+uv sync --all-extras
 ```
 
 **Test Failures**:
 ```bash
-# Clear JAX cache and retry
-python -c "import jax; jax.clear_caches()"
-pytest tests/
+uv run pytest tests/
 ```
 
 **Documentation Build Issues**:
 ```bash
-# Install documentation dependencies
-pip install -r docs/requirements.txt
-cd docs && make clean && make html
+uv run --group docs sh docs/build.sh
 ```
 
 ### Environment Debugging

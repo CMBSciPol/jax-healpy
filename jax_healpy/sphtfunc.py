@@ -83,8 +83,8 @@ def precompute_temperature_harmonic_transforms(
     Only relevant when using the 'jax' method with s2fft. Pre-computing these
     coefficients can significantly speed up repeated calls to map2alm/alm2map.
 
-    .. note::
-        These coefficients are **not yet consumed** by :func:`map2alm` / :func:`alm2map`
+    !!! note
+        These coefficients are **not yet consumed** by [`map2alm`][] / [`alm2map`][]
         (those functions do not currently accept a ``precomps`` argument and recompute
         the coefficients internally). This helper is provided for direct use with s2fft
         and is reserved for a future ``precomps`` plumbing through the transforms.
@@ -130,9 +130,9 @@ def precompute_polarization_harmonic_transforms(
     Only relevant when using the 'jax' method with s2fft. Pre-computing these
     coefficients can significantly speed up repeated calls to polarization transforms.
 
-    .. note::
-        These coefficients are **not yet consumed** by the polarized :func:`map2alm` /
-        :func:`alm2map` (those functions do not currently accept a ``precomps`` argument
+    !!! note
+        These coefficients are **not yet consumed** by the polarized [`map2alm`][] /
+        [`alm2map`][] (those functions do not currently accept a ``precomps`` argument
         and recompute the coefficients internally). This helper is provided for direct use
         with s2fft and is reserved for a future ``precomps`` plumbing through the transforms.
 
@@ -427,7 +427,7 @@ def _alm2map_core(
 
 
 def bad_pixel_mask(m: ArrayLike) -> Bool[Array, '...']:
-    """Boolean mask of bad pixels: `UNSEEN` (via :func:`mask_bad`) or non-finite (``NaN`` / ``+-inf``).
+    """Boolean mask of bad pixels: `UNSEEN` (via [`mask_bad`][]) or non-finite (``NaN`` / ``+-inf``).
 
     Parameters
     ----------
@@ -797,12 +797,12 @@ def map2alm(
     in ring ordering.
 
     For recommendations about how to set ``lmax`` and ``iter`` see the
-    `Anafast documentation <https://healpix.sourceforge.io/html/fac_anafast.htm>`_.
+    [Anafast documentation](https://healpix.sourceforge.io/html/fac_anafast.htm).
     Pixels are weighted with the uniform value ``4*pi/n_pix`` before the transform.
 
-    .. note::
+    !!! note
         Weighting options (``use_weights``, ``use_pixel_weights``, ``datapath``) and
-        ``gal_cut`` are not implemented and raise :class:`NotImplementedError` if set;
+        ``gal_cut`` are not implemented and raise [`NotImplementedError`][] if set;
         only the uniform weighting is currently available.
 
     Parameters
@@ -843,7 +843,7 @@ def map2alm(
       Transform backend ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'.
     bad_mask : array-like of bool, optional
       Mask of pixels to zero before the transform, broadcastable to the shape of
-      ``maps``. Use :func:`bad_pixel_mask` to build it from a map containing
+      ``maps``. Use [`bad_pixel_mask`][] to build it from a map containing
       `UNSEEN` or non-finite values. Default: None (no masking).
 
     Returns
@@ -862,7 +862,7 @@ def map2alm(
 
     Because the mask is an argument rather than a function of the pixel values,
     the transform is exactly linear in ``maps`` for any fixed ``bad_mask``. It can
-    therefore be transposed with :func:`jax.linear_transpose` and reused as a linear
+    therefore be transposed with [`jax.linear_transpose`][] and reused as a linear
     operator across the iterations of a solver.
 
     Examples
@@ -1015,6 +1015,7 @@ def almxfl(alm: ArrayLike, fl: ArrayLike, mmax: int | None = None, healpy_orderi
     Notes
     -----
     This function is commonly used for:
+
     - Beam convolution: fl = exp(-l(l+1)*sigma^2/2)
     - Pixel window correction: fl = pixel_window[l]
     - Arbitrary filtering: fl = filter_function[l]
@@ -1129,6 +1130,7 @@ def alm2cl(
     ----------
     alms1 : array-like or list of arrays
         Spherical harmonic coefficients. Can be:
+
         - Single array for one alm
         - List/tuple of arrays for multiple alms (produces n(n+1)/2 spectra)
     alms2 : array-like or list of arrays, optional
@@ -1738,6 +1740,7 @@ def synalm(
         JAX random number generator key (required first argument)
     cls : array-like or sequence of arrays
         Power spectrum data. Can be:
+
         - Single 1D array for the scalar (temperature-only) case
         - Sequence of 4 arrays for polarization (ordering set by ``new``)
         - Sequence of n(n+1)/2 arrays for full field correlations
@@ -1749,8 +1752,10 @@ def synalm(
         value raises NotImplementedError.
     new : bool, optional
         Ordering convention for a sequence of input spectra (matches healpy):
+
         - True: by diagonal, e.g. ``TT, EE, BB, TE, EB, TB`` (or ``TT, EE, BB, TE``)
         - False (default): by row, e.g. ``TT, TE, TB, EE, EB, BB`` (or ``TT, TE, EE, BB``)
+
         Ignored for a single input spectrum.
     healpy_ordering : bool, optional
         If True, output uses healpy 1D format. If False, s2fft 2D format. Default: False
@@ -1765,6 +1770,7 @@ def synalm(
     Notes
     -----
     For the scalar case:
+
     - m=0: a_l0 is real, drawn from N(0, C_l)
     - m>0: a_lm is complex, real and imag parts drawn from N(0, C_l/2)
 
@@ -1934,7 +1940,7 @@ def synfast(
     cls : array-like or sequence of arrays
         Input power spectrum/spectra. A single 1D array for the scalar case, or a
         sequence of 4 or n(n+1)/2 spectra for polarization (ordering set by
-        ``new``; see :func:`synalm`).
+        ``new``; see [`synalm`][]).
     nside : int
         HEALPix nside parameter for output map
     lmax : int, optional
@@ -1965,7 +1971,7 @@ def synfast(
     new : bool, optional
         Ordering convention for a sequence of input spectra (matches healpy):
         True for the new by-diagonal order, False (default) for the old by-row
-        order. Ignored for a single input spectrum. See :func:`synalm`.
+        order. Ignored for a single input spectrum. See [`synalm`][].
     method : str, optional
         Transform method ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'
         JAX-specific parameter not present in healpy.
@@ -1981,8 +1987,8 @@ def synfast(
     Notes
     -----
     This function generates random alm coefficients from the input power
-    spectrum/spectra (see :func:`synalm`), then transforms them to a map using
-    :func:`alm2map`. For polarization the per-multipole field covariance is built
+    spectrum/spectra (see [`synalm`][]), then transforms them to a map using
+    [`alm2map`][]. For polarization the per-multipole field covariance is built
     from the (cross-)spectra and its matrix square root is used so that
     cross-spectra such as TE are reproduced exactly. Pixel window functionality
     is not yet implemented.
@@ -2094,7 +2100,7 @@ def map2alm_spin(
         If True, return alms in healpy format. If False, s2fft format. Default: False
     bad_mask : array-like of bool, optional
         Mask of pixels to zero before the transform, broadcastable to the shape of
-        ``maps``. Default: None (no masking). See :func:`map2alm`.
+        ``maps``. Default: None (no masking). See [`map2alm`][].
 
     Returns
     -------

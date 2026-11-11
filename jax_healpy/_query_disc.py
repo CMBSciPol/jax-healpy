@@ -736,6 +736,7 @@ def _query_disc_bruteforce(
     8. Squeeze output for single vector compatibility
 
     Performance Comparison:
+
     - For nside=512: ~3M pixels → creates 3M × batch_size arrays
     - For nside=1024: ~12M pixels → creates 12M × batch_size arrays
     - Geometric algorithm processes only candidate rings (~10-100× fewer operations)

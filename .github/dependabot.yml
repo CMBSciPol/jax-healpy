@@ -40,7 +40,6 @@ updates:
           - "pyyaml"
       docs:
         patterns:
-          - "sphinx*"
-          - "myst-parser"
-          - "nbsphinx"
-          - "ipykernel"
+          - "zensical"
+          - "mkdocstrings*"
+          - "jupyter"

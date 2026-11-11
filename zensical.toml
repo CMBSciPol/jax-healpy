@@ -1,0 +1,142 @@
+[project]
+site_name = "jax-healpy documentation"
+site_description = "HEALPix functions in JAX."
+site_author = "jax-healpy contributors"
+site_url = "https://jax-healpy.readthedocs.io/en"
+copyright = "&copy; 2024-2026 jax-healpy contributors"
+repo_url = "https://github.com/CMBSciPol/jax-healpy"
+repo_name = "CMBSciPol/jax-healpy"
+edit_uri = "edit/main/docs/"
+
+# Only the logo is published from docs/logo/, not the scripts and the CMB maps they use.
+exclude_docs = """
+logo/*
+!logo/jax-healpy-logo.png
+"""
+
+# https://zensical.org/docs/setup/navigation/
+# The user-guide pages, except the installation, are generated from the notebooks before the
+# build: uv run --group docs --extra recommended sh docs/build.sh
+nav = [
+  { "Home" = "index.md" },
+  { "User Guide" = [
+      "user-guide/installation.md",
+      "user-guide/getting-started.md",
+      "user-guide/basic-usage.md",
+      "user-guide/pixelization.md",
+      "user-guide/clustering.md",
+      "user-guide/performance-tips.md",
+  ] },
+  { "API Reference" = [
+      "api/pixelfunc.md",
+      "api/query-disc.md",
+      "api/sphtfunc.md",
+      "api/clustering.md",
+  ] },
+  { "Changelog" = "changelog.md" },
+  { "Contributing" = "contributing.md" },
+]
+
+extra_css = [
+    "stylesheets/extra.css",
+]
+
+# https://zensical.org/docs/authoring/math/
+extra_javascript = [
+    "javascripts/mathjax.js",
+    "https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"
+]
+
+[project.plugins.mkdocstrings.handlers.python]
+inventories = [
+    "https://docs.python.org/3/objects.inv",
+    "https://numpy.org/doc/stable/objects.inv",
+    "https://jax.readthedocs.io/en/latest/objects.inv",
+]
+paths = ["."]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+# Parse docstrings as NumPy style, rendering sections as lists (not tables).
+docstring_style = "numpy"
+docstring_section_style = "list"
+# Keep source order.
+members_order = "source"
+# Cross-references: resolve [`Name`][] by scope, by dotted relative path, and in signatures.
+relative_crossrefs = true
+scoped_crossrefs = true
+signature_crossrefs = true
+# Render a heading for the symbol requested directly by a `:::` block, below the
+# section headings of the API pages.
+show_root_heading = true
+heading_level = 3
+# Show the short name in the headings (the functions are used as `hp.pix2ang`).
+show_root_full_path = false
+# Render symbols with no docstring; document only public (non-_) names.
+show_if_no_docstring = true
+filters = "public"
+# Drop the __init__ summary line (merged into the class).
+docstring_options.ignore_init_summary = true
+# Member summary tables at the top of each page.
+summary = true
+# Symbol-type tags in headings and the right-hand table of contents.
+show_symbol_type_heading = true
+show_symbol_type_toc = true
+
+[project.markdown_extensions]
+admonition = {}
+pymdownx.details = {}
+pymdownx.superfences = {}
+pymdownx.highlight = { anchor_linenums = true, line_spans = "__span", pygments_lang_class = true }
+pymdownx.inlinehilite = {}
+pymdownx.snippets = { check_paths = true }
+pymdownx.tabbed = { alternate_style = true }
+footnotes = {}
+pymdownx.caret = {}
+pymdownx.keys = {}
+pymdownx.mark = {}
+pymdownx.tilde = {}
+pymdownx.arithmatex = { generic = true }
+pymdownx.magiclink = { repo_url_shorthand = true, user = "CMBSciPol", repo = "jax-healpy" }
+pymdownx.emoji = {}
+abbr = {}
+attr_list = {}
+def_list = {}
+pymdownx.tasklist = { custom_checkbox = true }
+
+[project.theme]
+language = "en"
+icon.repo = "fontawesome/brands/github"
+
+features = [
+    "content.action.edit",
+    "content.code.copy",
+    "navigation.footer",
+    "navigation.indexes",
+    "navigation.instant",
+    "navigation.instant.progress",
+    "navigation.path",
+    "navigation.sections",
+    "navigation.top",
+    "navigation.tracking",
+    "search.highlight",
+    "search.share",
+    "search.suggest",
+    "toc.follow",
+]
+
+palette = [
+  {
+    media = "(prefers-color-scheme)",
+    toggle = { icon = "lucide/sun-moon", name = "Switch to light mode" }
+  },
+  {
+    media = "(prefers-color-scheme: light)",
+    scheme = "default",
+    toggle = { icon = "lucide/sun", name = "Switch to dark mode" }
+  },
+  {
+    media = "(prefers-color-scheme: dark)",
+    scheme = "slate",
+    toggle = { icon = "lucide/moon", name = "Switch to system preference" }
+  },
+]
