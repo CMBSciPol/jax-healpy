@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The warning about 32-bit precision is a `UserWarning`, emitted once when a pixel function or a spherical harmonic transform is first called, instead of a log message at import: enabling 64-bit precision after importing jax-healpy no longer triggers it, nor the similar warning of s2fft
+
+### Fixed
+
+- Importing jax-healpy no longer ignores all the Python warnings of the process, a side effect of importing s2fft
+
 ## [0.8.2] - 2026-09-28
 
 ### Changed

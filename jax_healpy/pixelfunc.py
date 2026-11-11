@@ -93,6 +93,8 @@ import numpy as np
 from jax import jit, lax
 from jaxtyping import Array, ArrayLike
 
+from ._precision import warn_if_not_x64
+
 __all__ = [
     'pix2ang',
     'ang2pix',
@@ -207,6 +209,7 @@ def check_theta_valid(theta):
 
 def check_nside(nside: int, nest: bool = False) -> None:
     """Raises exception is nside is not valid"""
+    warn_if_not_x64()
     if not np.all(isnsideok(nside, nest=nest)):
         requirement = 'a power of 2' if nest else 'a positive integer'
         raise ValueError(f'{nside} is not a valid nside parameter (must be {requirement}, less than 2**30)')

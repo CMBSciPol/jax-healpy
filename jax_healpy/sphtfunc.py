@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
+import logging
+import warnings
 from collections.abc import Callable
 from functools import wraps
 from typing import ParamSpec, TypeVar
@@ -25,14 +27,32 @@ from jax.scipy.linalg import sqrtm
 from jax.typing import ArrayLike
 from jaxtyping import Array, Bool, Complex, Inexact, PRNGKeyArray
 
+# Two side effects of importing s2fft are undone:
+# - s2fft checks the precision when it is imported, before the users had a chance to enable
+#   64-bit precision after importing jax-healpy. Its logger is disabled during the import:
+#   jax-healpy warns instead when the transforms are called (see warn_if_not_x64).
+# - s2fft.recursions.price_mcewen ignores all the warnings of the process, with
+#   warnings.filterwarnings('ignore'): catch_warnings restores the filters after the import.
+#   Only the warnings that s2fft meant to hide are then ignored: in 32-bit precision, JAX
+#   warns about each float64 or complex128 array that s2fft requests (when the transforms
+#   are compiled, so they cannot be ignored only while the transforms are called).
+_s2fft_logger = logging.getLogger('s2fft')
+_s2fft_logger_disabled = _s2fft_logger.disabled
+_s2fft_logger.disabled = True
 try:
-    from s2fft.recursions.price_mcewen import generate_precomputes_jax
-    from s2fft.sampling.reindex import flm_2d_to_hp_fast, flm_hp_to_2d_fast
-    from s2fft.transforms import spherical
+    with warnings.catch_warnings():
+        from s2fft.recursions.price_mcewen import generate_precomputes_jax
+        from s2fft.sampling.reindex import flm_2d_to_hp_fast, flm_hp_to_2d_fast
+        from s2fft.transforms import spherical
 except ImportError:
     pass
+else:
+    warnings.filterwarnings('ignore', message='Explicitly requested dtype', category=UserWarning, module=r's2fft\.')
+finally:
+    _s2fft_logger.disabled = _s2fft_logger_disabled
 
 from jax_healpy import npix2nside
+from jax_healpy._precision import warn_if_not_x64
 from jax_healpy.pixelfunc import UNSEEN, mask_bad
 
 __all__ = [
@@ -352,6 +372,7 @@ def _alm2map_core(
     ArrayLike
         Output map(s)
     """
+    warn_if_not_x64()
     if mmax is not None and mmax != lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
 
@@ -488,6 +509,7 @@ def _map2alm_core(
     ArrayLike
         Output spherical harmonic coefficients
     """
+    warn_if_not_x64()
     if mmax is not None and mmax != lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
 
@@ -1790,6 +1812,7 @@ def synalm(
     >>> cl = 1.0 / (ell + 10)**2
     >>> alm = jhp.synalm(key, cl, lmax=64)
     """
+    warn_if_not_x64()
     is_multi, payload = _as_spectra_list(cls)
 
     # Polarization / multi-spectra case: draw correlated alms whose per-multipole
