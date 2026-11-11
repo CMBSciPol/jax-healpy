@@ -81,4 +81,4 @@ through [environment variables](https://docs.jax.dev/en/latest/gpu_memory_alloca
 example `XLA_PYTHON_CLIENT_PREALLOCATE=false`.
 
 Using 32-bit precision halves the memory footprint, but the results then diverge from healpy even at
-moderate resolution, so 64-bit precision is recommended (see [Getting Started](getting_started.md)).
+moderate resolution, so 64-bit precision is recommended (see [Getting Started](getting-started.md)).

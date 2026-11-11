@@ -288,7 +288,7 @@ Releases are handled by maintainers following semantic versioning:
 
 ## Getting Help
 
-- **Documentation**: Check the [user guide](../user_guide/pixelization.md) and [API reference](../api/)
+- **Documentation**: Check the [user guide](../user-guide/pixelization.md) and [API reference](../api/pixelfunc.rst)
 - **Discussions**: Use GitHub Discussions for questions and ideas
 - **Issues**: Report bugs and request features via GitHub Issues
 - **Email**: Contact maintainers for sensitive issues

@@ -23,17 +23,12 @@ Key Features
    :maxdepth: 1
    :caption: User Guide
 
-   user_guide/installation
-   user_guide/getting_started
-   user_guide/pixelization
-   user_guide/performance_tips
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Examples
-
-   examples/basic_usage
-   examples/clustering
+   user-guide/installation
+   user-guide/getting-started
+   user-guide/basic-usage
+   user-guide/pixelization
+   user-guide/clustering
+   user-guide/performance-tips
 
 .. toctree::
    :maxdepth: 1
@@ -42,7 +37,7 @@ Key Features
    api/pixelfunc
    api/sphtfunc
    api/clustering
-   api/query_disc
+   api/query-disc
 
 .. toctree::
    :maxdepth: 1

@@ -157,7 +157,7 @@ for instance with `pip install "jax[cuda13]"`.
 
 ### Out of Memory Errors
 
-See the memory management section of the [performance tips](performance_tips.md).
+See the memory management section of the [performance tips](performance-tips.md).
 
 ### Import Errors with s2fft
 
