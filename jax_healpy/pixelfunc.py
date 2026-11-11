@@ -1944,9 +1944,9 @@ def get_interp_weights(
     That is not automatic: the centers are read from the same ring geometry the weights
     are built from, and giving those shared nodes a second consumer lets XLA fuse them
     differently. The co-latitude weight divides by theta2 - theta1 ~ 1/nside, so a
-    one-ulp change upstream is amplified by roughly nside. With centers, the finished
-    weights and the ring indices go through a `lax.optimization_barrier`, so the centers
-    are built from them and cannot reach back into the weight computation.
+    one-ulp change upstream is amplified by roughly nside. The finished weights and the
+    ring indices go through a `lax.optimization_barrier`, with or without centers, so the
+    centers are built from them and cannot reach back into the weight computation.
 
     **Precision and algorithmic considerations.**
     The phi interpolation calculation can exhibit precision differences compared to healpy,
@@ -2128,14 +2128,15 @@ def _get_interp_weights_ring(
     weight_sum = w1 + w2 + w3 + w4
     state = (ir1, i1_1, i1_2, w1 / weight_sum, w2 / weight_sum, w3 / weight_sum, w4 / weight_sum)
 
-    # With centers, pass the state through a barrier. The centers share subexpressions
-    # with the weights, and without this XLA fuses those shared nodes differently once
+    # Pass the state through a barrier, with or without centers. The centers share
+    # subexpressions with the weights, and XLA fuses those shared nodes differently once
     # they have a second consumer. The co-latitude weight divides by theta2 - theta1
     # ~ 1/nside, so a one-ulp change there is amplified by about nside, which would make
-    # the weights depend on whether centers were requested. Without centers there is no
-    # second consumer, and a barrier would only cost an extra kernel.
-    if with_centers:
-        state = lax.optimization_barrier(state)
+    # the weights depend on whether centers were requested. The barrier is also needed
+    # without centers: since JAX 0.12, XLA otherwise fuses the weights into the stack
+    # below with a different rounding than when they are materialized, and that fusion
+    # is also about twice as slow on CPU.
+    state = lax.optimization_barrier(state)
     ir1, i1_1, i1_2, w1, w2, w3, w4 = state
     weights = jnp.stack([w1, w2, w3, w4])
 
