@@ -30,7 +30,7 @@ jobs:
           prek-version: "0.5.3"
 
   test:
-    name: Run tests on Python ${{ matrix.python.version }} with JAX ${{ matrix.python.jax }}
+    name: Run tests on Python ${{ matrix.python.version }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
