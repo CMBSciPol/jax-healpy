@@ -69,7 +69,9 @@ dev = [
     'PyYAML',
 ]
 docs = [
+    'healpy>=1.20',
     'jupyter>=1.0',
+    'matplotlib',
     'mkdocstrings-python>=2.0',
     'zensical>=0.1',
 ]
