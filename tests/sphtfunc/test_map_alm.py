@@ -5,9 +5,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from s2fft.sampling.s2_samples import flm_2d_to_hp, flm_hp_to_2d
 
 import jax_healpy as jhp
+
+from .helpers import flm_2d_to_hp, flm_hp_to_2d
 
 jax.config.update('jax_enable_x64', True)
 
@@ -120,7 +121,7 @@ def test_alm2map_invalid_ndim_error(healpy_ordering) -> None:
 @pytest.mark.parametrize('iter_val', [2, 3])
 def test_map2alm_iter(synthesized_map: np.ndarray, iter_val: int, lmax: int | None) -> None:
     """Test map2alm with different iter values."""
-    actual_flm = jhp.map2alm(synthesized_map, lmax=lmax, iter=iter_val, healpy_ordering=True, method='jax')
+    actual_flm = jhp.map2alm(synthesized_map, lmax=lmax, iter=iter_val, healpy_ordering=True)
     expected_flm = hp.map2alm(synthesized_map, lmax=lmax, iter=iter_val)
 
     # With iterative refinement, results should be close but not identical

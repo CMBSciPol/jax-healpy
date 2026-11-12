@@ -3,9 +3,10 @@ from pathlib import Path
 import healpy as hp
 import numpy as np
 import pytest
-from s2fft.sampling.reindex import flm_hp_to_2d_fast
 
 import jax_healpy as jhp
+
+from .helpers import flm_hp_to_2d
 
 # TODO: test that precompute is faster?     'precompute_temperature_harmonic_transforms',
 # 'precompute_polarization_harmonic_transforms',
@@ -59,7 +60,7 @@ def test_alm2cl_T(
     resolved_lmax = lmax if lmax is not None else hp.Alm.getlmax(flm_to_test.size)
 
     if not healpy_ordering:
-        flm_to_test = flm_hp_to_2d_fast(flm_to_test, resolved_lmax + 1)
+        flm_to_test = flm_hp_to_2d(flm_to_test, resolved_lmax + 1)
 
     actual_c_ells = jhp.alm2cl(flm_to_test, lmax=lmax, lmax_out=lmax_out, nspec=nspec, healpy_ordering=healpy_ordering)
     np.testing.assert_allclose(actual_c_ells, c_ells_expected, atol=1e-14)

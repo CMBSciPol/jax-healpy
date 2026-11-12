@@ -6,17 +6,16 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from s2fft.sampling.reindex import flm_hp_to_2d_fast
 
 import jax_healpy as jhp
 from jax_healpy import _ducc0, sphtfunc
+
+from .helpers import flm_hp_to_2d, requires_ducc0, requires_s2fft
 
 NSIDE = 8
 LMAX = 2 * NSIDE - 1
 NPIX = 12 * NSIDE**2
 NALM = (LMAX + 1) * (LMAX + 2) // 2
-
-requires_ducc0 = pytest.mark.skipif(not _ducc0.is_available(), reason='ducc0 is not installed')
 
 # The transforms of ducc0 are compiled much faster than those of s2fft.
 FASTEST_METHOD = 'ducc0' if _ducc0.is_available() else 'jax'
@@ -101,6 +100,7 @@ def test_method_can_be_positional() -> None:
 
 
 @requires_ducc0
+@requires_s2fft
 @pytest.mark.parametrize('healpy_ordering', [False, True])
 def test_methods_agree(healpy_ordering: bool) -> None:
     """The two backends return the same alms and maps, with the same dtypes, in both alm orderings."""
@@ -127,15 +127,16 @@ def test_methods_agree(healpy_ordering: bool) -> None:
 
 @pytest.mark.parametrize('lmax', [0, 1, 2, 7, LMAX])
 def test_alm_hp_to_2d(lmax: int) -> None:
-    """The conversion that jax.linear_transpose can transpose is the same as that of s2fft."""
+    """The conversion that jax.linear_transpose can transpose, against the numpy one of the tests."""
     nalm = (lmax + 1) * (lmax + 2) // 2
     rng = np.random.RandomState(lmax)
     alms = jnp.asarray(rng.randn(2, nalm) + 1j * rng.randn(2, nalm))
-    expected = jnp.stack([flm_hp_to_2d_fast(alm, lmax + 1) for alm in alms])
+    expected = np.stack([flm_hp_to_2d(alm, lmax + 1) for alm in alms])
     np.testing.assert_array_equal(sphtfunc._alm_hp_to_2d(alms, lmax), expected)
 
 
 @requires_ducc0
+@requires_s2fft
 @pytest.mark.parametrize('healpy_ordering', [False, True])
 def test_map2alm_transpose_matches_s2fft(healpy_ordering: bool) -> None:
     """jax.linear_transpose gives the same transpose of map2alm with both backends."""
@@ -154,6 +155,7 @@ def test_map2alm_transpose_matches_s2fft(healpy_ordering: bool) -> None:
 
 
 @requires_ducc0
+@requires_s2fft
 def test_gradients_match_s2fft() -> None:
     """The derivatives through the transforms are the same with both backends."""
     iqu = jnp.asarray(np.random.RandomState(0).randn(3, NPIX))

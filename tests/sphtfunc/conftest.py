@@ -6,22 +6,21 @@ import healpy as hp
 import numpy as np
 import pytest
 
-s2fft = pytest.importorskip('s2fft')
+from jax_healpy import sphtfunc
 
-from s2fft.sampling.s2_samples import flm_2d_to_hp
-from s2fft.utils import signal_generator
+from .helpers import METHODS, flm_2d_to_hp, generate_flm
 
-from jax_healpy import _ducc0, sphtfunc
-
-METHODS = ['jax', 'ducc0'] if _ducc0.is_available() else ['jax']
+if not METHODS:
+    pytest.skip('Neither s2fft nor ducc0 is installed.', allow_module_level=True)
 
 
 @pytest.fixture(scope='session', autouse=True, params=METHODS)
 def default_method(request: pytest.FixtureRequest) -> Iterator[str]:
-    """Run the tests of this directory with each transform backend as the default one.
+    """Run the tests of this directory with each available transform backend as the default one.
 
     Without it, the tests that do not specify a method would only exercise the default backend
-    of the test environment: ducc0 if it is installed, the transforms of s2fft otherwise.
+    of the test environment: ducc0 if it is installed, the transforms of s2fft otherwise. With a
+    single library installed, the tests exercise its backend only.
     """
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setattr(sphtfunc, '_default_method', lambda: request.param)
@@ -156,32 +155,28 @@ def flm_generator() -> Callable[[...], np.ndarray]:
     # data depend on what ran before).
     rng = np.random.RandomState(0)
 
-    def generate_flm(L: int, healpy_ordering: bool = False, **keywords: Any) -> np.ndarray:
-        flm = signal_generator.generate_flm(rng, L, **keywords)
+    def generate(L: int, healpy_ordering: bool = False, **keywords: Any) -> np.ndarray:
+        flm = generate_flm(rng, L, **keywords)
         if healpy_ordering:
             flm = flm_2d_to_hp(flm, L)
         return flm
 
-    return generate_flm
+    return generate
 
 
 @pytest.fixture
 def flm_generator_batched() -> Callable[[...], np.ndarray]:
-    # Import s2fft (and indirectly numpy) locally to avoid
-    # `RuntimeWarning: numpy.ndarray size changed` when importing at module level
-    # import s2fft as s2f
-    # from s2fft.utils import signal_generator
     numpy_rng_1 = np.random.RandomState(1)
     numpy_rng_2 = np.random.RandomState(2)
 
     def generate_flm_1(L: int, healpy_ordering: bool = False, **keywords: Any) -> np.ndarray:
-        flm = signal_generator.generate_flm(numpy_rng_1, L, **keywords)
+        flm = generate_flm(numpy_rng_1, L, **keywords)
         if healpy_ordering:
             flm = flm_2d_to_hp(flm, L)
         return flm
 
     def generate_flm_2(L: int, healpy_ordering: bool = False, **keywords: Any) -> np.ndarray:
-        flm = signal_generator.generate_flm(numpy_rng_2, L, **keywords)
+        flm = generate_flm(numpy_rng_2, L, **keywords)
         if healpy_ordering:
             flm = flm_2d_to_hp(flm, L)
         return flm

@@ -6,9 +6,10 @@ import healpy as hp
 import jax
 import numpy as np
 import pytest
-from s2fft.sampling.s2_samples import flm_2d_to_hp
 
 import jax_healpy as jhp
+
+from .helpers import flm_2d_to_hp, requires_s2fft
 
 jax.config.update('jax_enable_x64', True)
 
@@ -118,6 +119,7 @@ def test_pixwin_not_implemented() -> None:
         jhp.pixwin(64)
 
 
+@requires_s2fft
 def test_precompute_harmonic_transforms_smoke() -> None:
     """The precompute helpers return s2fft recursion coefficients (not yet consumed by the
     transforms, but exported, so at least exercise the code path)."""

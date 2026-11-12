@@ -4,9 +4,10 @@ import healpy as hp
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from s2fft.sampling.reindex import flm_hp_to_2d_fast
 
 import jax_healpy as jhp
+
+from .helpers import flm_hp_to_2d, requires_s2fft
 
 
 def test_map2alm_spin_iter(nside: int, lmax: int) -> None:
@@ -32,10 +33,11 @@ def test_map2alm_spin_iter(nside: int, lmax: int) -> None:
     atol = 4e-2 if nside < 32 else 1e-2
     eh, bh = hp.map2alm_spin([q, u], 2, lmax=lmax)
     L = lmax + 1
-    np.testing.assert_allclose(np.asarray(e0), flm_hp_to_2d_fast(eh, L), atol=atol, rtol=1e-8)
-    np.testing.assert_allclose(np.asarray(b0), flm_hp_to_2d_fast(bh, L), atol=atol, rtol=1e-8)
+    np.testing.assert_allclose(np.asarray(e0), flm_hp_to_2d(eh, L), atol=atol, rtol=1e-8)
+    np.testing.assert_allclose(np.asarray(b0), flm_hp_to_2d(bh, L), atol=atol, rtol=1e-8)
 
 
+@requires_s2fft
 @pytest.mark.parametrize('default_method', ['jax'], indirect=True)  # run once: the method is explicit
 @pytest.mark.parametrize('spin', [1, 2, 3])
 @pytest.mark.parametrize('iter_val', [0, 2])
@@ -120,8 +122,8 @@ def test_map2alm_spin_basic(
         assert result_jax[1].shape == (L, 2 * L - 1)
 
         # Convert healpy result to s2fft format for comparison
-        result_hp_2d_0 = flm_hp_to_2d_fast(result_hp[0], L)
-        result_hp_2d_1 = flm_hp_to_2d_fast(result_hp[1], L)
+        result_hp_2d_0 = flm_hp_to_2d(result_hp[0], L)
+        result_hp_2d_1 = flm_hp_to_2d(result_hp[1], L)
         # Tolerances based on validation (max errors: ~0.007 abs, ~0.066 rel)
         # Using random maps instead of alm2map_spin output to avoid roundtrip incompatibilities
         MSE_Q = np.mean(np.abs(result_jax[0] - result_hp_2d_0) ** 2)
@@ -160,8 +162,8 @@ def test_alm2map_spin_basic(flm_generator: Callable[[...], np.ndarray], nside: i
         alm_B_test = alm_B_hp
     else:
         # Convert to s2fft 2D format for jax_healpy
-        alm_E_test = flm_hp_to_2d_fast(alm_E_hp, L)
-        alm_B_test = flm_hp_to_2d_fast(alm_B_hp, L)
+        alm_E_test = flm_hp_to_2d(alm_E_hp, L)
+        alm_B_test = flm_hp_to_2d(alm_B_hp, L)
 
     # Apply inverse spin transform with jax_healpy
     result_jax = jhp.alm2map_spin(
@@ -245,8 +247,8 @@ def test_map2alm_spin_different_spins(spin: int, nside: int, healpy_ordering: bo
         ref0, ref1 = np.asarray(result_hp[0]), np.asarray(result_hp[1])
     else:
         assert result_jax[0].shape == (L, 2 * L - 1)
-        ref0 = flm_hp_to_2d_fast(result_hp[0], L)
-        ref1 = flm_hp_to_2d_fast(result_hp[1], L)
+        ref0 = flm_hp_to_2d(result_hp[0], L)
+        ref1 = flm_hp_to_2d(result_hp[1], L)
 
     # alm comparison: measured max-abs floor across these spins/nsides is ~0.009, so
     # atol=1.5e-2 (~1.7x floor) is tight yet robust; MSE floor measured ~1e-7.
@@ -288,8 +290,8 @@ def test_alm2map_spin_different_spins(
         alm_B_test = alm_B_hp
     else:
         # Convert to s2fft 2D format for jax_healpy
-        alm_E_test = flm_hp_to_2d_fast(alm_E_hp, L)
-        alm_B_test = flm_hp_to_2d_fast(alm_B_hp, L)
+        alm_E_test = flm_hp_to_2d(alm_E_hp, L)
+        alm_B_test = flm_hp_to_2d(alm_B_hp, L)
 
     # Apply inverse spin transform with jax_healpy
     result_jax = jhp.alm2map_spin(
