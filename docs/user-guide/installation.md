@@ -40,16 +40,37 @@ JAX and jax-healpy can be installed in a single command, for instance with NVIDI
 pip install jax-healpy "jax[cuda13]"
 ```
 
-For the spherical harmonics functionalities, install the extra dependency `recommended`:
+### Spherical Harmonic Transforms
+
+The spherical harmonic transforms are computed by an additional library, which depends on the device
+on which the computations run. Each one is installed by an extra dependency:
+
+| Extra | Library | Transforms |
+|---|---|---|
+| `cpu` | [ducc0](https://pypi.org/project/ducc0/), in C++ | on CPU, on all the cores |
+| `gpu` | [s2fft](https://github.com/astro-informatics/s2fft), in JAX | on GPU |
 
 ```bash
-pip install "jax-healpy[recommended]"
+# On CPU
+pip install "jax-healpy[cpu]"
+
+# On GPU, here with NVIDIA CUDA 13 support
+pip install "jax-healpy[gpu]" "jax[cuda13]"
 ```
 
-It installs the two libraries that compute the spherical harmonic transforms:
-[s2fft](https://github.com/astro-informatics/s2fft), whose transforms are written in JAX and run on GPU,
-and [ducc0](https://pypi.org/project/ducc0/), a C++ library whose transforms are used on CPU, where they
-are much faster. See the [transform backends](../api/sphtfunc.md#transform-backends).
+The extra `gpu` does not install the GPU version of JAX: it is selected by the extra of JAX, as described
+in the [prerequisites](#jax-installation).
+
+On a machine with a GPU, install both extras if the transforms are also run without the GPU, on a login
+node for instance:
+
+```bash
+pip install "jax-healpy[cpu,gpu]" "jax[cuda13]"
+```
+
+The transforms of s2fft also run on CPU, but they are two to three orders of magnitude slower there than
+those of ducc0: without ducc0, jax-healpy uses them and emits a warning. See the
+[transform backends](../api/sphtfunc.md#transform-backends).
 
 ## Developer Installation
 
@@ -78,7 +99,7 @@ module load python/3.12
 module load cuda/13.0  # If using GPU
 python -m venv .venv
 source .venv/bin/activate
-pip install "jax-healpy[recommended]" "jax[cuda13]"
+pip install "jax-healpy[cpu,gpu]" "jax[cuda13]"
 ```
 
 ### SLURM Job Scripts
@@ -108,7 +129,7 @@ module load python/3.12.7
 module load cuda/12.8.0
 python -m venv .venv
 source .venv/bin/activate
-pip install "jax-healpy[recommended]" "jax[cuda12]"
+pip install "jax-healpy[cpu,gpu]" "jax[cuda12]"
 ```
 
 ### NERSC Perlmutter
@@ -118,7 +139,7 @@ module load python
 module load cuda
 python -m venv .venv
 source .venv/bin/activate
-pip install "jax-healpy[recommended]" "jax[cuda12]"
+pip install "jax-healpy[cpu,gpu]" "jax[cuda12]"
 ```
 
 ## Verifying Installation
@@ -164,13 +185,20 @@ for instance with `pip install "jax[cuda13]"`.
 
 See the memory management section of the [performance tips](performance-tips.md).
 
-### Import Errors with s2fft
+### Import Errors with ducc0 or s2fft
 
-If the spherical harmonics functions fail, install the `recommended` extra dependency:
+If the spherical harmonic transforms raise an `ImportError`, install the extra dependency of the device
+on which they run:
 
 ```bash
-pip install "jax-healpy[recommended]"
+# On CPU
+pip install "jax-healpy[cpu]"
+
+# On GPU
+pip install "jax-healpy[gpu]"
 ```
+
+The extra `recommended` of the previous versions no longer exists: it is replaced by these two.
 
 ### Getting Help
 

@@ -4,26 +4,32 @@ Spherical harmonic transforms between HEALPix maps and spherical harmonic coeffi
 \(a_{\ell m}\), power spectra and beam smoothing.
 
 !!! note
-    These functions require the `recommended` extra dependencies:
-    `pip install "jax-healpy[recommended]"`.
+    The transforms require a library that is installed by an extra dependency: ducc0 on CPU
+    (`pip install "jax-healpy[cpu]"`) or s2fft on GPU (`pip install "jax-healpy[gpu]"`). See the
+    [installation](../user-guide/installation.md#spherical-harmonic-transforms).
 
 ## Transform backends
 
 The transforms are computed by one of two libraries, selected by the `method` argument of the
 functions:
 
-| `method` | Library | Runs on |
-|---|---|---|
-| `'ducc0'` | [ducc0](https://pypi.org/project/ducc0/), in C++ | CPU, on all the cores |
-| `'jax'` | [s2fft](https://github.com/astro-informatics/s2fft), in JAX | CPU and GPU |
-| `'jax_cuda'` | s2fft, with its CUDA kernel for the Fourier transforms along the rings | NVIDIA GPU |
+| `method` | Library | Extra | Runs on |
+|---|---|---|---|
+| `'ducc0'` | [ducc0](https://pypi.org/project/ducc0/), in C++ | `cpu` | CPU, on all the cores |
+| `'jax'` | [s2fft](https://github.com/astro-informatics/s2fft), in JAX | `gpu` | CPU and GPU |
+| `'jax_cuda'` | s2fft, with its CUDA kernel for the Fourier transforms along the rings | `gpu` | NVIDIA GPU |
 
 With any of them, the functions can be compiled by `jax.jit`, batched by `jax.vmap` and
 differentiated, and they return the same results to rounding errors.
 
 By default, `'ducc0'` is used when the computations run on CPU and ducc0 is installed, and `'jax'`
 otherwise. On CPU, the transforms of ducc0 are two to three orders of magnitude faster than the
-JAX ones, which run on a single core, and they are compiled in a fraction of a second.
+JAX ones, which run on a single core, and they are compiled in a fraction of a second: when the
+transforms of s2fft are used on CPU because ducc0 is missing, a warning recommends to install it.
+It is not emitted when `method='jax'` is requested.
+
+The functions that do not transform anything, such as `alm2cl`, `almxfl`, `synalm` or `gauss_beam`,
+need none of these libraries.
 
 ducc0 uses all the cores that are available to the process, unless the environment variable
 `DUCC0_NUM_THREADS` or, if it is not set, `OMP_NUM_THREADS` gives a lower number of threads.

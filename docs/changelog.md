@@ -9,11 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `method='ducc0'`: the spherical harmonic transforms are computed by the C++ library ducc0, on all the cores of the CPU. On CPU, they are two to three orders of magnitude faster than the transforms of s2fft, and they can be compiled, batched and differentiated like them. This backend is the default one on CPU when ducc0 is installed, and ducc0 is part of the `recommended` extra (#66)
+- `method='ducc0'`: the spherical harmonic transforms are computed by the C++ library ducc0, on all the cores of the CPU. On CPU, they are two to three orders of magnitude faster than the transforms of s2fft, and they can be compiled, batched and differentiated like them. This backend is the default one on CPU when ducc0 is installed, which the new `cpu` extra does: `pip install "jax-healpy[cpu]"` (#66)
 - `method` argument of `smoothing` (#66)
 
 ### Changed
 
+- **Breaking:** the `recommended` extra is replaced by one extra per library of spherical harmonic transforms: `cpu` installs ducc0 and `gpu` installs s2fft. `pip install "jax-healpy[recommended]"` becomes `pip install "jax-healpy[cpu]"` on CPU, `pip install "jax-healpy[gpu]"` on GPU, and `pip install "jax-healpy[cpu,gpu]"` on a machine that is used with and without its GPU (#66)
+- s2fft is no longer required on CPU: the transforms of ducc0 run without it, and `alm2cl`, `almxfl`, `smoothalm` and `synalm` do not need any optional library (#66)
+- Without ducc0, the transforms still run on CPU with s2fft, and a `UserWarning` recommends installing the `cpu` extra. It is emitted once, and not when `method='jax'` is requested (#66)
 - The warning about 32-bit precision is a `UserWarning`, emitted once when a pixel function or a spherical harmonic transform is first called, instead of a log message at import: enabling 64-bit precision after importing jax-healpy no longer triggers it, nor the similar warning of s2fft (#54)
 - On polarized maps, `map2alm`, `map2alm_spin`, `anafast` and `smoothing` take about 40 % less time to run and to compile: the spin −s coefficients are deduced from the spin +s ones instead of being transformed (#65)
 
