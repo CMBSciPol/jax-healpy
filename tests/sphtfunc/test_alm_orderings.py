@@ -42,6 +42,55 @@ def test_alm_hp_indices_are_stored_up_to_a_limit(monkeypatch: pytest.MonkeyPatch
     assert all(isinstance(indices, jax.Array) for indices in sphtfunc._alm_hp_indices(8))
 
 
+@pytest.mark.parametrize('lmax', [1024, 4607])
+def test_alm_hp_indices_beyond_the_stored_ones(lmax: int, x64: bool) -> None:
+    """The indices that are computed in practice, just beyond the stored ones and at a high lmax.
+
+    At lmax = 4607, the order of 512 coefficients is off by one in 32-bit precision before its
+    integer correction, which the lower values of lmax do not exercise.
+    """
+    assert lmax > sphtfunc._STORED_INDICES_LMAX
+    expected_ell, expected_m = hp_indices(lmax + 1)
+    ell, m = sphtfunc._alm_hp_indices(lmax)
+    assert ell.dtype == m.dtype == np.int32
+    np.testing.assert_array_equal(ell, expected_ell)
+    np.testing.assert_array_equal(m, expected_m)
+
+
+def test_alm_hp_indices_int32_limit() -> None:
+    """The limit of the 32-bit indices is the last lmax at which their computation fits in 32 bits."""
+    limit = sphtfunc._INT32_INDICES_LMAX
+    assert (2 * limit + 3) ** 2 <= np.iinfo(np.int32).max < (2 * limit + 5) ** 2
+
+
+@pytest.fixture
+def low_int32_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reach the limit of the 32-bit indices at lmax = 7, with computed indices."""
+    monkeypatch.setattr(sphtfunc, '_STORED_INDICES_LMAX', -1)
+    monkeypatch.setattr(sphtfunc, '_INT32_INDICES_LMAX', 7)
+
+
+@pytest.mark.usefixtures('low_int32_limit')
+def test_alm_hp_indices_beyond_the_int32_limit() -> None:
+    """Beyond the limit of the 32-bit indices, they are computed with 64-bit integers."""
+    expected_ell, expected_m = hp_indices(LMAX + 1)
+    with jax.enable_x64(True):
+        assert sphtfunc._alm_hp_indices(7)[0].dtype == np.int32
+        ell, m = sphtfunc._alm_hp_indices(LMAX)
+    assert ell.dtype == m.dtype == np.int64
+    np.testing.assert_array_equal(ell, expected_ell)
+    np.testing.assert_array_equal(m, expected_m)
+
+
+@pytest.mark.usefixtures('low_int32_limit')
+def test_alm_hp_indices_beyond_the_int32_limit_require_x64() -> None:
+    """Beyond the limit of the 32-bit indices, 32-bit precision is refused instead of overflowing."""
+    with jax.enable_x64(False):
+        assert sphtfunc._alm_hp_indices(7)[0].dtype == np.int32
+        with pytest.raises(ValueError, match='lmax=8 cannot be indexed with 32-bit integers.*enable 64-bit precision'):
+            sphtfunc._alm_hp_indices(8)
+
+
 @pytest.mark.usefixtures('alm_indices')
 @pytest.mark.parametrize('lmax', [0, 1, 2, 7, LMAX])
 def test_alm_2d_to_hp(lmax: int) -> None:

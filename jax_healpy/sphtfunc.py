@@ -454,6 +454,10 @@ def _alm_hp_to_2d(alms: Complex[Array, '... nalm'], lmax: int) -> Complex[Array,
 # each time the functions run: it is faster than reading constants that do not fit in the caches.
 _STORED_INDICES_LMAX = 1023
 
+# Up to this lmax, the indices are computed with 32-bit integers: the largest integer of the
+# computation, (2 lmax + 3)², does not exceed 2³¹ - 1. Beyond, 64-bit integers are required.
+_INT32_INDICES_LMAX = 23168
+
 
 def _alm_hp_indices(
     lmax: int,
@@ -461,8 +465,9 @@ def _alm_hp_indices(
     """Return the degree ell and the order m of each coefficient of the healpy ordering.
 
     The alms are stored order by order: (0, 0), (1, 0), ..., (lmax, 0), (1, 1), ..., (lmax, lmax).
-    The indices are 32-bit integers, which limits lmax to 23168. They are numpy arrays when they
-    are stored in the compiled functions, and JAX arrays when they are computed.
+    The indices are numpy arrays when they are stored in the compiled functions, and JAX arrays
+    when they are computed. They are 32-bit integers up to lmax = 23168 and 64-bit integers
+    beyond, which requires the 64-bit precision of JAX: a ``ValueError`` is raised without it.
     """
     L = lmax + 1
     nalm = L * (L + 1) // 2
@@ -471,12 +476,22 @@ def _alm_hp_indices(
         ell = np.arange(nalm, dtype=np.int32) - m * (2 * lmax + 1 - m) // 2
         return ell, m
 
+    if lmax <= _INT32_INDICES_LMAX:
+        dtype = jnp.int32
+    elif jnp.result_type(int) == jnp.int64:
+        dtype = jnp.int64
+    else:
+        raise ValueError(
+            f'The alms of lmax={lmax} cannot be indexed with 32-bit integers, which are limited to '
+            f"lmax={_INT32_INDICES_LMAX}: enable 64-bit precision with jax.config.update('jax_enable_x64', True)."
+        )
+
     # The first coefficient of the order m has the index m (b - m) / 2, with b = 2 lmax + 3: the
     # order of the coefficient i is the integer part of the smallest root of m² - b m + 2 i.
-    index = jnp.arange(nalm, dtype=jnp.int32)
+    index = jnp.arange(nalm, dtype=dtype)
     b = 2 * lmax + 3
     discriminant = (b * b - 8 * index).astype(jnp.result_type(float))
-    m = ((b - jnp.sqrt(discriminant)) / 2).astype(jnp.int32)
+    m = ((b - jnp.sqrt(discriminant)) / 2).astype(dtype)
     # The rounding errors of the root can change its integer part by one: it is then corrected.
     m = m + (index >= (m + 1) * (b - m - 1) // 2) - (index < m * (b - m) // 2)
     ell = index - m * (2 * lmax + 1 - m) // 2
