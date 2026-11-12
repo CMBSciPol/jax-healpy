@@ -106,4 +106,4 @@ jobs:
           enable-cache: true
 
       - name: Build the site
-        run: uv run --locked --group docs --no-dev --extra cpu --extra gpu sh docs/build.sh
+        run: uv run --locked --group docs --no-dev --extra cpu sh docs/build.sh
