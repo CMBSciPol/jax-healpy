@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.scipy.linalg import sqrtm
 from jax.typing import ArrayLike
-from jaxtyping import Array, Bool, Complex, Float, Inexact, PRNGKeyArray
+from jaxtyping import Array, Bool, Complex, Float, Inexact, Integer, PRNGKeyArray
 
 # Two side effects of importing s2fft are undone:
 # - s2fft checks the precision when it is imported, before the users had a chance to enable
@@ -43,7 +43,6 @@ _s2fft_logger.disabled = True
 try:
     with warnings.catch_warnings():
         from s2fft.recursions.price_mcewen import generate_precomputes_jax
-        from s2fft.sampling.reindex import flm_2d_to_hp_fast, flm_hp_to_2d_fast
         from s2fft.transforms import spherical
 except ImportError:
     pass
@@ -394,7 +393,7 @@ def _new_to_old_spectra_order(cls_new_order: list) -> list:
 
 
 def _alm_hp_to_2d(alms: Complex[Array, '... nalm'], lmax: int) -> Complex[Array, '... L M']:
-    """Convert the alms of real fields from the healpy ordering (m >= 0) to the s2fft one (all m).
+    """Convert the alms of real fields from the healpy ordering (m >= 0) to the 2-D one (all m).
 
     Same conversion as ``flm_hp_to_2d_fast`` of s2fft, except that the coefficients are gathered
     instead of scattered: ``jax.linear_transpose`` can then transpose it.
@@ -406,10 +405,57 @@ def _alm_hp_to_2d(alms: Complex[Array, '... nalm'], lmax: int) -> Complex[Array,
     valid = abs_m <= ell
     # index of (ell, |m|) in the healpy ordering
     index = jnp.where(valid, abs_m * (2 * lmax + 1 - abs_m) // 2 + ell, 0)
-    values = alms[..., index]
+    values = jnp.asarray(alms)[..., index]
     # a_{l,-m} = (-1)^m conj(a_{l,m})
     values = jnp.where(m < 0, jnp.where(abs_m % 2 == 0, 1, -1) * jnp.conj(values), values)
     return jnp.where(valid, values, 0)
+
+
+# Up to this lmax, the indices of the alms in the healpy ordering are stored as constants in the
+# compiled functions (2 MB at most), which costs nothing when they run. Beyond, they are computed
+# each time the functions run: it is faster than reading constants that do not fit in the caches.
+_STORED_INDICES_LMAX = 1023
+
+
+def _alm_hp_indices(
+    lmax: int,
+) -> tuple[Integer[Array | np.ndarray, ' nalm'], Integer[Array | np.ndarray, ' nalm']]:
+    """Return the degree ell and the order m of each coefficient of the healpy ordering.
+
+    The alms are stored order by order: (0, 0), (1, 0), ..., (lmax, 0), (1, 1), ..., (lmax, lmax).
+    The indices are 32-bit integers, which limits lmax to 23168. They are numpy arrays when they
+    are stored in the compiled functions, and JAX arrays when they are computed.
+    """
+    L = lmax + 1
+    nalm = L * (L + 1) // 2
+    if lmax <= _STORED_INDICES_LMAX:
+        m = np.repeat(np.arange(L, dtype=np.int32), np.arange(L, 0, -1))
+        ell = np.arange(nalm, dtype=np.int32) - m * (2 * lmax + 1 - m) // 2
+        return ell, m
+
+    # The first coefficient of the order m has the index m (b - m) / 2, with b = 2 lmax + 3: the
+    # order of the coefficient i is the integer part of the smallest root of m² - b m + 2 i.
+    index = jnp.arange(nalm, dtype=jnp.int32)
+    b = 2 * lmax + 3
+    discriminant = (b * b - 8 * index).astype(jnp.result_type(float))
+    m = ((b - jnp.sqrt(discriminant)) / 2).astype(jnp.int32)
+    # The rounding errors of the root can change its integer part by one: it is then corrected.
+    m = m + (index >= (m + 1) * (b - m - 1) // 2) - (index < m * (b - m) // 2)
+    ell = index - m * (2 * lmax + 1 - m) // 2
+    return ell, m
+
+
+def _alm_2d_to_hp(alms: Complex[Array, '... L M'], lmax: int) -> Complex[Array, '... nalm']:
+    """Convert alms from the 2-D ordering (all m) to the healpy one (m >= 0).
+
+    Same conversion as ``flm_2d_to_hp_fast`` of s2fft: the coefficients of m < 0 are dropped.
+    """
+    L = lmax + 1
+    alms = jnp.asarray(alms)
+    ell, m = _alm_hp_indices(lmax)
+    # With the orders as rows, the coefficients are read in the order in which they are stored.
+    by_order = jnp.swapaxes(alms[..., lmax:], -1, -2).reshape(*alms.shape[:-2], L * L)
+    return by_order.at[..., m * L + ell].get(mode='promise_in_bounds', indices_are_sorted=True, unique_indices=True)
 
 
 def _alm2map_ducc0(
@@ -419,7 +465,13 @@ def _alm2map_ducc0(
     L = lmax + 1
     alms = [alms] if spin == 0 else list(alms)
     if not healpy_ordering:
-        alms = [flm_2d_to_hp_fast(alm, L) for alm in alms]
+        for alm in alms:
+            if jnp.shape(alm)[-2:] != (L, 2 * L - 1):
+                raise ValueError(
+                    f'The alms have the shape {jnp.shape(alm)}, instead of {(L, 2 * L - 1)} for lmax={lmax}. '
+                    'Pass healpy_ordering=True if they follow the healpy ordering.'
+                )
+        alms = [_alm_2d_to_hp(alm, lmax) for alm in alms]
     # Like the s2fft transforms, compute in the default precision of JAX.
     alms = jnp.stack(alms).astype(jnp.result_type(complex))
     nalm = L * (L + 1) // 2
@@ -497,9 +549,9 @@ def _alm2map_core(
     if healpy_ordering:
         if spin != 0:
             # For spin transforms, convert list of 2 alms to s2fft format
-            alms = [flm_hp_to_2d_fast(alm, L) for alm in alms]
+            alms = [_alm_hp_to_2d(alm, lmax) for alm in alms]
         else:
-            alms = flm_hp_to_2d_fast(alms, L)
+            alms = _alm_hp_to_2d(alms, lmax)
 
     sampling = 'healpix'
     spmd = False
@@ -679,7 +731,7 @@ def _map2alm_core(
         alm_B = 0.5j * (flm_pos - flm_mirror)
 
         if healpy_ordering:
-            return [flm_2d_to_hp_fast(alm_E, L), flm_2d_to_hp_fast(alm_B, L)]
+            return [_alm_2d_to_hp(alm_E, lmax), _alm_2d_to_hp(alm_B, lmax)]
         return [alm_E, alm_B]
     else:
         # Scalar transform (spin=0)
@@ -706,7 +758,7 @@ def _map2alm_core(
         )
 
         if healpy_ordering:
-            return flm_2d_to_hp_fast(flm_complex, L)
+            return _alm_2d_to_hp(flm_complex, lmax)
         return flm_complex
 
 
@@ -1146,7 +1198,6 @@ def map2alm(
 
 
 @jax.jit(static_argnames=['mmax', 'healpy_ordering'])
-@requires_s2fft
 def almxfl(alm: ArrayLike, fl: ArrayLike, mmax: int | None = None, healpy_ordering: bool = False) -> ArrayLike:
     """Multiply alm by a filter function fl.
 
@@ -1194,18 +1245,11 @@ def almxfl(alm: ArrayLike, fl: ArrayLike, mmax: int | None = None, healpy_orderi
 
     # Determine lmax from fl
     lmax = fl.shape[0] - 1
-    L = lmax + 1
 
     if healpy_ordering:
-        # Convert to s2fft 2D format for easier manipulation
-        alm_2d = flm_hp_to_2d_fast(alm, L)
-
-        # Apply filter
-        fl_2d = fl[:, None]  # Broadcast over m dimension
-        alm_filtered = alm_2d * fl_2d
-
-        # Convert back to healpy format
-        return flm_2d_to_hp_fast(alm_filtered, L)
+        # healpy 1D format: each coefficient is multiplied by the filter at its degree
+        ell, _ = _alm_hp_indices(lmax)
+        return alm * fl[ell]
     else:
         # s2fft 2D format: directly broadcast fl over m dimension
         fl_2d = fl[..., None]
@@ -1266,7 +1310,6 @@ def gauss_beam(fwhm: float, lmax: int = 512, pol: bool = False) -> ArrayLike:
 
 
 @jax.jit(static_argnames=['lmax', 'mmax', 'lmax_out', 'nspec', 'healpy_ordering'])
-@requires_s2fft
 def alm2cl(
     alms1: ArrayLike | list[ArrayLike],
     alms2: ArrayLike | list[ArrayLike] | None = None,
@@ -1360,7 +1403,7 @@ def alm2cl(
 
         # Convert to s2fft format if needed
         if healpy_ordering:
-            alms1_list = [flm_hp_to_2d_fast(a, L) for a in alms1_list]
+            alms1_list = [_alm_hp_to_2d(a, lmax) for a in alms1_list]
 
         # Compute all n(n+1)/2 spectra
         # HealPy order: all auto-spectra first, then cross-spectra grouped by separation
@@ -1402,7 +1445,7 @@ def alm2cl(
 
     # Convert to s2fft format if needed
     if healpy_ordering:
-        alms1 = flm_hp_to_2d_fast(alms1, L)
+        alms1 = _alm_hp_to_2d(alms1, lmax)
 
     if alms2 is None:
         # Auto-spectrum
@@ -1411,7 +1454,7 @@ def alm2cl(
         # Cross-spectrum
         alms2 = jnp.asarray(alms2)
         if healpy_ordering:
-            alms2 = flm_hp_to_2d_fast(alms2, L)
+            alms2 = _alm_hp_to_2d(alms2, lmax)
         cl = _compute_cl(alms1, L, alms2)
 
     # Truncate multipoles to lmax_out if requested (matches healpy)
@@ -1889,7 +1932,6 @@ def smoothing(
 
 
 @jax.jit(static_argnames=['lmax', 'mmax', 'new', 'healpy_ordering'])
-@requires_s2fft
 def synalm(
     prng_key: PRNGKeyArray,
     cls: ArrayLike | tuple[ArrayLike, ...],
@@ -2021,7 +2063,7 @@ def synalm(
         alms = jnp.einsum('lij,jlm->ilm', sqrt_cov, unit)  # (n, L, 2L-1)
 
         if healpy_ordering:
-            alms = jnp.stack([flm_2d_to_hp_fast(alms[i], L) for i in range(n)], axis=0)
+            alms = _alm_2d_to_hp(alms, lmax)
         return alms
 
     # Scalar case - use existing _generate_random_alm
@@ -2035,8 +2077,7 @@ def synalm(
 
     # Convert to healpy ordering if requested
     if healpy_ordering:
-        L = lmax + 1
-        alms = flm_2d_to_hp_fast(alms, L)
+        alms = _alm_2d_to_hp(alms, lmax)
 
     return alms
 

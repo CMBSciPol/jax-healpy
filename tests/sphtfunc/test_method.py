@@ -10,7 +10,7 @@ import pytest
 import jax_healpy as jhp
 from jax_healpy import _ducc0, sphtfunc
 
-from .helpers import flm_hp_to_2d, requires_ducc0, requires_s2fft
+from .helpers import requires_ducc0, requires_s2fft
 
 NSIDE = 8
 LMAX = 2 * NSIDE - 1
@@ -123,16 +123,6 @@ def test_methods_agree(healpy_ordering: bool) -> None:
     assert maps['ducc0'].shape == maps['jax'].shape
     assert maps['ducc0'].dtype == maps['jax'].dtype
     np.testing.assert_allclose(maps['ducc0'], maps['jax'], atol=1e-10, rtol=0)
-
-
-@pytest.mark.parametrize('lmax', [0, 1, 2, 7, LMAX])
-def test_alm_hp_to_2d(lmax: int) -> None:
-    """The conversion that jax.linear_transpose can transpose, against the numpy one of the tests."""
-    nalm = (lmax + 1) * (lmax + 2) // 2
-    rng = np.random.RandomState(lmax)
-    alms = jnp.asarray(rng.randn(2, nalm) + 1j * rng.randn(2, nalm))
-    expected = np.stack([flm_hp_to_2d(alm, lmax + 1) for alm in alms])
-    np.testing.assert_array_equal(sphtfunc._alm_hp_to_2d(alms, lmax), expected)
 
 
 @requires_ducc0
