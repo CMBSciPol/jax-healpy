@@ -3,8 +3,14 @@
 # Run from the repository root: uv run --group docs --extra recommended sh docs/build.sh
 set -e
 
-# Execute the notebooks and convert them to the Markdown pages the nav references
-jupyter nbconvert --to markdown --execute docs/user-guide/*.ipynb
+# Execute the notebooks and convert them to the Markdown pages the nav references. They
+# run in parallel, one process per notebook, to stay within the 15-minute limit of the
+# Read the Docs builds: most of their time is spent compiling the spherical harmonic
+# transforms, on a single core. At most 4 processes, to bound the memory.
+jobs=$(nproc)
+[ "$jobs" -gt 4 ] && jobs=4
+echo "Executing the notebooks with $jobs processes"
+printf '%s\n' docs/user-guide/*.ipynb | xargs -P "$jobs" -n 1 jupyter nbconvert --to markdown --execute
 
 zensical build
 
