@@ -1,13 +1,14 @@
-# jax-healpy - HEALPix with JAX
+![jax-healpy logo](assets/jax-healpy-logo.png#only-light){ width="600" .centered }
+![jax-healpy logo](assets/jax-healpy-logo-dark.png#only-dark){ width="600" .centered }
+
+# HEALPix with JAX
 
 [![PyPI version](https://img.shields.io/pypi/v/jax-healpy)](https://pypi.org/project/jax-healpy/)
 [![Python versions](https://img.shields.io/pypi/pyversions/jax-healpy)](https://pypi.org/project/jax-healpy/)
 [![License](https://img.shields.io/pypi/l/jax-healpy)](https://github.com/CMBSciPol/jax-healpy/blob/main/LICENSE)
 
 **jax-healpy** is a JAX-based implementation of the HEALPix (Hierarchical Equal Area isoLatitude
-Pixelization) functions, designed for high-performance scientific computing on CPUs and GPUs.
-
-It provides JAX-native versions of popular healpy functions, enabling automatic differentiation,
+Pixelization) functions, designed for high-performance scientific computing on CPUs and GPUs. It provides JAX-native versions of popular healpy functions, enabling automatic differentiation,
 just-in-time compilation and seamless integration with modern scientific computing workflows.
 
 !!! warning
@@ -60,3 +61,10 @@ smoothed_map = hp.alm2map(alm, nside=nside, lmax=2 * nside)
   [Clustering](api/clustering.md)
 - [**Changelog**](changelog.md)
 - [**Contributing**](contributing.md)
+
+## Acknowledgements
+
+[![Logos of SciPol, the European Union, the ERC and the CNRS](assets/scipol-banner.png#only-light){ width="500" }](https://scipol.in2p3.fr/)
+[![Logos of SciPol, the European Union, the ERC and the CNRS](assets/scipol-banner-dark.png#only-dark){ width="500" }](https://scipol.in2p3.fr/)
+
+jax-healpy is developed within the [SciPol](https://scipol.in2p3.fr/) project.

@@ -14,10 +14,6 @@
 # You should have received a copy of the GNU General Public License
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
-import logging
-
-import jax
-
 from ._query_disc import estimate_disc_pixel_count, estimate_disc_radius, query_disc
 from .pixelfunc import (
     UNSEEN,
@@ -71,12 +67,6 @@ from .sphtfunc import (
     synalm,
     synfast,
 )
-
-if jax.config.read('jax_enable_x64') is False:
-    logging.getLogger('jax_healpy').warning(
-        'JAX is not using 64-bit precision. Results will diverge from healpy even at moderate '
-        'nside and can overflow for nside > 8192. See the README on numerical precision.'
-    )
 
 __all__ = [
     'pix2ang',

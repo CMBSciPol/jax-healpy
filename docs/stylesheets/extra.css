@@ -24,3 +24,11 @@
     border-left: 0.05rem solid var(--md-default-fg-color--lightest);
   }
 }
+
+/* Centered block images, such as the logo. A class, not an inline style, so that the
+   theme can still hide the #only-light and #only-dark images with its more specific
+   selectors. */
+img.centered {
+  display: block;
+  margin: 0 auto;
+}

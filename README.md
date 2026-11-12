@@ -4,9 +4,11 @@
 
 This project provides a comprehensive JAX-native implementation of HEALPix (Hierarchical Equal Area isoLatitude Pixelization) functions, designed for modern scientific computing with GPU acceleration, automatic differentiation, and seamless integration with machine learning workflows.
 
-[![Documentation Status](https://readthedocs.org/projects/jax-healpy/badge/?version=latest)](https://jax-healpy.readthedocs.io/en/latest/?badge=latest)
-[![PyPI version](https://badge.fury.io/py/jax-healpy.svg)](https://badge.fury.io/py/jax-healpy)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![PyPI version](https://img.shields.io/pypi/v/jax-healpy)](https://pypi.org/project/jax-healpy/)
+[![Python versions](https://img.shields.io/pypi/pyversions/jax-healpy)](https://pypi.org/project/jax-healpy/)
+[![License](https://img.shields.io/github/license/CMBSciPol/jax-healpy)](https://github.com/CMBSciPol/jax-healpy/blob/main/LICENSE)
+[![CI](https://github.com/CMBSciPol/jax-healpy/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/CMBSciPol/jax-healpy/actions/workflows/ci.yml?query=branch%3Amain)
+[![Documentation](https://img.shields.io/readthedocs/jax-healpy/latest)](https://jax-healpy.readthedocs.io/en/latest/)
 
 ## Key Features
 
@@ -190,6 +192,10 @@ If you use jax-healpy in your research, please cite:
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
+
+jax-healpy is developed within the [SciPol](https://scipol.in2p3.fr/) project, funded by the
+[European Research Council](https://erc.europa.eu/) (ERC) of the [European Union](https://european-union.europa.eu/),
+with the support of the [CNRS](https://www.cnrs.fr/).
 
 - Built on [JAX](https://github.com/google/jax) for high-performance computing
 - Compatible with [HEALPix](https://healpix.jpl.nasa.gov/) pixelization scheme

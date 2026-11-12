@@ -20,3 +20,7 @@ docs/user-guide/getting-started.md
 docs/user-guide/performance-tips.md
 docs/user-guide/pixelization.md
 docs/user-guide/*_files/
+
+# Logo: the Planck CMB maps used by the scripts in docs/logo
+docs/logo/*.fits
+docs/logo/*.fits.part
