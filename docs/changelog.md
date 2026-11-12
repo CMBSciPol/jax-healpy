@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Importing jax-healpy no longer ignores all the Python warnings of the process, a side effect of importing s2fft (#54)
+- `method='jax_healpy'` raises a `ValueError` instead of failing during the compilation: this backend of s2fft cannot be compiled, and it transforms polarization as two scalar fields (#65)
 
 ## [0.8.2] - 2026-09-28
 
