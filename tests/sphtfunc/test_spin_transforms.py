@@ -36,6 +36,7 @@ def test_map2alm_spin_iter(nside: int, lmax: int) -> None:
     np.testing.assert_allclose(np.asarray(b0), flm_hp_to_2d_fast(bh, L), atol=atol, rtol=1e-8)
 
 
+@pytest.mark.parametrize('default_method', ['jax'], indirect=True)  # run once: the method is explicit
 @pytest.mark.parametrize('spin', [1, 2, 3])
 @pytest.mark.parametrize('iter_val', [0, 2])
 @pytest.mark.parametrize('lmax_factor', [2, 3])

@@ -18,6 +18,12 @@ NALM = (LMAX + 1) * (LMAX + 2) // 2
 
 requires_ducc0 = pytest.mark.skipif(not _ducc0.is_available(), reason='ducc0 is not installed')
 
+# The transforms of ducc0 are compiled much faster than those of s2fft.
+FASTEST_METHOD = 'ducc0' if _ducc0.is_available() else 'jax'
+
+# These tests choose the methods themselves: they are run once, not once per default method.
+pytestmark = pytest.mark.parametrize('default_method', [FASTEST_METHOD], indirect=True)
+
 # The function itself: during the tests, the default_method fixture replaces it in the module.
 select_default_method = sphtfunc._default_method
 
@@ -84,7 +90,7 @@ def test_default_method_is_used(name: str, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(sphtfunc, '_default_method', default_method)
     with pytest.raises(RuntimeError, match='The default method is requested'):
         transforms(None)[name]()
-    transforms('jax')[name]()
+    transforms(FASTEST_METHOD)[name]()
 
 
 def test_method_can_be_positional() -> None:
@@ -98,7 +104,7 @@ def test_method_can_be_positional() -> None:
 @pytest.mark.parametrize('healpy_ordering', [False, True])
 def test_methods_agree(healpy_ordering: bool) -> None:
     """The two backends return the same alms and maps, with the same dtypes, in both alm orderings."""
-    nside = 16
+    nside = NSIDE
     lmax = 3 * nside - 1
     iqu = np.random.RandomState(0).randn(3, hp.nside2npix(nside))
 
@@ -154,9 +160,8 @@ def test_gradients_match_s2fft() -> None:
 
     def gradient(method: str) -> jax.Array:
         def loss(x):
-            cls = jhp.anafast(x, lmax=LMAX, iter=1, method=method)
-            alms = jhp.map2alm(x, lmax=LMAX, iter=0, method=method)
-            return jnp.sum(cls) + jnp.sum(jhp.alm2map(alms, NSIDE, lmax=LMAX, method=method) ** 2)
+            alms = jhp.map2alm(x, lmax=LMAX, iter=1, method=method)
+            return jnp.sum(jnp.abs(alms) ** 2) + jnp.sum(jhp.alm2map(alms, NSIDE, lmax=LMAX, method=method) ** 3)
 
         return jax.grad(loss)(iqu)
 
