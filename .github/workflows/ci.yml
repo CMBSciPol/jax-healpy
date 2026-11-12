@@ -30,7 +30,7 @@ jobs:
           prek-version: "0.5.3"
 
   test:
-    name: Run tests on Python ${{ matrix.python.version }}
+    name: Run tests on Python ${{ matrix.python.version }}${{ matrix.suffix }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -47,6 +47,15 @@ jobs:
             jax: ">=0.10,<0.11"
           - version: "3.14"
             jax: ">=0.12"
+        # The libraries of the spherical harmonic transforms: ducc0 (cpu) and s2fft (gpu)
+        extras: ["--extra cpu --extra gpu"]
+        include:
+          # The installation for CPU, in which s2fft is missing
+          - python:
+              version: "3.14"
+              jax: ">=0.12"
+            extras: "--extra cpu"
+            suffix: ", without s2fft"
 
     steps:
       - name: Checkout project
@@ -62,7 +71,10 @@ jobs:
           python-version: ${{ matrix.python.version }}
 
       - name: Install dependencies
-        run: uv sync --locked --group dev --extra recommended
+        env:
+          EXTRAS: ${{ matrix.extras }}
+        # EXTRAS holds several options: it is split into words on purpose
+        run: uv sync --locked --group dev ${EXTRAS}
 
       # Override the locked JAX version. The following steps use --no-sync, so that uv run
       # does not reinstall the locked version.
@@ -94,4 +106,4 @@ jobs:
           enable-cache: true
 
       - name: Build the site
-        run: uv run --locked --group docs --no-dev --extra recommended sh docs/build.sh
+        run: uv run --locked --group docs --no-dev --extra cpu --extra gpu sh docs/build.sh

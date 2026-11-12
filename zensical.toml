@@ -15,7 +15,7 @@ logo/*
 
 # https://zensical.org/docs/setup/navigation/
 # The user-guide pages, except the installation, are generated from the notebooks before the
-# build: uv run --group docs --extra recommended sh docs/build.sh
+# build: uv run --group docs --extra cpu --extra gpu sh docs/build.sh
 nav = [
   { "Home" = "index.md" },
   { "User Guide" = [

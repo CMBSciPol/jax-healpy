@@ -1519,8 +1519,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-recommended = [
+cpu = [
     { name = "ducc0" },
+]
+gpu = [
     { name = "s2fft" },
 ]
 
@@ -1556,13 +1558,13 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ducc0", marker = "extra == 'recommended'" },
+    { name = "ducc0", marker = "extra == 'cpu'" },
     { name = "jax", specifier = ">=0.10.0" },
     { name = "jaxtyping", specifier = ">=0.3" },
     { name = "numpy", specifier = ">=2.0" },
-    { name = "s2fft", marker = "extra == 'recommended'", git = "https://github.com/astro-informatics/s2fft" },
+    { name = "s2fft", marker = "extra == 'gpu'", git = "https://github.com/astro-informatics/s2fft" },
 ]
-provides-extras = ["recommended"]
+provides-extras = ["cpu", "gpu"]
 
 [package.metadata.requires-dev]
 cuda = [{ name = "jax", extras = ["cuda13"], specifier = ">=0.10.0" }]

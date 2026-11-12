@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 import jax_healpy as jhp
+from jax_healpy import sphtfunc
 
 from .helpers import flm_2d_to_hp, requires_s2fft
 
@@ -128,6 +129,16 @@ def test_precompute_harmonic_transforms_smoke() -> None:
     p2, pm2 = jhp.precompute_polarization_harmonic_transforms(32, lmax=63)
     assert isinstance(p2, (list, tuple)) and len(p2) > 0
     assert isinstance(pm2, (list, tuple)) and len(pm2) > 0
+
+
+@pytest.mark.parametrize(
+    'precompute',
+    [jhp.precompute_temperature_harmonic_transforms, jhp.precompute_polarization_harmonic_transforms],
+)
+def test_precompute_harmonic_transforms_require_s2fft(precompute, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sphtfunc, '_s2fft_is_available', lambda: False)
+    with pytest.raises(ImportError, match=r"Missing optional library 's2fft'.*jax-healpy\[gpu\]"):
+        precompute(32, lmax=63)
 
 
 # --- smoothing remembers and restores masked pixels (UNSEEN/non-finite) ------------------

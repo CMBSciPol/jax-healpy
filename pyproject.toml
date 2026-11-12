@@ -44,8 +44,11 @@ dependencies = [
 dynamic = ['version']
 
 [project.optional-dependencies]
-recommended = [
+# The libraries that compute the spherical harmonic transforms: ducc0 on CPU, s2fft on GPU
+cpu = [
     'ducc0',
+]
+gpu = [
     's2fft',
 ]
 

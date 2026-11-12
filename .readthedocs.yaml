@@ -13,7 +13,7 @@ build:
     build:
       html:
         # Execute the notebooks, build the site and adjust the layout breakpoint
-        - uv run --locked --group docs --no-dev --extra recommended sh docs/build.sh
+        - uv run --locked --group docs --no-dev --extra cpu --extra gpu sh docs/build.sh
     post_build:
       - mkdir -p $READTHEDOCS_OUTPUT/html/
       - cp --recursive site/* $READTHEDOCS_OUTPUT/html/

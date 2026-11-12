@@ -45,8 +45,9 @@ try:
         from s2fft.recursions.price_mcewen import generate_precomputes_jax
         from s2fft.transforms import spherical
 except ImportError:
-    pass
+    _S2FFT_IS_AVAILABLE = False
 else:
+    _S2FFT_IS_AVAILABLE = True
     warnings.filterwarnings('ignore', message='Explicitly requested dtype', category=UserWarning, module=r's2fft\.')
 finally:
     _s2fft_logger.disabled = _s2fft_logger_disabled
@@ -78,20 +79,25 @@ Param = ParamSpec('Param')
 ReturnType = TypeVar('ReturnType')
 
 
-def requires_s2fft(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnType]:
-    try:
-        import s2fft  # noqa
+_INSTALL_DUCC0 = 'install it with `pip install "jax-healpy[cpu]"`'
+_INSTALL_S2FFT = 'install it with `pip install "jax-healpy[gpu]"`'
 
-        return func
-    except ImportError:
-        pass
+
+def _s2fft_is_available() -> bool:
+    """Whether s2fft is installed."""
+    return _S2FFT_IS_AVAILABLE
+
+
+def requires_s2fft(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnType]:
+    """Make ``func`` raise an ``ImportError`` when it is called without s2fft."""
 
     @wraps(func)
-    def deferred_func(*args: Param.args, **kwargs: Param.kwargs) -> ReturnType:
-        msg = "Missing optional library 's2fft', part of the 'recommended' dependency group."
-        raise ImportError(msg)
+    def wrapper(*args: Param.args, **kwargs: Param.kwargs) -> ReturnType:
+        if not _s2fft_is_available():
+            raise ImportError(f"Missing optional library 's2fft': {_INSTALL_S2FFT}.")
+        return func(*args, **kwargs)
 
-    return deferred_func
+    return wrapper
 
 
 @requires_s2fft
@@ -217,22 +223,51 @@ def _resolve_lmax(nside: int, lmax: int | None) -> int:
 
 _METHODS = ('ducc0', 'jax', 'jax_cuda')
 
+_SLOW_ON_CPU = (
+    'The spherical harmonic transforms are computed on CPU by s2fft, which is two to three orders of '
+    f'magnitude slower there than ducc0: {_INSTALL_DUCC0}. To keep the transforms of s2fft without '
+    "this warning, pass method='jax'."
+)
+
+_warned_slow_on_cpu = False
+
 
 def _default_method() -> str:
     """Return the transform backend used when none is requested.
 
     The transforms of ducc0 only run on CPU, where they are orders of magnitude faster than those
-    of s2fft: they are the default there, if ducc0 is installed.
+    of s2fft: they are the default there, if ducc0 is installed. Those of s2fft are the default on
+    the other devices. They are also used on CPU when ducc0 is missing, with a warning emitted once
+    per session.
+
+    An ``ImportError`` is raised if the library of the default backend is not installed.
     """
-    if _ducc0.is_available() and jax.default_backend() == 'cpu':
+    global _warned_slow_on_cpu
+    backend = jax.default_backend()
+    if backend == 'cpu' and _ducc0.is_available():
         return 'ducc0'
+    if not _s2fft_is_available():
+        if not _ducc0.is_available():
+            raise ImportError(
+                'The spherical harmonic transforms require an optional library: ducc0 to compute them on CPU '
+                '(`pip install "jax-healpy[cpu]"`) or s2fft to compute them on GPU (`pip install "jax-healpy[gpu]"`).'
+            )
+        raise ImportError(
+            f"Missing optional library 's2fft', which computes the spherical harmonic transforms on {backend.upper()}: "
+            f"{_INSTALL_S2FFT}. To compute them on the CPU with ducc0 instead, pass method='ducc0'."
+        )
+    if backend == 'cpu' and not _warned_slow_on_cpu:
+        _warned_slow_on_cpu = True
+        # stacklevel: _resolve_method, the wrapper of _with_default_method, then the caller
+        warnings.warn(_SLOW_ON_CPU, UserWarning, stacklevel=4)
     return 'jax'
 
 
 def _resolve_method(method: str | None) -> str:
     """Return the transform backend designated by ``method``, which is the default one for ``None``.
 
-    A ``ValueError`` is raised if ``method`` is not a transform backend that jax-healpy can use.
+    A ``ValueError`` is raised if ``method`` is not a transform backend that jax-healpy can use, and
+    an ``ImportError`` if the library of the backend is not installed.
     """
     if method is None:
         return _default_method()
@@ -246,8 +281,11 @@ def _resolve_method(method: str | None) -> str:
         )
     if method not in _METHODS:
         raise ValueError(f'Invalid method {method!r}: the transform backends are {", ".join(map(repr, _METHODS))}.')
-    if method == 'ducc0' and not _ducc0.is_available():
-        raise ImportError("Missing optional library 'ducc0', part of the 'recommended' dependency group.")
+    if method == 'ducc0':
+        if not _ducc0.is_available():
+            raise ImportError(f"Missing optional library 'ducc0', required by method='ducc0': {_INSTALL_DUCC0}.")
+    elif not _s2fft_is_available():
+        raise ImportError(f"Missing optional library 's2fft', required by method={method!r}: {_INSTALL_S2FFT}.")
     return method
 
 
@@ -501,7 +539,6 @@ def _map2alm_ducc0(
     return alms[0] if spin == 0 else [alms[0], alms[1]]
 
 
-@requires_s2fft
 def _alm2map_core(
     alms: ArrayLike,
     nside: int,
@@ -643,7 +680,6 @@ def _apply_bad_mask(m: ArrayLike, bad_mask: ArrayLike | None) -> Inexact[Array, 
     return jnp.where(jnp.asarray(bad_mask), jnp.zeros((), dtype=m.dtype), m)
 
 
-@requires_s2fft
 def _map2alm_core(
     maps: ArrayLike,
     lmax: int,
@@ -838,8 +874,9 @@ def alm2map(
 
       - ``'ducc0'``: the transforms of the C++ library [ducc0](https://pypi.org/project/ducc0/),
         which run on the CPU, on all its cores. On CPU, they are two to three orders of
-        magnitude faster than the other backends.
-      - ``'jax'``: the pure JAX transforms of s2fft, for CPU and GPU.
+        magnitude faster than the other backends. ducc0 is installed by the extra ``cpu``.
+      - ``'jax'``: the pure JAX transforms of s2fft, for CPU and GPU. s2fft is installed by
+        the extra ``gpu``.
       - ``'jax_cuda'``: the same transforms with the CUDA kernel of s2fft for the Fourier
         transforms along the rings, which is faster to compile. It only runs on NVIDIA GPUs
         and requires s2fft to be built with CUDA support.
@@ -1044,8 +1081,9 @@ def map2alm(
 
       - ``'ducc0'``: the transforms of the C++ library [ducc0](https://pypi.org/project/ducc0/),
         which run on the CPU, on all its cores. On CPU, they are two to three orders of
-        magnitude faster than the other backends.
-      - ``'jax'``: the pure JAX transforms of s2fft, for CPU and GPU.
+        magnitude faster than the other backends. ducc0 is installed by the extra ``cpu``.
+      - ``'jax'``: the pure JAX transforms of s2fft, for CPU and GPU. s2fft is installed by
+        the extra ``gpu``.
       - ``'jax_cuda'``: the same transforms with the CUDA kernel of s2fft for the Fourier
         transforms along the rings, which is faster to compile. It only runs on NVIDIA GPUs
         and requires s2fft to be built with CUDA support.
