@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from pytest_mock import MockerFixture
 
 pytest.importorskip('ducc0')
 
@@ -100,9 +101,9 @@ def test_primitives_jit(spin: int) -> None:
 
 @pytest.mark.parametrize('spin', [0, 2])
 @pytest.mark.parametrize('sequential', [False, True])
-def test_primitives_vmap(spin: int, sequential: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_primitives_vmap(mocker: MockerFixture, spin: int, sequential: bool) -> None:
     """Batches are transformed in a single call to ducc0 for small maps, one map at a time for large ones."""
-    monkeypatch.setattr(_ducc0, '_SEQUENTIAL_BATCH_NSIDE', NSIDE if sequential else 2 * NSIDE)
+    mocker.patch.object(_ducc0, '_SEQUENTIAL_BATCH_NSIDE', NSIDE if sequential else 2 * NSIDE)
     synthesis, adjoint_synthesis, x, maps, _ = transforms(spin)
     xs = jnp.stack([x, 2 * x, 3 * x])
     expected = synthesis(x)
@@ -121,8 +122,8 @@ def test_primitives_vmap(spin: int, sequential: bool, monkeypatch: pytest.Monkey
 
 @pytest.mark.parametrize('spin', [0, 2])
 @pytest.mark.parametrize('sequential', [False, True])
-def test_primitives_derivatives(spin: int, sequential: bool, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_ducc0, '_SEQUENTIAL_BATCH_NSIDE', NSIDE if sequential else 2 * NSIDE)
+def test_primitives_derivatives(mocker: MockerFixture, spin: int, sequential: bool) -> None:
+    mocker.patch.object(_ducc0, '_SEQUENTIAL_BATCH_NSIDE', NSIDE if sequential else 2 * NSIDE)
     synthesis, adjoint_synthesis, x, _, _ = transforms(spin)
     normal = adjoint_synthesis(synthesis(x))
 

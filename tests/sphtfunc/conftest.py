@@ -5,6 +5,7 @@ from typing import Any
 import healpy as hp
 import numpy as np
 import pytest
+from pytest_mock import MockerFixture
 
 from jax_healpy import sphtfunc
 
@@ -15,16 +16,17 @@ if not METHODS:
 
 
 @pytest.fixture(scope='session', autouse=True, params=METHODS)
-def default_method(request: pytest.FixtureRequest) -> Iterator[str]:
+def default_method(session_mocker: MockerFixture, request: pytest.FixtureRequest) -> Iterator[str]:
     """Run the tests of this directory with each available transform backend as the default one.
 
     Without it, the tests that do not specify a method would only exercise the default backend
     of the test environment: ducc0 if it is installed, the transforms of s2fft otherwise. With a
     single library installed, the tests exercise its backend only.
     """
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        monkeypatch.setattr(sphtfunc, '_default_method', lambda: request.param)
-        yield request.param
+    patched = session_mocker.patch.object(sphtfunc, '_default_method', return_value=request.param)
+    yield request.param
+    # The session mocker only restores its patches at the end of the session
+    session_mocker.stop(patched)
 
 
 @pytest.fixture(

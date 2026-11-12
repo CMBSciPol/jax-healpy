@@ -6,6 +6,7 @@ import healpy as hp
 import jax
 import numpy as np
 import pytest
+from pytest_mock import MockerFixture
 
 import jax_healpy as jhp
 from jax_healpy import sphtfunc
@@ -135,8 +136,8 @@ def test_precompute_harmonic_transforms_smoke() -> None:
     'precompute',
     [jhp.precompute_temperature_harmonic_transforms, jhp.precompute_polarization_harmonic_transforms],
 )
-def test_precompute_harmonic_transforms_require_s2fft(precompute, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sphtfunc, '_s2fft_is_available', lambda: False)
+def test_precompute_harmonic_transforms_require_s2fft(mocker: MockerFixture, precompute) -> None:
+    mocker.patch.object(sphtfunc, '_s2fft_is_available', return_value=False)
     with pytest.raises(ImportError, match=r"Missing optional library 's2fft'.*jax-healpy\[gpu\]"):
         precompute(32, lmax=63)
 

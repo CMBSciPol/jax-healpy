@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from pytest_mock import MockerFixture
 
 import jax_healpy as jhp
 from jax_healpy import _ducc0, sphtfunc
@@ -47,18 +48,18 @@ FUNCTIONS = list(transforms('jax'))
 
 
 @pytest.fixture
-def installed(monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]:
+def installed(mocker: MockerFixture) -> Callable[..., None]:
     """Pretend that the transform libraries are installed or not, and choose the device of JAX.
 
     The selection of the default method is the real one, and it has not warned yet.
     """
 
     def set_installed(*, ducc0: bool, s2fft: bool, backend: str = 'cpu') -> None:
-        monkeypatch.setattr(_ducc0, 'is_available', lambda: ducc0)
-        monkeypatch.setattr(sphtfunc, '_s2fft_is_available', lambda: s2fft)
-        monkeypatch.setattr(jax, 'default_backend', lambda: backend)
-        monkeypatch.setattr(sphtfunc, '_default_method', select_default_method)
-        monkeypatch.setattr(sphtfunc, '_warned_slow_on_cpu', False)
+        mocker.patch.object(_ducc0, 'is_available', return_value=ducc0)
+        mocker.patch.object(sphtfunc, '_s2fft_is_available', return_value=s2fft)
+        mocker.patch.object(jax, 'default_backend', return_value=backend)
+        mocker.patch.object(sphtfunc, '_default_method', select_default_method)
+        mocker.patch.object(sphtfunc, '_warned_slow_on_cpu', False)
 
     return set_installed
 
@@ -168,14 +169,11 @@ def test_functions_without_transform_need_no_library(installed: Callable[..., No
 
 
 @pytest.mark.parametrize('name', FUNCTIONS)
-def test_default_method_is_used(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_method_is_used(mocker: MockerFixture, name: str) -> None:
     """Without method, the functions use the default backend, even if it changed since they were compiled."""
     transforms(None)[name]()
 
-    def default_method() -> str:
-        raise RuntimeError('The default method is requested.')
-
-    monkeypatch.setattr(sphtfunc, '_default_method', default_method)
+    mocker.patch.object(sphtfunc, '_default_method', side_effect=RuntimeError('The default method is requested.'))
     with pytest.raises(RuntimeError, match='The default method is requested'):
         transforms(None)[name]()
     transforms(FASTEST_METHOD)[name]()

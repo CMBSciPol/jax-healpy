@@ -4,15 +4,16 @@ import warnings
 
 import jax
 import pytest
+from pytest_mock import MockerFixture
 
 import jax_healpy as hp
 from jax_healpy import _precision
 
 
 @pytest.fixture
-def not_warned_yet(monkeypatch: pytest.MonkeyPatch) -> None:
+def not_warned_yet(mocker: MockerFixture) -> None:
     """Reset the warn-once flag of the precision check."""
-    monkeypatch.setattr(_precision, '_warned', False)
+    mocker.patch.object(_precision, '_warned', False)
 
 
 def test_import_does_not_warn() -> None:

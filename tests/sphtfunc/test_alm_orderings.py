@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from pytest_mock import MockerFixture
 
 from jax_healpy import sphtfunc
 
@@ -17,10 +18,10 @@ NALM = (LMAX + 1) * (LMAX + 2) // 2
 
 
 @pytest.fixture(params=['stored', 'computed'])
-def alm_indices(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+def alm_indices(mocker: MockerFixture, request: pytest.FixtureRequest) -> str:
     """Exercise the indices of the healpy ordering both as constants and as computations."""
     if request.param == 'computed':
-        monkeypatch.setattr(sphtfunc, '_STORED_INDICES_LMAX', -1)
+        mocker.patch.object(sphtfunc, '_STORED_INDICES_LMAX', -1)
     return request.param
 
 
@@ -35,9 +36,9 @@ def test_alm_hp_indices(lmax: int, x64: bool) -> None:
     np.testing.assert_array_equal(m, expected_m)
 
 
-def test_alm_hp_indices_are_stored_up_to_a_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_alm_hp_indices_are_stored_up_to_a_limit(mocker: MockerFixture) -> None:
     """The indices are numpy constants for the small lmax, and computed by JAX beyond."""
-    monkeypatch.setattr(sphtfunc, '_STORED_INDICES_LMAX', 7)
+    mocker.patch.object(sphtfunc, '_STORED_INDICES_LMAX', 7)
     assert all(isinstance(indices, np.ndarray) for indices in sphtfunc._alm_hp_indices(7))
     assert all(isinstance(indices, jax.Array) for indices in sphtfunc._alm_hp_indices(8))
 
@@ -64,10 +65,10 @@ def test_alm_hp_indices_int32_limit() -> None:
 
 
 @pytest.fixture
-def low_int32_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+def low_int32_limit(mocker: MockerFixture) -> None:
     """Reach the limit of the 32-bit indices at lmax = 7, with computed indices."""
-    monkeypatch.setattr(sphtfunc, '_STORED_INDICES_LMAX', -1)
-    monkeypatch.setattr(sphtfunc, '_INT32_INDICES_LMAX', 7)
+    mocker.patch.object(sphtfunc, '_STORED_INDICES_LMAX', -1)
+    mocker.patch.object(sphtfunc, '_INT32_INDICES_LMAX', 7)
 
 
 @pytest.mark.usefixtures('low_int32_limit')
