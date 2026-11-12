@@ -513,7 +513,7 @@ def _map2alm_core(
     if mmax is not None and mmax != lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
 
-    # For spin transforms, use dual-transform approach
+    # For spin transforms, use single-transform approach
     # Reference: healpy alm2map_spin/map2alm_spin convention
     if spin != 0:
         # Input: [Q_map, U_map] where Q and U are real-valued Stokes parameters
@@ -525,49 +525,35 @@ def _map2alm_core(
         nside = npix2nside(q_map.shape[-1])
         L = lmax + 1
 
-        # Construct spin-weighted maps for +spin and -spin transforms
-        spin_map_pos = q_map + 1j * u_map  # _s S = Q + iU
-        spin_map_neg = q_map - 1j * u_map  # _-s S = Q - iU
-
         sampling = 'healpix'
         spmd = False
 
-        # Generate precomputes for both transforms
-        precomps_pos = generate_precomputes_jax(L, spin, sampling, nside, False)
-        precomps_neg = generate_precomputes_jax(L, -spin, sampling, nside, False)
+        # Generate precomputes for spin-s transform
+        precomps = generate_precomputes_jax(L, spin, sampling, nside, False)
 
-        # Forward transforms for +spin and -spin
+        # Single spin-s forward transform of the complex field Q + iU
         flm_pos = spherical.forward(
-            spin_map_pos,
+            q_map + 1j * u_map,
             L,
             spin=spin,
             nside=nside,
             sampling=sampling,
             method=method,
             reality=False,  # Complex input
-            precomps=precomps_pos,
+            precomps=precomps,
             spmd=spmd,
             iter=iter,
         )
 
-        flm_neg = spherical.forward(
-            spin_map_neg,
-            L,
-            spin=-spin,
-            nside=nside,
-            sampling=sampling,
-            method=method,
-            reality=False,  # Complex input
-            precomps=precomps_neg,
-            spmd=spmd,
-            iter=iter,
-        )
-
-        # Combine to get E and B mode coefficients
-        # E and B are extracted using the HEALPix convention
-        phase = (-1) ** spin
-        alm_E = -0.5 * (flm_pos + phase * flm_neg)
-        alm_B = 0.5j * (flm_pos - phase * flm_neg)
+        # The spin -s coefficients of Q - iU are not transformed: since Q and U are real, they
+        # follow from the symmetry  _{-s}a_{l,m} = (-1)^(s+m) conj(_{s}a_{l,-m}).
+        # E and B are then extracted using the HEALPix convention,
+        #     E = -(_{s}a + (-1)^s _{-s}a) / 2,    B = i (_{s}a - (-1)^s _{-s}a) / 2,
+        # in which the sign (-1)^s cancels the one of the symmetry.
+        m = jnp.arange(-L + 1, L)
+        flm_mirror = jnp.where(m % 2 == 0, 1, -1) * jnp.conj(flm_pos[:, ::-1])
+        alm_E = -0.5 * (flm_pos + flm_mirror)
+        alm_B = 0.5j * (flm_pos - flm_mirror)
 
         return [alm_E, alm_B]
     else:

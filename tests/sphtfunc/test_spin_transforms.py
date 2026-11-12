@@ -36,6 +36,37 @@ def test_map2alm_spin_iter(nside: int, lmax: int) -> None:
     np.testing.assert_allclose(np.asarray(b0), flm_hp_to_2d_fast(bh, L), atol=atol, rtol=1e-8)
 
 
+@pytest.mark.parametrize('spin', [1, 2, 3])
+@pytest.mark.parametrize('iter_val', [0, 2])
+@pytest.mark.parametrize('lmax_factor', [2, 3])
+def test_map2alm_spin_single_transform(spin: int, iter_val: int, lmax_factor: int, pol_nside: int) -> None:
+    """map2alm_spin gives the alms of the two transforms, of spin +s and -s, with only the first one.
+
+    Since the two maps are real, the spin -s coefficients of Q - iU follow from those of Q + iU:
+    _{-s}a_{l,m} = (-1)^(s+m) conj(_{s}a_{l,-m}). The reference computes both transforms.
+    """
+    from s2fft.transforms import spherical
+
+    nside = pol_nside
+    lmax = lmax_factor * nside - 1
+    L = lmax + 1
+    q, u = np.random.RandomState(spin).randn(2, hp.nside2npix(nside))
+
+    keywords = {'nside': nside, 'sampling': 'healpix', 'method': 'jax', 'reality': False, 'iter': iter_val}
+    flm_pos = spherical.forward(jnp.asarray(q + 1j * u), L, spin=spin, **keywords)
+    flm_neg = spherical.forward(jnp.asarray(q - 1j * u), L, spin=-spin, **keywords)
+    phase = (-1) ** spin
+    expected_e = -0.5 * (flm_pos + phase * flm_neg)
+    expected_b = 0.5j * (flm_pos - phase * flm_neg)
+
+    actual_e, actual_b = jhp.map2alm_spin([q, u], spin=spin, lmax=lmax, iter=iter_val)
+
+    # The alms are of order 0.1: the two computations agree to rounding errors.
+    assert np.abs(expected_e).max() > 1e-2 and np.abs(expected_b).max() > 1e-2
+    np.testing.assert_allclose(np.asarray(actual_e), np.asarray(expected_e), atol=1e-12, rtol=0)
+    np.testing.assert_allclose(np.asarray(actual_b), np.asarray(expected_b), atol=1e-12, rtol=0)
+
+
 @pytest.mark.parametrize('healpy_ordering', [True, False])
 def test_map2alm_spin_basic(
     flm_generator: Callable[[...], np.ndarray], nside: int, lmax: int, healpy_ordering: bool

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The warning about 32-bit precision is a `UserWarning`, emitted once when a pixel function or a spherical harmonic transform is first called, instead of a log message at import: enabling 64-bit precision after importing jax-healpy no longer triggers it, nor the similar warning of s2fft (#54)
+- On polarized maps, `map2alm`, `map2alm_spin`, `anafast` and `smoothing` take about 40 % less time to run and to compile: the spin −s coefficients are deduced from the spin +s ones instead of being transformed (#65)
 
 ### Fixed
 
