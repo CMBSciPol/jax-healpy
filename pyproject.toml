@@ -45,6 +45,7 @@ dynamic = ['version']
 
 [project.optional-dependencies]
 recommended = [
+    'ducc0',
     's2fft',
 ]
 

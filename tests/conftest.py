@@ -1,6 +1,11 @@
+import os
 from pathlib import Path
 
 import pytest
+
+# The tests are run in parallel by pytest-xdist: ducc0 gets a single thread in each process, instead of
+# all the cores. It reads this variable when it is first imported.
+os.environ.setdefault('DUCC0_NUM_THREADS', '1')
 
 
 @pytest.fixture(scope='session', autouse=True)
