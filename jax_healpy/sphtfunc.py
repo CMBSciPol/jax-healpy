@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with jax-healpy. If not, see <https://www.gnu.org/licenses/>.
 
+import inspect
 import logging
 import warnings
 from collections.abc import Callable
@@ -25,7 +26,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.scipy.linalg import sqrtm
 from jax.typing import ArrayLike
-from jaxtyping import Array, Bool, Complex, Inexact, PRNGKeyArray
+from jaxtyping import Array, Bool, Complex, Float, Inexact, PRNGKeyArray
 
 # Two side effects of importing s2fft are undone:
 # - s2fft checks the precision when it is imported, before the users had a chance to enable
@@ -51,7 +52,7 @@ else:
 finally:
     _s2fft_logger.disabled = _s2fft_logger_disabled
 
-from jax_healpy import npix2nside
+from jax_healpy import _ducc0, npix2nside
 from jax_healpy._precision import warn_if_not_x64
 from jax_healpy.pixelfunc import UNSEEN, mask_bad
 
@@ -215,20 +216,58 @@ def _resolve_lmax(nside: int, lmax: int | None) -> int:
     return target_lmax
 
 
-_METHODS = ('jax', 'jax_cuda')
+_METHODS = ('ducc0', 'jax', 'jax_cuda')
 
 
-def _check_method(method: str) -> None:
-    """Raise a ``ValueError`` if ``method`` is not a transform backend that jax-healpy can use."""
+def _default_method() -> str:
+    """Return the transform backend used when none is requested.
+
+    The transforms of ducc0 only run on CPU, where they are orders of magnitude faster than those
+    of s2fft: they are the default there, if ducc0 is installed.
+    """
+    if _ducc0.is_available() and jax.default_backend() == 'cpu':
+        return 'ducc0'
+    return 'jax'
+
+
+def _resolve_method(method: str | None) -> str:
+    """Return the transform backend designated by ``method``, which is the default one for ``None``.
+
+    A ``ValueError`` is raised if ``method`` is not a transform backend that jax-healpy can use.
+    """
+    if method is None:
+        return _default_method()
     if method == 'jax_healpy':
         # s2fft would accept it, but its healpy wrappers have no lowering rule (the compilation
         # fails) and they ignore the spin (polarization would be transformed as two scalar fields).
         raise ValueError(
             "method='jax_healpy' is not supported: the healpy wrappers of s2fft cannot be compiled by "
-            "jax.jit and transform every field as a scalar, whatever its spin. Use method='jax'."
+            "jax.jit and transform every field as a scalar, whatever its spin. Use method='ducc0' to run "
+            "the transforms of a C++ library on CPU, or method='jax'."
         )
     if method not in _METHODS:
         raise ValueError(f'Invalid method {method!r}: the transform backends are {", ".join(map(repr, _METHODS))}.')
+    if method == 'ducc0' and not _ducc0.is_available():
+        raise ImportError("Missing optional library 'ducc0', part of the 'recommended' dependency group.")
+    return method
+
+
+def _with_default_method(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnType]:
+    """Replace ``method=None`` by the default transform backend before ``func`` is called.
+
+    This decorator is applied on top of ``jax.jit``, for which ``method`` is a static argument: the
+    compiled functions are then cached per backend, instead of freezing the backend that was the
+    default one when ``method=None`` was first traced.
+    """
+    signature = inspect.signature(func)
+
+    @wraps(func)
+    def wrapper(*args: Param.args, **kwargs: Param.kwargs) -> ReturnType:
+        bound = signature.bind(*args, **kwargs)
+        bound.arguments['method'] = _resolve_method(bound.arguments.get('method'))
+        return func(*bound.args, **bound.kwargs)
+
+    return wrapper
 
 
 def get_valid_mask_alms(lmax: int, mmax_positive: int | None = None, mmax_negative: int | None = None) -> ArrayLike:
@@ -354,13 +393,69 @@ def _new_to_old_spectra_order(cls_new_order: list) -> list:
     return cls_old_order
 
 
+def _alm_hp_to_2d(alms: Complex[Array, '... nalm'], lmax: int) -> Complex[Array, '... L M']:
+    """Convert the alms of real fields from the healpy ordering (m >= 0) to the s2fft one (all m).
+
+    Same conversion as ``flm_hp_to_2d_fast`` of s2fft, except that the coefficients are gathered
+    instead of scattered: ``jax.linear_transpose`` can then transpose it.
+    """
+    L = lmax + 1
+    ell = jnp.arange(L)[:, None]
+    m = jnp.arange(-lmax, L)[None, :]
+    abs_m = jnp.abs(m)
+    valid = abs_m <= ell
+    # index of (ell, |m|) in the healpy ordering
+    index = jnp.where(valid, abs_m * (2 * lmax + 1 - abs_m) // 2 + ell, 0)
+    values = alms[..., index]
+    # a_{l,-m} = (-1)^m conj(a_{l,m})
+    values = jnp.where(m < 0, jnp.where(abs_m % 2 == 0, 1, -1) * jnp.conj(values), values)
+    return jnp.where(valid, values, 0)
+
+
+def _alm2map_ducc0(
+    alms: ArrayLike, nside: int, lmax: int, spin: int, healpy_ordering: bool
+) -> Float[Array, ' npix'] | list[Float[Array, ' npix']]:
+    """alm2map with the transforms of ducc0, which exchange alms in the healpy ordering."""
+    L = lmax + 1
+    alms = [alms] if spin == 0 else list(alms)
+    if not healpy_ordering:
+        alms = [flm_2d_to_hp_fast(alm, L) for alm in alms]
+    # Like the s2fft transforms, compute in the default precision of JAX.
+    alms = jnp.stack(alms).astype(jnp.result_type(complex))
+    nalm = L * (L + 1) // 2
+    if alms.shape[-1] != nalm:
+        raise ValueError(f'The alms have {alms.shape[-1]} coefficients, instead of {nalm} for lmax={lmax}.')
+
+    maps = _ducc0.alm2map(alms, nside, lmax, spin)
+    return maps[0] if spin == 0 else [maps[0], maps[1]]
+
+
+def _map2alm_ducc0(
+    maps: ArrayLike, lmax: int, iter: int, spin: int, bad_mask: ArrayLike | None, healpy_ordering: bool
+) -> Complex[Array, '...'] | list[Complex[Array, '...']]:
+    """map2alm with the transforms of ducc0, which exchange alms in the healpy ordering."""
+    if spin == 0:
+        maps = [_apply_bad_mask(maps, bad_mask)]
+    else:
+        masks = (None, None) if bad_mask is None else bad_mask
+        maps = [_apply_bad_mask(m, mask) for m, mask in zip(maps, masks)]
+    # Like the s2fft transforms, compute in the default precision of JAX.
+    maps = jnp.stack(maps).astype(jnp.result_type(float))
+    nside = npix2nside(maps.shape[-1])
+
+    alms = _ducc0.map2alm(maps, nside, lmax, spin, iter)
+    if not healpy_ordering:
+        alms = _alm_hp_to_2d(alms, lmax)
+    return alms[0] if spin == 0 else [alms[0], alms[1]]
+
+
 @requires_s2fft
 def _alm2map_core(
     alms: ArrayLike,
     nside: int,
     lmax: int,
     mmax: int | None,
-    method: str,
+    method: str | None,
     spin: int,
     healpy_ordering: bool,
 ) -> ArrayLike:
@@ -376,8 +471,8 @@ def _alm2map_core(
         Maximum l (note: L = lmax + 1)
     mmax : int, optional
         Maximum m
-    method : str
-        s2fft method ('jax', 'jax_cuda')
+    method : str or None
+        Transform backend ('ducc0', 'jax', 'jax_cuda'), None for the default one
     spin : int
         Spin weight (0 for scalar, 2 for polarization, etc.)
     healpy_ordering : bool
@@ -388,10 +483,13 @@ def _alm2map_core(
     ArrayLike
         Output map(s)
     """
-    _check_method(method)
+    method = _resolve_method(method)
     warn_if_not_x64()
     if mmax is not None and mmax != lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
+
+    if method == 'ducc0':
+        return _alm2map_ducc0(alms, nside, lmax, spin, healpy_ordering)
 
     L = lmax + 1
 
@@ -499,9 +597,10 @@ def _map2alm_core(
     lmax: int,
     mmax: int | None,
     iter: int,
-    method: str,
+    method: str | None,
     spin: int,
     bad_mask: ArrayLike | None = None,
+    healpy_ordering: bool = False,
 ) -> Complex[Array, '...']:
     """Core map2alm implementation supporting spin-weighted transforms.
 
@@ -515,21 +614,27 @@ def _map2alm_core(
         Maximum m
     iter : int
         Number of iterative refinement iterations
-    method : str
-        s2fft method ('jax', 'jax_cuda')
+    method : str or None
+        Transform backend ('ducc0', 'jax', 'jax_cuda'), None for the default one
     spin : int
         Spin weight (0 for scalar, 2 for polarization, etc.)
     bad_mask : ArrayLike, optional
         Boolean mask matching the structure of ``maps``; flagged pixels are zeroed.
+    healpy_ordering : bool
+        Whether the output alms use healpy ordering, instead of the s2fft one
+
     Returns
     -------
     ArrayLike
         Output spherical harmonic coefficients
     """
-    _check_method(method)
+    method = _resolve_method(method)
     warn_if_not_x64()
     if mmax is not None and mmax != lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
+
+    if method == 'ducc0':
+        return _map2alm_ducc0(maps, lmax, iter, spin, bad_mask, healpy_ordering)
 
     # For spin transforms, use single-transform approach
     # Reference: healpy alm2map_spin/map2alm_spin convention
@@ -573,6 +678,8 @@ def _map2alm_core(
         alm_E = -0.5 * (flm_pos + flm_mirror)
         alm_B = 0.5j * (flm_pos - flm_mirror)
 
+        if healpy_ordering:
+            return [flm_2d_to_hp_fast(alm_E, L), flm_2d_to_hp_fast(alm_B, L)]
         return [alm_E, alm_B]
     else:
         # Scalar transform (spin=0)
@@ -598,9 +705,12 @@ def _map2alm_core(
             iter=iter,
         )
 
+        if healpy_ordering:
+            return flm_2d_to_hp_fast(flm_complex, L)
         return flm_complex
 
 
+@_with_default_method
 @jax.jit(
     static_argnames=[
         'nside',
@@ -624,7 +734,7 @@ def alm2map(
     sigma=None,
     pol: bool = True,
     healpy_ordering: bool = False,
-    method: str = 'jax',
+    method: str | None = None,
 ) -> ArrayLike:
     """Computes a Healpix map given the alm.
 
@@ -672,10 +782,18 @@ def alm2map(
       True if the input alms follow the healpy ordering. By default, the s2fft
       ordering is assumed.
     method : str, optional
-      Transform backend: ``'jax'``, the pure JAX transforms of s2fft, or ``'jax_cuda'``,
-      the same transforms with the CUDA kernel of s2fft for the Fourier transforms along
-      the rings, which is faster to compile. ``'jax_cuda'`` only runs on NVIDIA GPUs and
-      requires s2fft to be built with CUDA support. Default: 'jax'.
+      Transform backend:
+
+      - ``'ducc0'``: the transforms of the C++ library [ducc0](https://pypi.org/project/ducc0/),
+        which run on the CPU, on all its cores. On CPU, they are two to three orders of
+        magnitude faster than the other backends.
+      - ``'jax'``: the pure JAX transforms of s2fft, for CPU and GPU.
+      - ``'jax_cuda'``: the same transforms with the CUDA kernel of s2fft for the Fourier
+        transforms along the rings, which is faster to compile. It only runs on NVIDIA GPUs
+        and requires s2fft to be built with CUDA support.
+
+      With any of them, the transform can be compiled, batched and differentiated.
+      Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
 
     Returns
     -------
@@ -794,6 +912,7 @@ def alm2map(
     return f
 
 
+@_with_default_method
 @jax.jit(
     static_argnames=[
         'lmax',
@@ -819,7 +938,7 @@ def map2alm(
     gal_cut=0,
     use_pixel_weights=False,
     healpy_ordering: bool = False,
-    method: str = 'jax',
+    method: str | None = None,
     bad_mask: ArrayLike | None = None,
 ) -> ArrayLike:
     """Computes the alm of a Healpix map. The input maps must all be
@@ -869,10 +988,18 @@ def map2alm(
       By default, we follow the s2fft ordering for the alms. To use healpy
       ordering, set it to True.
     method : str, optional
-      Transform backend: ``'jax'``, the pure JAX transforms of s2fft, or ``'jax_cuda'``,
-      the same transforms with the CUDA kernel of s2fft for the Fourier transforms along
-      the rings, which is faster to compile. ``'jax_cuda'`` only runs on NVIDIA GPUs and
-      requires s2fft to be built with CUDA support. Default: 'jax'.
+      Transform backend:
+
+      - ``'ducc0'``: the transforms of the C++ library [ducc0](https://pypi.org/project/ducc0/),
+        which run on the CPU, on all its cores. On CPU, they are two to three orders of
+        magnitude faster than the other backends.
+      - ``'jax'``: the pure JAX transforms of s2fft, for CPU and GPU.
+      - ``'jax_cuda'``: the same transforms with the CUDA kernel of s2fft for the Fourier
+        transforms along the rings, which is faster to compile. It only runs on NVIDIA GPUs
+        and requires s2fft to be built with CUDA support.
+
+      With any of them, the transform can be compiled, batched and differentiated.
+      Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
     bad_mask : array-like of bool, optional
       Mask of pixels to zero before the transform, broadcastable to the shape of
       ``maps``. Use [`bad_pixel_mask`][] to build it from a map containing
@@ -934,7 +1061,6 @@ def map2alm(
             )
         nside = npix2nside(maps.shape[-1])
         target_lmax = _resolve_lmax(nside, lmax)
-        target_L = target_lmax + 1
         if mmax is not None and mmax != target_lmax:
             raise NotImplementedError('Specifying mmax != lmax is not implemented.')
 
@@ -948,6 +1074,7 @@ def map2alm(
                 method=method,
                 spin=2,
                 bad_mask=None if bad_mask is None else [bad_mask[0], bad_mask[1]],
+                healpy_ordering=healpy_ordering,
             )
             out = [alm_E, alm_B]
         else:
@@ -960,6 +1087,7 @@ def map2alm(
                 method=method,
                 spin=0,
                 bad_mask=None if bad_mask is None else bad_mask[0],
+                healpy_ordering=healpy_ordering,
             )
             out = [alm_T]
             if n == 3:
@@ -971,11 +1099,9 @@ def map2alm(
                     method=method,
                     spin=2,
                     bad_mask=None if bad_mask is None else [bad_mask[1], bad_mask[2]],
+                    healpy_ordering=healpy_ordering,
                 )
                 out += [alm_E, alm_B]
-
-        if healpy_ordering:
-            out = [flm_2d_to_hp_fast(a, target_L) for a in out]
 
         # A single I map collapses to a bare temperature alm (scalar semantics);
         # otherwise return a stacked (n, ...) array, matching healpy (not a tuple).
@@ -1000,7 +1126,6 @@ def map2alm(
 
     nside = npix2nside(maps.shape[-1])
     target_lmax = _resolve_lmax(nside, lmax)
-    target_L = target_lmax + 1
 
     if mmax is not None and mmax != target_lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
@@ -1014,10 +1139,8 @@ def map2alm(
         method=method,
         spin=0,
         bad_mask=bad_mask,
+        healpy_ordering=healpy_ordering,
     )
-
-    if healpy_ordering:
-        flm = flm_2d_to_hp_fast(flm, target_L)
 
     return flm
 
@@ -1302,6 +1425,7 @@ def alm2cl(
     return cl
 
 
+@_with_default_method
 @jax.jit(
     static_argnames=[
         'lmax',
@@ -1330,7 +1454,7 @@ def anafast(
     datapath: str | None = None,
     gal_cut: float = 0,
     use_pixel_weights: bool = False,
-    method: str = 'jax',
+    method: str | None = None,
 ) -> ArrayLike | tuple[ArrayLike, ...]:
     """Compute the angular power spectrum from HEALPix map(s).
 
@@ -1373,10 +1497,8 @@ def anafast(
         Enable pixel-by-pixel weighting. Not supported.
         Raises NotImplementedError if True. Default: False
     method : str, optional
-        Transform backend: ``'jax'``, the pure JAX transforms of s2fft, or ``'jax_cuda'``,
-        the same transforms with the CUDA kernel of s2fft for the Fourier transforms along
-        the rings, which is faster to compile. ``'jax_cuda'`` only runs on NVIDIA GPUs and
-        requires s2fft to be built with CUDA support. Default: 'jax'.
+        Transform backend: ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``, see [`alm2map`][].
+        Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
         JAX-specific parameter not present in healpy.
 
     Returns
@@ -1626,6 +1748,7 @@ def smoothalm(
     return almxfl(alms, bl, mmax=mmax, healpy_ordering=healpy_ordering)
 
 
+@_with_default_method
 @jax.jit(
     static_argnames=[
         'fwhm',
@@ -1638,6 +1761,7 @@ def smoothalm(
         'use_pixel_weights',
         'datapath',
         'nest',
+        'method',
     ],
 )
 def smoothing(
@@ -1653,6 +1777,7 @@ def smoothing(
     use_pixel_weights: bool = False,
     datapath: str | None = None,
     nest: bool = False,
+    method: str | None = None,
 ) -> ArrayLike:
     """Smooth a HEALPix map with a Gaussian beam.
 
@@ -1688,6 +1813,9 @@ def smoothing(
     nest : bool, optional
         Input map ordering. Not supported (only RING).
         Raises NotImplementedError if True. Default: False
+    method : str, optional
+        Transform backend: ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``, see [`alm2map`][].
+        Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
 
     Returns
     -------
@@ -1734,23 +1862,29 @@ def smoothing(
     if pol_active:
         nside = npix2nside(map_in.shape[-1])
         alms = jnp.asarray(
-            map2alm(map_in, lmax=lmax, mmax=mmax, iter=iter, pol=True, healpy_ordering=False, bad_mask=bad)
+            map2alm(
+                map_in, lmax=lmax, mmax=mmax, iter=iter, pol=True, healpy_ordering=False, bad_mask=bad, method=method
+            )
         )
         if alms.ndim == 2:  # single component (1 map) -> add the component axis
             alms = alms[None, ...]
         alms_smooth = smoothalm(
             alms, fwhm=fwhm, sigma=sigma, beam_window=beam_window, pol=True, mmax=mmax, healpy_ordering=False
         )
-        out = alm2map(alms_smooth, nside=nside, lmax=lmax, mmax=mmax, pol=True, healpy_ordering=False)
+        out = alm2map(alms_smooth, nside=nside, lmax=lmax, mmax=mmax, pol=True, healpy_ordering=False, method=method)
         # A single (1, npix) map collapses to a (npix,) output; align the mask shape.
         return jnp.where(bad.reshape(out.shape), UNSEEN, out)
 
     # Scalar branch (single map); bad already matches the output shape.
-    alms = map2alm(map_in, lmax=lmax, mmax=mmax, iter=iter, pol=False, healpy_ordering=False, bad_mask=bad)
+    alms = map2alm(
+        map_in, lmax=lmax, mmax=mmax, iter=iter, pol=False, healpy_ordering=False, bad_mask=bad, method=method
+    )
     alms_smooth = smoothalm(
         alms, fwhm=fwhm, sigma=sigma, beam_window=beam_window, pol=False, mmax=mmax, healpy_ordering=False
     )
-    out = alm2map(alms_smooth, nside=npix2nside(map_in.shape[-1]), lmax=lmax, mmax=mmax, healpy_ordering=False)
+    out = alm2map(
+        alms_smooth, nside=npix2nside(map_in.shape[-1]), lmax=lmax, mmax=mmax, healpy_ordering=False, method=method
+    )
     return jnp.where(bad, UNSEEN, out)
 
 
@@ -1947,6 +2081,7 @@ def pixwin(nside: int, pol: bool = False, lmax: int | None = None, datapath: str
     )
 
 
+@_with_default_method
 @jax.jit(
     static_argnames=['nside', 'lmax', 'mmax', 'alm', 'pol', 'pixwin', 'fwhm', 'sigma', 'new', 'method'],
 )
@@ -1962,7 +2097,7 @@ def synfast(
     fwhm: float = 0.0,
     sigma: float | None = None,
     new: bool = False,
-    method: str = 'jax',
+    method: str | None = None,
 ) -> ArrayLike | tuple[ArrayLike, ArrayLike]:
     """Generate a random HEALPix map from a power spectrum.
 
@@ -2009,10 +2144,8 @@ def synfast(
         True for the new by-diagonal order, False (default) for the old by-row
         order. Ignored for a single input spectrum. See [`synalm`][].
     method : str, optional
-        Transform backend: ``'jax'``, the pure JAX transforms of s2fft, or ``'jax_cuda'``,
-        the same transforms with the CUDA kernel of s2fft for the Fourier transforms along
-        the rings, which is faster to compile. ``'jax_cuda'`` only runs on NVIDIA GPUs and
-        requires s2fft to be built with CUDA support. Default: 'jax'.
+        Transform backend: ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``, see [`alm2map`][].
+        Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
         JAX-specific parameter not present in healpy.
 
     Returns
@@ -2105,6 +2238,7 @@ def synfast(
     return map_synth
 
 
+@_with_default_method
 @jax.jit(static_argnames=['spin', 'lmax', 'mmax', 'iter', 'method', 'healpy_ordering'])
 def map2alm_spin(
     maps,
@@ -2112,7 +2246,7 @@ def map2alm_spin(
     lmax: int | None = None,
     mmax: int | None = None,
     iter: int = 0,
-    method: str = 'jax',
+    method: str | None = None,
     healpy_ordering: bool = False,
     bad_mask: ArrayLike | None = None,
 ) -> ArrayLike | list[ArrayLike]:
@@ -2134,10 +2268,8 @@ def map2alm_spin(
         Unlike healpy's ``map2alm_spin`` (which has no ``iter``), this is exposed
         here. Default: 0 (no iteration, matching healpy's behavior).
     method : str, optional
-        Transform backend: ``'jax'``, the pure JAX transforms of s2fft, or ``'jax_cuda'``,
-        the same transforms with the CUDA kernel of s2fft for the Fourier transforms along
-        the rings, which is faster to compile. ``'jax_cuda'`` only runs on NVIDIA GPUs and
-        requires s2fft to be built with CUDA support. Default: 'jax'.
+        Transform backend: ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``, see [`alm2map`][].
+        Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
     healpy_ordering : bool, optional
         If True, return alms in healpy format. If False, s2fft format. Default: False
     bad_mask : array-like of bool, optional
@@ -2182,7 +2314,6 @@ def map2alm_spin(
             bad_mask = jnp.broadcast_to(jnp.asarray(bad_mask), maps.shape)
 
     lmax = _resolve_lmax(nside, lmax)
-    target_L = lmax + 1
 
     if mmax is not None and mmax != lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
@@ -2190,23 +2321,19 @@ def map2alm_spin(
     # Call core function
     flm = _map2alm_core(
         maps=maps,
-        lmax=target_L - 1,
+        lmax=lmax,
         mmax=mmax,
         iter=iter,
         method=method,
         spin=spin,
         bad_mask=bad_mask,
+        healpy_ordering=healpy_ordering,
     )
-
-    if healpy_ordering:
-        if spin != 0:
-            flm = [flm_2d_to_hp_fast(f, target_L) for f in flm]
-        else:
-            flm = flm_2d_to_hp_fast(flm, target_L)
 
     return flm
 
 
+@_with_default_method
 @jax.jit(static_argnames=['nside', 'spin', 'lmax', 'mmax', 'method', 'healpy_ordering'])
 def alm2map_spin(
     alms,
@@ -2214,7 +2341,7 @@ def alm2map_spin(
     spin: int,
     lmax: int | None = None,
     mmax: int | None = None,
-    method: str = 'jax',
+    method: str | None = None,
     healpy_ordering: bool = False,
 ) -> ArrayLike | list[ArrayLike]:
     """Compute HEALPix maps from spin-weighted spherical harmonic coefficients.
@@ -2233,10 +2360,8 @@ def alm2map_spin(
     mmax : int, optional
         Maximum m. Default: lmax
     method : str, optional
-        Transform backend: ``'jax'``, the pure JAX transforms of s2fft, or ``'jax_cuda'``,
-        the same transforms with the CUDA kernel of s2fft for the Fourier transforms along
-        the rings, which is faster to compile. ``'jax_cuda'`` only runs on NVIDIA GPUs and
-        requires s2fft to be built with CUDA support. Default: 'jax'.
+        Transform backend: ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``, see [`alm2map`][].
+        Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
     healpy_ordering : bool, optional
         If True, input alms are in healpy format. If False, s2fft format. Default: False
 

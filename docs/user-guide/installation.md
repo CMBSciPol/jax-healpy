@@ -46,6 +46,11 @@ For the spherical harmonics functionalities, install the extra dependency `recom
 pip install "jax-healpy[recommended]"
 ```
 
+It installs the two libraries that compute the spherical harmonic transforms:
+[s2fft](https://github.com/astro-informatics/s2fft), whose transforms are written in JAX and run on GPU,
+and [ducc0](https://pypi.org/project/ducc0/), a C++ library whose transforms are used on CPU, where they
+are much faster. See the [transform backends](../api/sphtfunc.md#transform-backends).
+
 ## Developer Installation
 
 Contributions are welcome. To set up a development environment in which the tests can be run and the

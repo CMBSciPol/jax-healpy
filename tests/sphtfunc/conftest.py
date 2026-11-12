@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +10,22 @@ s2fft = pytest.importorskip('s2fft')
 
 from s2fft.sampling.s2_samples import flm_2d_to_hp
 from s2fft.utils import signal_generator
+
+from jax_healpy import _ducc0, sphtfunc
+
+METHODS = ['jax', 'ducc0'] if _ducc0.is_available() else ['jax']
+
+
+@pytest.fixture(scope='session', autouse=True, params=METHODS)
+def default_method(request: pytest.FixtureRequest) -> Iterator[str]:
+    """Run the tests of this directory with each transform backend as the default one.
+
+    Without it, the tests that do not specify a method would only exercise the default backend
+    of the test environment: ducc0 if it is installed, the transforms of s2fft otherwise.
+    """
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(sphtfunc, '_default_method', lambda: request.param)
+        yield request.param
 
 
 @pytest.fixture(

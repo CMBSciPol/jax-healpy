@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `method='ducc0'`: the spherical harmonic transforms are computed by the C++ library ducc0, on all the cores of the CPU. On CPU, they are two to three orders of magnitude faster than the transforms of s2fft, and they can be compiled, batched and differentiated like them. This backend is the default one on CPU when ducc0 is installed, and ducc0 is part of the `recommended` extra (#66)
+- `method` argument of `smoothing` (#66)
+
 ### Changed
 
 - The warning about 32-bit precision is a `UserWarning`, emitted once when a pixel function or a spherical harmonic transform is first called, instead of a log message at import: enabling 64-bit precision after importing jax-healpy no longer triggers it, nor the similar warning of s2fft (#54)

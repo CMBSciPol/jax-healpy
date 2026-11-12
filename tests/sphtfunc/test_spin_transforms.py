@@ -40,7 +40,7 @@ def test_map2alm_spin_iter(nside: int, lmax: int) -> None:
 @pytest.mark.parametrize('iter_val', [0, 2])
 @pytest.mark.parametrize('lmax_factor', [2, 3])
 def test_map2alm_spin_single_transform(spin: int, iter_val: int, lmax_factor: int, pol_nside: int) -> None:
-    """map2alm_spin gives the alms of the two transforms, of spin +s and -s, with only the first one.
+    """With s2fft, map2alm_spin gives the alms of the transforms of spin +s and -s with only the first one.
 
     Since the two maps are real, the spin -s coefficients of Q - iU follow from those of Q + iU:
     _{-s}a_{l,m} = (-1)^(s+m) conj(_{s}a_{l,-m}). The reference computes both transforms.
@@ -59,7 +59,7 @@ def test_map2alm_spin_single_transform(spin: int, iter_val: int, lmax_factor: in
     expected_e = -0.5 * (flm_pos + phase * flm_neg)
     expected_b = 0.5j * (flm_pos - phase * flm_neg)
 
-    actual_e, actual_b = jhp.map2alm_spin([q, u], spin=spin, lmax=lmax, iter=iter_val)
+    actual_e, actual_b = jhp.map2alm_spin([q, u], spin=spin, lmax=lmax, iter=iter_val, method='jax')
 
     # The alms are of order 0.1: the two computations agree to rounding errors.
     assert np.abs(expected_e).max() > 1e-2 and np.abs(expected_b).max() > 1e-2

@@ -12,6 +12,9 @@ pytest.importorskip('ducc0')
 
 from jax_healpy import _ducc0
 
+# These tests do not depend on the default transform backend: they are run once.
+pytestmark = pytest.mark.parametrize('default_method', ['ducc0'], indirect=True)
+
 NSIDE = 8
 LMAX = 3 * NSIDE - 1
 NPIX = 12 * NSIDE**2
