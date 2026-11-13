@@ -53,7 +53,9 @@ smoothed_map = hp.alm2map(alm, nside=nside, lmax=2 * nside)
 ## Documentation Contents
 
 - **User Guide**: [Installation](user-guide/installation.md),
-  [Getting started](user-guide/getting-started.md), [Basic usage](user-guide/basic-usage.md),
+  [Getting started](user-guide/getting-started.md),
+  [Migrating from healpy](user-guide/migrating-from-healpy.md),
+  [Basic usage](user-guide/basic-usage.md),
   [Pixelization](user-guide/pixelization.md), [Polarization](user-guide/polarization.md),
   [Clustering](user-guide/clustering.md),
   [Performance tips](user-guide/performance-tips.md)
