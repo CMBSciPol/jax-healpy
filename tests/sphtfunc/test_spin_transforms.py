@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
 import healpy as hp
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -36,10 +37,27 @@ def test_map2alm_spin_iter(nside: int, lmax: int) -> None:
     np.testing.assert_allclose(np.asarray(b0), flm_hp_to_2d_fast(bh, L), atol=atol, rtol=1e-8)
 
 
+def _has_jax_cuda() -> bool:
+    """Whether the CUDA kernel of s2fft can be used: an NVIDIA GPU and s2fft built with CUDA."""
+    from s2fft.utils import healpix_ffts
+
+    return healpix_ffts._s2fft is not None and any(device.platform == 'gpu' for device in jax.devices())
+
+
+@pytest.mark.parametrize(
+    'method',
+    [
+        'jax',
+        pytest.param(
+            'jax_cuda',
+            marks=pytest.mark.skipif(not _has_jax_cuda(), reason='requires a GPU and s2fft built with CUDA'),
+        ),
+    ],
+)
 @pytest.mark.parametrize('spin', [1, 2, 3])
 @pytest.mark.parametrize('iter_val', [0, 2])
 @pytest.mark.parametrize('lmax_factor', [2, 3])
-def test_map2alm_spin_single_transform(spin: int, iter_val: int, lmax_factor: int, pol_nside: int) -> None:
+def test_map2alm_spin_single_transform(spin: int, iter_val: int, lmax_factor: int, pol_nside: int, method: str) -> None:
     """map2alm_spin gives the alms of the two transforms, of spin +s and -s, with only the first one.
 
     Since the two maps are real, the spin -s coefficients of Q - iU follow from those of Q + iU:
@@ -59,7 +77,7 @@ def test_map2alm_spin_single_transform(spin: int, iter_val: int, lmax_factor: in
     expected_e = -0.5 * (flm_pos + phase * flm_neg)
     expected_b = 0.5j * (flm_pos - phase * flm_neg)
 
-    actual_e, actual_b = jhp.map2alm_spin([q, u], spin=spin, lmax=lmax, iter=iter_val)
+    actual_e, actual_b = jhp.map2alm_spin([q, u], spin=spin, lmax=lmax, iter=iter_val, method=method)
 
     # The alms are of order 0.1: the two computations agree to rounding errors.
     assert np.abs(expected_e).max() > 1e-2 and np.abs(expected_b).max() > 1e-2
@@ -324,3 +342,24 @@ def test_alm2map_spin_different_spins(
 
     np.testing.assert_allclose(result_jax[0], result_hp[0], atol=atol_threshold, rtol=1e-2)
     np.testing.assert_allclose(result_jax[1], result_hp[1], atol=atol_threshold, rtol=1e-2)
+
+
+@pytest.mark.parametrize('complex_map', ['q', 'u'])
+def test_map2alm_spin_rejects_complex_maps(complex_map: str) -> None:
+    """The E and B coefficients are deduced from the symmetry of the spin transforms of real Q and U."""
+    q, u = np.random.RandomState(0).randn(2, hp.nside2npix(8))
+    maps = {'q': q, 'u': u}
+    maps[complex_map] = maps[complex_map] * (1 + 0.5j)
+    with pytest.raises(TypeError, match='must be real'):
+        jhp.map2alm_spin([maps['q'], maps['u']], spin=2)
+    with pytest.raises(TypeError, match='must be real'):
+        jhp.map2alm(np.stack([q, maps['q'], maps['u']]), pol=True)
+
+
+def test_map2alm_rejects_complex_maps() -> None:
+    """The imaginary part of a scalar map would be ignored by the transform of a real field."""
+    m = np.random.RandomState(0).randn(hp.nside2npix(8)) * (1 + 0.5j)
+    with pytest.raises(TypeError, match='must be real'):
+        jhp.map2alm(m)
+    with pytest.raises(TypeError, match='must be real'):
+        jhp.map2alm(np.stack([m, m]), pol=False)

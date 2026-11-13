@@ -11,10 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The warning about 32-bit precision is a `UserWarning`, emitted once when a pixel function or a spherical harmonic transform is first called, instead of a log message at import: enabling 64-bit precision after importing jax-healpy no longer triggers it, nor the similar warning of s2fft (#54)
 - On polarized maps, `map2alm`, `map2alm_spin`, `anafast` and `smoothing` take about 40 % less time to run and to compile: the spin −s coefficients are deduced from the spin +s ones instead of being transformed (#65)
+- `precompute_polarization_harmonic_transforms` returns only the coefficients of the spin 2 transforms, instead of a tuple with those of spin −2, which no transform uses (#65)
 
 ### Fixed
 
 - Importing jax-healpy no longer ignores all the Python warnings of the process, a side effect of importing s2fft (#54)
+- The transforms of complex maps raise a `TypeError`: the imaginary part of a scalar map was ignored, and the E and B coefficients of complex Q and U maps were wrong (#65)
 - `method='jax_healpy'` raises a `ValueError` instead of failing during the compilation: this backend of s2fft cannot be compiled, and it transforms polarization as two scalar fields (#65)
 
 ## [0.8.2] - 2026-09-28

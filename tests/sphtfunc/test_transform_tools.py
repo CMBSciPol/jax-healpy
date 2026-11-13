@@ -123,9 +123,8 @@ def test_precompute_harmonic_transforms_smoke() -> None:
     transforms, but exported, so at least exercise the code path)."""
     temp = jhp.precompute_temperature_harmonic_transforms(32, lmax=63)
     assert isinstance(temp, (list, tuple)) and len(temp) > 0
-    p2, pm2 = jhp.precompute_polarization_harmonic_transforms(32, lmax=63)
-    assert isinstance(p2, (list, tuple)) and len(p2) > 0
-    assert isinstance(pm2, (list, tuple)) and len(pm2) > 0
+    pol = jhp.precompute_polarization_harmonic_transforms(32, lmax=63)
+    assert isinstance(pol, (list, tuple)) and len(pol) > 0
 
 
 # --- smoothing remembers and restores masked pixels (UNSEEN/non-finite) ------------------
