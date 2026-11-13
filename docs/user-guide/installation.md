@@ -74,13 +74,6 @@ in the [prerequisites](#jax-installation).
 
     s2fft is then built from its sources, which requires git and a C++ compiler.
 
-On a machine with a GPU, install both extras if the transforms are also run without the GPU, on a login
-node for instance:
-
-```bash
-pip install "jax-healpy[cpu,gpu]" "jax[cuda13]"
-```
-
 The transforms of s2fft also run on CPU, but they are two to three orders of magnitude slower there than
 those of ducc0: without ducc0, jax-healpy uses them and emits a warning. See the
 [transform backends](../api/sphtfunc.md#transform-backends).
@@ -112,7 +105,7 @@ module load python/3.12
 module load cuda/13.0  # If using GPU
 python -m venv .venv
 source .venv/bin/activate
-pip install "jax-healpy[cpu,gpu]" "jax[cuda13]"
+pip install "jax-healpy[gpu]" "jax[cuda13]"
 ```
 
 ### SLURM Job Scripts
@@ -142,7 +135,7 @@ module load python/3.12.7
 module load cuda/12.8.0
 python -m venv .venv
 source .venv/bin/activate
-pip install "jax-healpy[cpu,gpu]" "jax[cuda12]"
+pip install "jax-healpy[gpu]" "jax[cuda12]"
 ```
 
 ### NERSC Perlmutter
@@ -152,7 +145,7 @@ module load python
 module load cuda
 python -m venv .venv
 source .venv/bin/activate
-pip install "jax-healpy[cpu,gpu]" "jax[cuda12]"
+pip install "jax-healpy[gpu]" "jax[cuda12]"
 ```
 
 ## Verifying Installation
