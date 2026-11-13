@@ -8,7 +8,7 @@ import pytest
 
 import jax_healpy as jhp
 
-from .helpers import flm_2d_to_hp, flm_hp_to_2d
+from .helpers import flm_2d_to_hp, flm_hp_to_2d, requires_ducc0, requires_s2fft
 
 jax.config.update('jax_enable_x64', True)
 
@@ -25,11 +25,29 @@ def test_map2alm(synthesized_map: np.ndarray, lmax: int | None, healpy_ordering:
     np.testing.assert_allclose(actual_flm, expected_flm, atol=1e-14)
 
 
-def test_map2alm_requires_minimum_bandlimit(synthesized_map: np.ndarray, nside: int) -> None:
-    """map2alm should surface s2fft limitations."""
-    lmax = nside - 1  # violates 2 * nside - 1 requirement
-    with pytest.raises(NotImplementedError):
-        _ = jhp.map2alm(synthesized_map, lmax=lmax, iter=0, healpy_ordering=False)
+@requires_s2fft
+@pytest.mark.parametrize('transform', ['alm2map', 'map2alm'])
+def test_s2fft_requires_minimum_bandlimit(synthesized_map: np.ndarray, nside: int, transform: str) -> None:
+    """The transforms of s2fft require lmax >= 2*nside - 1: both directions say so."""
+    lmax = 2 * nside - 2
+    with pytest.raises(NotImplementedError, match=r"\(method='jax'\) require lmax >= 2\*nside - 1"):
+        if transform == 'alm2map':
+            jhp.alm2map(jnp.zeros((lmax + 1, 2 * lmax + 1), dtype=complex), nside, lmax=lmax, method='jax')
+        else:
+            jhp.map2alm(synthesized_map, lmax=lmax, method='jax')
+
+
+@requires_ducc0
+def test_ducc0_accepts_any_bandlimit(synthesized_map: np.ndarray, nside: int) -> None:
+    """Like those of healpy, the transforms of ducc0 accept lmax < 2*nside - 1."""
+    lmax = nside - 1
+    expected_alm = hp.map2alm(synthesized_map, lmax=lmax)
+    alm = jhp.map2alm(synthesized_map, lmax=lmax, healpy_ordering=True, method='ducc0')
+    np.testing.assert_allclose(alm, expected_alm, rtol=0, atol=1e-13 * np.abs(expected_alm).max())
+
+    expected_map = hp.alm2map(expected_alm, nside, lmax=lmax)
+    actual_map = jhp.alm2map(expected_alm, nside, lmax=lmax, healpy_ordering=True, method='ducc0')
+    np.testing.assert_allclose(actual_map, expected_map, rtol=0, atol=1e-13 * np.abs(expected_map).max())
 
 
 # Known UPSTREAM-s2fft flake (interim mask): s2fft's `spherical.inverse` (reality=True) in current

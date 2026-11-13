@@ -16,7 +16,7 @@
 
 """Spherical harmonic transforms of ducc0, usable from JAX.
 
-ducc0 runs the transforms on the CPU, on all the cores. They are exposed as two JAX primitives,
+ducc0 runs the transforms on the CPU, on all the physical cores. They are exposed as two JAX primitives,
 ``synthesis`` (alms -> maps) and ``adjoint_synthesis`` (maps -> alms), that can be compiled, batched
 and differentiated like any other JAX operation:
 
@@ -37,6 +37,8 @@ the two representations. ``alm2map`` and ``map2alm`` are the transforms on the c
 """
 
 import importlib.util
+import os
+import sys
 from collections.abc import Callable
 from functools import cache, partial
 
@@ -63,10 +65,48 @@ _SQRT2 = 2**0.5
 
 # Batches of small maps are transformed in a single call to ducc0, which is 2 to 7 times faster
 # than one call per map up to nside = 32. From the nside below, the maps of a batch are transformed
-# one after the other instead: a transform already uses all the cores, and exchanging one large
+# one after the other instead: a transform already uses all the physical cores, and exchanging one large
 # array with the host takes longer than exchanging several small ones (for 16 maps, it is 1.3 times
 # faster at nside = 256, and makes no difference at nside = 128).
 _SEQUENTIAL_BATCH_NSIDE = 256
+
+
+@cache
+def _physical_core_count() -> int | None:
+    """The number of physical cores among the CPUs available to the process, if it can be found.
+
+    It is read from the CPU topology of Linux, in which the hardware threads of a core (with
+    simultaneous multithreading, or hyper-threading) share its list of CPUs.
+    """
+    if not sys.platform.startswith('linux'):
+        return None
+    cores = set()
+    for cpu in os.sched_getaffinity(0):
+        topology = f'/sys/devices/system/cpu/cpu{cpu}/topology'
+        for name in ('core_cpus_list', 'thread_siblings_list'):
+            try:
+                with open(f'{topology}/{name}') as file:
+                    cores.add(file.read().strip())
+                break
+            except OSError:
+                continue
+        else:
+            return None
+    return len(cores) or None
+
+
+@cache
+def _thread_count() -> int:
+    """The number of threads of the transforms of ducc0.
+
+    By default, one per physical core: the hardware threads of a core compete for its floating-point
+    units and caches, and using them makes the transforms up to twice slower. If the environment
+    variable ``DUCC0_NUM_THREADS`` or ``OMP_NUM_THREADS`` is set, it sizes the pool of threads of
+    ducc0, which is then used whole (0).
+    """
+    if os.environ.get('DUCC0_NUM_THREADS') or os.environ.get('OMP_NUM_THREADS'):
+        return 0
+    return _physical_core_count() or 0
 
 
 @cache
@@ -156,8 +196,7 @@ def _synthesis_host(x: np.ndarray, *, nside: int, lmax: int, spin: int) -> np.nd
     np.multiply(x[..., lmax + 1 : nalm], 1 / _SQRT2, out=alms.real[..., lmax + 1 :])
     np.multiply(x[..., nalm:], 1 / _SQRT2, out=alms.imag[..., lmax + 1 :])
 
-    # nthreads=0: all the threads of the pool of ducc0, see ducc0.misc.thread_pool_size
-    maps = ducc0.sht.synthesis(alm=alms, lmax=lmax, mmax=lmax, spin=spin, nthreads=0, **_geometry(nside))
+    maps = ducc0.sht.synthesis(alm=alms, lmax=lmax, mmax=lmax, spin=spin, nthreads=_thread_count(), **_geometry(nside))
     return maps.reshape(*batch_shape, ncomp, npix)
 
 
@@ -171,7 +210,9 @@ def _adjoint_synthesis_host(maps: np.ndarray, *, nside: int, lmax: int, spin: in
     if maps.shape[0] == 0:
         return np.zeros((*batch_shape, ncomp, nreal), dtype=maps.dtype)
 
-    alms = ducc0.sht.adjoint_synthesis(map=maps, lmax=lmax, mmax=lmax, spin=spin, nthreads=0, **_geometry(nside))
+    alms = ducc0.sht.adjoint_synthesis(
+        map=maps, lmax=lmax, mmax=lmax, spin=spin, nthreads=_thread_count(), **_geometry(nside)
+    )
 
     nalm = alms.shape[-1]
     x = np.empty((maps.shape[0], ncomp, nreal), dtype=maps.dtype)

@@ -1,6 +1,7 @@
 """Tests of the JAX primitives that wrap the transforms of ducc0."""
 
-from collections.abc import Callable
+import os
+from collections.abc import Callable, Iterator
 
 import healpy as hp
 import jax
@@ -161,3 +162,41 @@ def test_primitives_single_precision(spin: int) -> None:
 def test_primitives_invalid_operand(shape: tuple[int, ...], dtype: type, spin: int, match: str) -> None:
     with pytest.raises(TypeError, match=match):
         _ducc0.synthesis(jnp.zeros(shape, dtype=dtype), nside=NSIDE, lmax=LMAX, spin=spin)
+
+
+@pytest.fixture
+def thread_count(mocker: MockerFixture) -> Iterator[Callable[[], int]]:
+    """The uncached number of threads, without the environment variables that set it."""
+    mocker.patch.dict(os.environ)
+    os.environ.pop('DUCC0_NUM_THREADS', None)
+    os.environ.pop('OMP_NUM_THREADS', None)
+    _ducc0._thread_count.cache_clear()
+    yield _ducc0._thread_count
+    _ducc0._thread_count.cache_clear()
+
+
+def test_thread_count_is_the_physical_core_count(mocker: MockerFixture, thread_count: Callable[[], int]) -> None:
+    mocker.patch.object(_ducc0, '_physical_core_count', return_value=3)
+    assert thread_count() == 3
+
+
+@pytest.mark.parametrize('variable', ['DUCC0_NUM_THREADS', 'OMP_NUM_THREADS'])
+def test_thread_count_set_by_the_environment(
+    mocker: MockerFixture, thread_count: Callable[[], int], variable: str
+) -> None:
+    """The environment variables size the pool of ducc0, which is then used whole."""
+    mocker.patch.object(_ducc0, '_physical_core_count', return_value=3)
+    mocker.patch.dict(os.environ, {variable: '2'})
+    assert thread_count() == 0
+
+
+def test_thread_count_without_topology(mocker: MockerFixture, thread_count: Callable[[], int]) -> None:
+    """Without the CPU topology, ducc0 uses all the threads of its pool."""
+    mocker.patch.object(_ducc0, '_physical_core_count', return_value=None)
+    assert thread_count() == 0
+
+
+def test_physical_core_count() -> None:
+    count = _ducc0._physical_core_count()
+    if count is not None:
+        assert 1 <= count <= len(os.sched_getaffinity(0))

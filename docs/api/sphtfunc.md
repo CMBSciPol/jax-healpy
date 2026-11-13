@@ -15,12 +15,14 @@ functions:
 
 | `method` | Library | Extra | Runs on |
 |---|---|---|---|
-| `'ducc0'` | [ducc0](https://pypi.org/project/ducc0/), in C++ | `cpu` | CPU, on all the cores |
+| `'ducc0'` | [ducc0](https://pypi.org/project/ducc0/), in C++ | `cpu` | CPU, on all the physical cores |
 | `'jax'` | [s2fft](https://github.com/astro-informatics/s2fft), in JAX | `gpu` | CPU and GPU |
 | `'jax_cuda'` | s2fft, with its CUDA kernel for the Fourier transforms along the rings | `gpu` | NVIDIA GPU |
 
 With any of them, the functions can be compiled by `jax.jit`, batched by `jax.vmap` and
-differentiated, and they return the same results to rounding errors.
+differentiated, and they return the same results to rounding errors. The transforms of s2fft
+require `lmax >= 2 * nside - 1` and raise a `NotImplementedError` below, whereas those of ducc0,
+like those of healpy, accept any `lmax`.
 
 By default, `'ducc0'` is used when the computations run on CPU and ducc0 is installed, and `'jax'`
 otherwise. On CPU, the transforms of ducc0 are two to three orders of magnitude faster than the
@@ -31,8 +33,11 @@ It is not emitted when `method='jax'` is requested.
 The functions that do not transform anything, such as `alm2cl`, `almxfl`, `synalm` or `gauss_beam`,
 need none of these libraries.
 
-ducc0 uses all the cores that are available to the process, unless the environment variable
-`DUCC0_NUM_THREADS` or, if it is not set, `OMP_NUM_THREADS` gives a lower number of threads.
+ducc0 uses one thread per physical core available to the process: the hardware threads of a core
+(simultaneous multithreading, or hyper-threading) compete for its resources and make the transforms
+up to twice slower. On Linux, the physical cores are read from the CPU topology; elsewhere, ducc0
+uses all the logical CPUs. The environment variable `DUCC0_NUM_THREADS` or, if it is not set,
+`OMP_NUM_THREADS` sets the number of threads instead.
 
 `'jax_cuda'` shortens the compilation of the transforms on GPU. It requires s2fft to be
 [built from source with CUDA](https://github.com/astro-informatics/s2fft#cuda-extension-support).

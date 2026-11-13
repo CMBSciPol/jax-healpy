@@ -179,6 +179,16 @@ def test_default_method_is_used(mocker: MockerFixture, name: str) -> None:
     transforms(FASTEST_METHOD)[name]()
 
 
+def test_jitted_function_methods_are_kept() -> None:
+    """lower and eval_shape of the jitted functions still work, with the default method resolved."""
+    L = LMAX + 1
+    alm = jnp.zeros((L, 2 * L - 1), dtype=complex)
+    m = jnp.zeros(NPIX)
+    assert jhp.map2alm.eval_shape(m, lmax=LMAX).shape == (L, 2 * L - 1)
+    compiled = jhp.alm2map.lower(alm, NSIDE, lmax=LMAX).compile()
+    np.testing.assert_array_equal(compiled(alm), jhp.alm2map(alm, NSIDE, lmax=LMAX))
+
+
 def test_method_can_be_positional() -> None:
     L = LMAX + 1
     alm = jnp.zeros((L, 2 * L - 1), dtype=complex)

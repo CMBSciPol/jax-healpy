@@ -19,7 +19,7 @@ import logging
 import warnings
 from collections.abc import Callable
 from functools import wraps
-from typing import ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -214,11 +214,21 @@ def _lmax_from_nalm(nalm: int) -> int:
 
 
 def _resolve_lmax(nside: int, lmax: int | None) -> int:
-    """Resolve ``lmax`` (default ``3*nside - 1``) and enforce the s2fft ``lmax >= 2*nside - 1`` floor."""
-    target_lmax = 3 * nside - 1 if lmax is None else lmax
-    if target_lmax < 2 * nside - 1:
-        raise NotImplementedError('Transform requires lmax >= 2*nside - 1 for s2fft transforms.')
-    return target_lmax
+    """Resolve ``lmax``, by default ``3*nside - 1``."""
+    return 3 * nside - 1 if lmax is None else lmax
+
+
+def _check_lmax_is_supported(method: str, nside: int, lmax: int) -> None:
+    """Raise if the transforms of ``method`` cannot be computed at this ``lmax``.
+
+    The transforms of s2fft require ``lmax >= 2*nside - 1``, those of ducc0 accept any ``lmax``,
+    like those of healpy.
+    """
+    if method != 'ducc0' and lmax < 2 * nside - 1:
+        raise NotImplementedError(
+            f'The transforms of s2fft (method={method!r}) require lmax >= 2*nside - 1 = {2 * nside - 1} for '
+            f"nside={nside}, got lmax={lmax}. Those of ducc0 (method='ducc0', on CPU) accept any lmax."
+        )
 
 
 _METHODS = ('ducc0', 'jax', 'jax_cuda')
@@ -298,12 +308,19 @@ def _with_default_method(func: Callable[Param, ReturnType]) -> Callable[Param, R
     """
     signature = inspect.signature(func)
 
-    @wraps(func)
-    def wrapper(*args: Param.args, **kwargs: Param.kwargs) -> ReturnType:
-        bound = signature.bind(*args, **kwargs)
-        bound.arguments['method'] = _resolve_method(bound.arguments.get('method'))
-        return func(*bound.args, **bound.kwargs)
+    def with_method(function: Callable) -> Callable:
+        def call(*args: Any, **kwargs: Any) -> Any:
+            bound = signature.bind(*args, **kwargs)
+            bound.arguments['method'] = _resolve_method(bound.arguments.get('method'))
+            return function(*bound.args, **bound.kwargs)
 
+        return call
+
+    wrapper = wraps(func)(with_method(func))
+    # The methods of the jitted function, such as lower or eval_shape, are not copied by wraps
+    for name in ('lower', 'trace', 'eval_shape'):
+        if hasattr(func, name):
+            setattr(wrapper, name, with_method(getattr(func, name)))
     return wrapper
 
 
@@ -559,7 +576,7 @@ def _alm2map_core(
     nside: int,
     lmax: int,
     mmax: int | None,
-    method: str | None,
+    method: str,
     spin: int,
     healpy_ordering: bool,
 ) -> ArrayLike:
@@ -575,8 +592,8 @@ def _alm2map_core(
         Maximum l (note: L = lmax + 1)
     mmax : int, optional
         Maximum m
-    method : str or None
-        Transform backend ('ducc0', 'jax', 'jax_cuda'), None for the default one
+    method : str
+        Transform backend ('ducc0', 'jax', 'jax_cuda'), resolved by the public functions
     spin : int
         Spin weight (0 for scalar, 2 for polarization, etc.)
     healpy_ordering : bool
@@ -587,10 +604,10 @@ def _alm2map_core(
     ArrayLike
         Output map(s)
     """
-    method = _resolve_method(method)
     warn_if_not_x64()
     if mmax is not None and mmax != lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
+    _check_lmax_is_supported(method, nside, lmax)
 
     if method == 'ducc0':
         return _alm2map_ducc0(alms, nside, lmax, spin, healpy_ordering)
@@ -700,7 +717,7 @@ def _map2alm_core(
     lmax: int,
     mmax: int | None,
     iter: int,
-    method: str | None,
+    method: str,
     spin: int,
     bad_mask: ArrayLike | None = None,
     healpy_ordering: bool = False,
@@ -717,8 +734,8 @@ def _map2alm_core(
         Maximum m
     iter : int
         Number of iterative refinement iterations
-    method : str or None
-        Transform backend ('ducc0', 'jax', 'jax_cuda'), None for the default one
+    method : str
+        Transform backend ('ducc0', 'jax', 'jax_cuda'), resolved by the public functions
     spin : int
         Spin weight (0 for scalar, 2 for polarization, etc.)
     bad_mask : ArrayLike, optional
@@ -731,10 +748,11 @@ def _map2alm_core(
     ArrayLike
         Output spherical harmonic coefficients
     """
-    method = _resolve_method(method)
     warn_if_not_x64()
     if mmax is not None and mmax != lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
+    npix = maps[0].shape[-1] if isinstance(maps, (list, tuple)) else jnp.shape(maps)[-1]
+    _check_lmax_is_supported(method, npix2nside(npix), lmax)
 
     if method == 'ducc0':
         return _map2alm_ducc0(maps, lmax, iter, spin, bad_mask, healpy_ordering)
@@ -2210,10 +2228,10 @@ def synfast(
         HEALPix nside parameter for output map
     lmax : int, optional
         Maximum multipole l. If None (or negative), matches healpy by using
-        ``min(len(cls) - 1, 3 * nside - 1)``. Because jax-healpy relies on
-        s2fft transforms that require ``lmax >= 2 * nside - 1``, a
-        ``ValueError`` is raised if the requested or derived ``lmax`` falls
-        below that threshold.
+        ``min(len(cls) - 1, 3 * nside - 1)``. The transforms of s2fft
+        (``method='jax'`` or ``'jax_cuda'``) require ``lmax >= 2 * nside - 1``
+        and raise a ``NotImplementedError`` below; those of ducc0 accept any
+        ``lmax``.
     mmax : int, optional
         Maximum m. Only ``mmax == lmax`` is supported; any other value raises
         NotImplementedError.
@@ -2302,14 +2320,6 @@ def synfast(
 
     if mmax is not None and mmax != resolved_lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
-
-    min_supported_lmax = 2 * nside - 1
-    if resolved_lmax < min_supported_lmax:
-        raise ValueError(
-            f'synfast requires lmax >= {min_supported_lmax} for nside={nside} when using the '
-            f's2fft backend (got lmax={resolved_lmax}). Provide a longer C_l array or specify a '
-            'larger lmax (you can zero-pad the spectrum) before calling synfast.'
-        )
 
     # Like healpy: draw the alms (correlated TEB for several spectra, scalar otherwise)
     # then transform. pol_active drives whether E/B map to Q, U (spin-2) or to

@@ -47,7 +47,7 @@ on which the computations run. Each one is installed by an extra dependency:
 
 | Extra | Library | Transforms |
 |---|---|---|
-| `cpu` | [ducc0](https://pypi.org/project/ducc0/), in C++ | on CPU, on all the cores |
+| `cpu` | [ducc0](https://pypi.org/project/ducc0/), in C++ | on CPU, on all the physical cores |
 | `gpu` | [s2fft](https://github.com/astro-informatics/s2fft), in JAX | on GPU |
 
 ```bash
