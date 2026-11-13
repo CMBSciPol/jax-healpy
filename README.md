@@ -117,6 +117,7 @@ jax-healpy demonstrates significant performance improvements, especially for GPU
 Complete documentation is available at [jax-healpy.readthedocs.io](https://jax-healpy.readthedocs.io/)
 
 - [Getting Started Guide](https://jax-healpy.readthedocs.io/en/latest/user-guide/getting-started/)
+- [Migrating from healpy](https://jax-healpy.readthedocs.io/en/latest/user-guide/migrating-from-healpy/)
 - [API Reference](https://jax-healpy.readthedocs.io/en/latest/api/pixelfunc/)
 - [Examples and Tutorials](https://jax-healpy.readthedocs.io/en/latest/user-guide/basic-usage/)
 
