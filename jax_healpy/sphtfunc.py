@@ -24,7 +24,6 @@ from typing import Any, ParamSpec, TypeVar
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax.scipy.linalg import sqrtm
 from jax.typing import ArrayLike
 from jaxtyping import Array, Bool, Complex, Float, Inexact, Integer, PRNGKeyArray
 
@@ -405,13 +404,26 @@ def _compute_cl(alms: ArrayLike, L: int, alms2: ArrayLike | None = None) -> Arra
     return cl
 
 
+def _spectra_real_dtype(*cls: ArrayLike) -> jnp.dtype:
+    """Return the real dtype in which to draw alms from the spectra `cls`.
+
+    It is the floating dtype of the spectra, at least float32. Non-floating spectra use
+    JAX's default float dtype (float64 only when x64 is enabled, so that an unavailable
+    float64 is never requested). The dtypes are read without their weak type: a weakly typed
+    float64 spectrum, such as ``1 / (jnp.arange(n) + 10.0) ** 2``, would otherwise promote
+    with float32 to float32 and produce complex64 alms.
+    """
+    dtype = jnp.result_type(*[jnp.asarray(cl).dtype for cl in cls])
+    if not jnp.issubdtype(dtype, jnp.floating):
+        return jnp.result_type(float)
+    return jnp.promote_types(dtype, jnp.float32)
+
+
 def _generate_random_alm(cl: ArrayLike, lmax: int, prng_key: PRNGKeyArray) -> ArrayLike:
     """Draw random alm with healpy reality convention (mmax == lmax)."""
     L = lmax + 1
     cl = jnp.asarray(cl)
-    # Real working dtype follows the input spectrum (float64 only when x64 is enabled), so we
-    # don't request an unavailable float64 and trigger JAX's silent-truncation warning.
-    real_dtype = jnp.result_type(cl, jnp.float32)
+    real_dtype = _spectra_real_dtype(cl)
     if cl.shape[0] < L:
         cl = jnp.pad(cl, (0, L - cl.shape[0]), constant_values=0)
     elif cl.shape[0] > L:
@@ -426,9 +438,13 @@ def _generate_random_alm(cl: ArrayLike, lmax: int, prng_key: PRNGKeyArray) -> Ar
     _, m_grid = jnp.meshgrid(jnp.arange(L), jnp.arange(-L + 1, L), indexing='ij')
     valid_mask = get_valid_mask_alms(lmax)
 
+    # The square root is evaluated on positive values only, so that the gradient with respect
+    # to the spectrum is finite where it vanishes (e.g. the monopole and dipole of the CMB).
     cl_grid = jnp.broadcast_to(cl[:, None], (L, 2 * L - 1))
-    scale = jnp.sqrt(cl_grid / 2.0)
-    scale = jnp.where(m_grid == 0, jnp.sqrt(cl_grid), scale)
+    positive = cl_grid > 0
+    safe_cl_grid = jnp.where(positive, cl_grid, 1)
+    scale = jnp.sqrt(jnp.where(m_grid == 0, safe_cl_grid, safe_cl_grid / 2.0))
+    scale = jnp.where(positive, scale, 0)
 
     alms = (rand_real + 1j * rand_imag) * scale * valid_mask
     alms = alms.at[:, L - 1].set(alms[:, L - 1].real)
@@ -437,12 +453,32 @@ def _generate_random_alm(cl: ArrayLike, lmax: int, prng_key: PRNGKeyArray) -> Ar
     right_half = alms[:, L:]
     m_positive = jnp.arange(1, L)
     phase = (-1) ** m_positive
-    conj_right_flipped = jnp.flip(jnp.conj(right_half), axis=1) * phase[None, :]
+    # a_{l,-m} = (-1)^m conj(a_{lm}): apply the phase of each m before flipping the columns.
+    conj_right_flipped = jnp.flip(jnp.conj(right_half) * phase[None, :], axis=1)
 
     valid_left = get_valid_mask_alms(lmax, mmax_positive=0)
     left_half = conj_right_flipped * valid_left
 
     return jnp.concatenate([left_half, alms[:, L - 1 : L], right_half], axis=1)
+
+
+def _cholesky_psd(cov: ArrayLike) -> Array:
+    """Lower Cholesky factors of a stack of covariance matrices of shape ``(..., n, n)``.
+
+    The fields of zero variance are left out of the factorization: their rows and columns of
+    the factor are zero. The other fields must have a positive definite covariance, up to a
+    relative regularization of 100 times the machine precision, which handles perfectly
+    correlated fields. Unlike the matrix square root, the factorization is differentiable.
+    """
+    n = cov.shape[-1]
+    variance = jnp.diagonal(cov, axis1=-2, axis2=-1)
+    active = variance > 0
+    active_pair = active[..., :, None] & active[..., None, :]
+    eye = jnp.eye(n, dtype=cov.dtype)
+    safe_cov = jnp.where(active_pair, cov, eye)
+    jitter = 100 * jnp.finfo(cov.dtype).eps
+    safe_cov = safe_cov + jitter * eye * jnp.diagonal(safe_cov, axis1=-2, axis2=-1)[..., None, :]
+    return jnp.where(active_pair, jnp.linalg.cholesky(safe_cov), 0)
 
 
 def _getn(k: int) -> int:
@@ -2120,8 +2156,11 @@ def synalm(
     - m>0: a_lm is complex, real and imag parts drawn from N(0, C_l/2)
 
     For the polarization case the per-multipole field covariance matrix is built
-    from the input (cross-)spectra and its matrix square root mixes independent
+    from the input (cross-)spectra and its Cholesky factor mixes independent
     unit-variance realizations, reproducing cross-spectra such as TE exactly.
+
+    The alms are differentiable with respect to the spectra, including where the
+    spectra vanish, as the monopole and dipole of the CMB.
 
     Examples
     --------
@@ -2148,8 +2187,7 @@ def synalm(
         if mmax is not None and mmax != lmax:
             raise NotImplementedError('Specifying mmax != lmax is not implemented.')
         L = lmax + 1
-        # Real working dtype follows the input spectra (float64 only when x64 is enabled).
-        real_dtype = jnp.result_type(*[c for c in cls_list if c is not None], jnp.float32)
+        real_dtype = _spectra_real_dtype(*[c for c in cls_list if c is not None])
 
         def pad_cl(cl):
             if cl is None:
@@ -2185,16 +2223,13 @@ def synalm(
                 idx += 1
         cov = jnp.stack([jnp.stack(rows[i], axis=-1) for i in range(n)], axis=-2)  # (L, n, n)
 
-        # Per-multipole matrix square root: principal sqrt of a symmetric PSD matrix is
-        # symmetric PSD, so R @ R == cov (incl. the singular low-ell blocks). Mix n
-        # independent unit-variance draws below.
-        # TODO: in case of non-symmetric cls this needs to be done differently
-        #       (dropping the imaginary part / assuming a symmetric sqrt no longer holds).
-        sqrt_cov = jax.vmap(sqrtm)(cov)  # (L, n, n)
+        # Per-multipole Cholesky factor, R @ R.T == cov, which mixes n independent unit-variance
+        # draws, as in healpy: T is drawn first, then E is correlated with T, etc.
+        factor = _cholesky_psd(cov)  # (L, n, n)
         keys = jax.random.split(prng_key, n)
         ones = jnp.ones(L, dtype=real_dtype)
         unit = jnp.stack([_generate_random_alm(ones, lmax, keys[i]) for i in range(n)], axis=0)  # (n, L, 2L-1)
-        alms = jnp.einsum('lij,jlm->ilm', sqrt_cov, unit)  # (n, L, 2L-1)
+        alms = jnp.einsum('lij,jlm->ilm', factor, unit)  # (n, L, 2L-1)
 
         if healpy_ordering:
             alms = _alm_2d_to_hp(alms, lmax)
@@ -2337,13 +2372,9 @@ def synfast(
     This function generates random alm coefficients from the input power
     spectrum/spectra (see [`synalm`][]), then transforms them to a map using
     [`alm2map`][]. For polarization the per-multipole field covariance is built
-    from the (cross-)spectra and its matrix square root is used so that
+    from the (cross-)spectra and its Cholesky factor is used so that
     cross-spectra such as TE are reproduced exactly. Pixel window functionality
     is not yet implemented.
-
-    The polarized version of synfast does not run on GPU yet: it uses ``sqrtm``,
-    whose Schur decomposition is not yet implemented on GPU by JAX. The scalar
-    (single-spectrum) path is unaffected.
 
     Examples
     --------

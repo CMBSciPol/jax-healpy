@@ -362,6 +362,42 @@ def test_synalm_mmax_raises() -> None:
         jhp.synalm(jax.random.PRNGKey(42), cl, lmax=lmax, mmax=lmax - 1)
 
 
+@pytest.mark.parametrize('pol', [False, True])
+@pytest.mark.parametrize(
+    'make_cl',
+    [
+        pytest.param(lambda ell: 1 / (ell + 10.0) ** 2, id='weak-float64'),
+        pytest.param(lambda ell: np.ones(ell.shape, dtype=int), id='int'),
+    ],
+)
+def test_synfast_spectrum_dtype(pol_nside, pol_lmax, make_cl, pol) -> None:
+    """Weakly typed float64 or integer spectra draw complex128 alms (x64 is enabled)."""
+    cl = make_cl(jnp.arange(pol_lmax + 1))
+    cls = [cl, cl, cl, 0 * cl] if pol else cl
+
+    map_synth, alms = jhp.synfast(jax.random.PRNGKey(0), cls, pol_nside, lmax=pol_lmax, new=True, alm=True)
+
+    assert alms.dtype == jnp.complex128
+    assert map_synth.dtype == jnp.float64
+
+
+@pytest.mark.parametrize('lmax', [31, 32])
+@pytest.mark.parametrize('pol', [False, True])
+def test_synalm_reality_condition(lmax: int, pol: bool) -> None:
+    """synalm alms satisfy a_{l,-m} = (-1)^m conj(a_{lm}), for odd and even lmax."""
+    L = lmax + 1
+    cl = np.ones(L)
+    cls = [cl, cl, cl, 0 * cl] if pol else cl
+
+    alms = np.asarray(jhp.synalm(jax.random.PRNGKey(0), cls, lmax=lmax, new=True))
+    alms = alms.reshape(-1, L, 2 * L - 1)
+
+    m = np.arange(1, L)
+    negative_m = alms[:, :, L - 1 - m]
+    positive_m = alms[:, :, L - 1 + m]
+    np.testing.assert_array_equal(negative_m, (-1) ** m * np.conj(positive_m))
+
+
 def test_synfast_pixwin_raises() -> None:
     """Test that synfast raises NotImplementedError for pixwin=True."""
     nside = 16
@@ -703,3 +739,45 @@ def test_anafast_pol_invalid_count_raises(synthesized_tqu_map: np.ndarray) -> No
     # Cross-spectrum: map2 must have the same component count as map1.
     with pytest.raises(ValueError, match=r'map2 with the same shape'):
         jhp.anafast(synthesized_tqu_map[1:], synthesized_tqu_map, pol=True)  # QU vs IQU
+
+
+def _cl_without_monopole_dipole(lmax: int) -> np.ndarray:
+    ell = np.arange(lmax + 1)
+    return np.where(ell >= 2, 1 / (ell + 10.0) ** 2, 0.0)
+
+
+def _finite_difference(func, x: float, step: float = 1e-6) -> float:
+    return (func(x + step) - func(x - step)) / (2 * step)
+
+
+def test_synalm_grad_with_vanishing_spectrum() -> None:
+    """The gradient is finite and exact where the spectrum vanishes (monopole and dipole)."""
+    cl = _cl_without_monopole_dipole(31)
+
+    def power(amplitude):
+        alm = jhp.synalm(jax.random.key(0), amplitude * jnp.asarray(cl), lmax=31)
+        return jnp.sum(jnp.abs(alm) ** 2)
+
+    np.testing.assert_allclose(jax.grad(power)(1.0), _finite_difference(power, 1.0), rtol=1e-6)
+
+
+def test_synalm_pol_grad() -> None:
+    """The polarized alms are differentiable with respect to the spectra, such as BB."""
+    cl = _cl_without_monopole_dipole(31)
+
+    def power(r):
+        cls = [cl, cl / 20, r * cl + cl / 200, 0.5 * cl / np.sqrt(20)]
+        alms = jhp.synalm(jax.random.key(0), cls, lmax=31, new=True)
+        return jnp.sum(jnp.abs(alms) ** 2)
+
+    np.testing.assert_allclose(jax.grad(power)(0.1), _finite_difference(power, 0.1), rtol=1e-6)
+
+
+@pytest.mark.parametrize('rho', [1.0, -1.0])
+def test_synalm_pol_perfect_correlation(rho: float) -> None:
+    """Perfectly correlated T and E spectra give finite, perfectly correlated alms."""
+    cl = _cl_without_monopole_dipole(127)
+    alms = jhp.synalm(jax.random.key(0), [cl, cl / 20, cl / 200, rho * cl / np.sqrt(20)], lmax=127, new=True)
+    assert jnp.all(jnp.isfinite(alms))
+    cl_tt, cl_ee, cl_te = jhp.alm2cl([alms[0], alms[1]])
+    np.testing.assert_allclose(cl_te[2:] / np.sqrt(cl_tt[2:] * cl_ee[2:]), rho, rtol=1e-10)
