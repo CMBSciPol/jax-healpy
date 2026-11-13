@@ -24,7 +24,6 @@ from typing import Any, ParamSpec, TypeVar
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax.scipy.linalg import sqrtm
 from jax.typing import ArrayLike
 from jaxtyping import Array, Bool, Complex, Float, Inexact, Integer, PRNGKeyArray
 
@@ -420,8 +419,44 @@ def _spectra_real_dtype(*cls: ArrayLike) -> jnp.dtype:
     return jnp.promote_types(dtype, jnp.float32)
 
 
+def _draw_unit_alms(prng_key: PRNGKeyArray, L: int, dtype: jnp.dtype) -> Array:
+    """Draw unit-variance alms of a real field on the ``(L, L)`` grid of ``ell`` and ``m >= 0``.
+
+    The real and imaginary parts of the m > 0 coefficients are drawn from N(0, 1/2), the real m = 0
+    coefficients from N(0, 1), and the coefficients of m > ell are zero. Only the L(L+1)/2 valid
+    coefficients are drawn, in the healpy order, then gathered into the grid.
+    """
+    nalm = L * (L + 1) // 2
+    key_real, key_imag = jax.random.split(prng_key)
+    real = jax.random.normal(key_real, shape=(nalm,), dtype=dtype)
+    imag = jax.random.normal(key_imag, shape=(nalm,), dtype=dtype)
+    ell = jnp.arange(L)[:, None]
+    m = jnp.arange(L)[None, :]
+    valid = m <= ell
+    index = jnp.where(valid, m * (2 * L - 1 - m) // 2 + ell, 0)
+    scale = jnp.where(m == 0, 1, np.sqrt(0.5)).astype(dtype)
+    alms = (real[index] + 1j * jnp.where(m == 0, 0, imag[index])) * scale
+    return jnp.where(valid, alms, 0)
+
+
+def _alms_with_negative_m(alms: Array) -> Array:
+    """Extend alms of shape ``(..., L, L)`` for ``m >= 0`` to the s2fft layout ``(..., L, 2L-1)``.
+
+    The coefficients of negative m are those of a real field: a_{l,-m} = (-1)^m conj(a_{lm}).
+    """
+    L = alms.shape[-1]
+    phase = (-1) ** jnp.arange(1, L)
+    left_half = jnp.flip(jnp.conj(alms[..., 1:]) * phase, axis=-1)
+    return jnp.concatenate([left_half, alms], axis=-1)
+
+
+def _is_traced(x: ArrayLike) -> bool:
+    """Whether ``x`` is traced by a JAX transformation, such as ``jit``, so that its value is unknown."""
+    return isinstance(x, jax.core.Tracer)
+
+
 def _generate_random_alm(cl: ArrayLike, lmax: int, prng_key: PRNGKeyArray) -> ArrayLike:
-    """Draw random alm with healpy reality convention (mmax == lmax)."""
+    """Draw random alm with healpy reality convention (mmax == lmax). A negative spectrum gives NaN alms."""
     L = lmax + 1
     cl = jnp.asarray(cl)
     real_dtype = _spectra_real_dtype(cl)
@@ -430,33 +465,126 @@ def _generate_random_alm(cl: ArrayLike, lmax: int, prng_key: PRNGKeyArray) -> Ar
     elif cl.shape[0] > L:
         cl = cl[:L]
 
-    key_real, key_imag = jax.random.split(prng_key)
-    rand_real = jax.random.normal(key_real, shape=(L, 2 * L - 1), dtype=real_dtype)
-    rand_imag = jax.random.normal(key_imag, shape=(L, 2 * L - 1), dtype=real_dtype)
+    # The square root is evaluated on positive values only, so that the gradient with respect
+    # to the spectrum is finite where it vanishes (e.g. the monopole and dipole of the CMB).
+    positive = cl > 0
+    scale = jnp.where(positive, jnp.sqrt(jnp.where(positive, cl, 1)), jnp.where(cl == 0, 0, jnp.nan))
+    alms = _draw_unit_alms(prng_key, L, real_dtype) * scale[:, None]
+    return _alms_with_negative_m(alms)
 
-    # m_grid is reused below for the m==0 (real-variance) case. valid_mask here is load-bearing:
-    # it zeroes the out-of-triangle entries so the random draw is a well-formed alm (|m| <= ell).
-    _, m_grid = jnp.meshgrid(jnp.arange(L), jnp.arange(-L + 1, L), indexing='ij')
-    valid_mask = get_valid_mask_alms(lmax)
 
-    cl_grid = jnp.broadcast_to(cl[:, None], (L, 2 * L - 1))
-    scale = jnp.sqrt(cl_grid / 2.0)
-    scale = jnp.where(m_grid == 0, jnp.sqrt(cl_grid), scale)
+def _spectra_covariance(cls_list: list, lmax: int | None, new: bool) -> Array:
+    """Covariance matrices ``(L, n, n)`` of the fields at each multipole, from their (cross-)spectra.
 
-    alms = (rand_real + 1j * rand_imag) * scale * valid_mask
-    alms = alms.at[:, L - 1].set(alms[:, L - 1].real)
+    ``cls_list`` holds 4 or n(n+1)/2 spectra, or ``None`` for a zero cross-spectrum, in the order
+    set by ``new`` (see [`synalm`][]).
+    """
+    if lmax is None:
+        lmax = max(c.shape[0] for c in cls_list if c is not None) - 1
+    L = lmax + 1
+    real_dtype = _spectra_real_dtype(*[c for c in cls_list if c is not None])
 
-    left_half = alms[:, : L - 1]
-    right_half = alms[:, L:]
-    m_positive = jnp.arange(1, L)
-    phase = (-1) ** m_positive
-    # a_{l,-m} = (-1)^m conj(a_{lm}): apply the phase of each m before flipping the columns.
-    conj_right_flipped = jnp.flip(jnp.conj(right_half) * phase[None, :], axis=1)
+    def pad_cl(cl):
+        if cl is None:
+            return jnp.zeros(L, dtype=real_dtype)
+        cl = jnp.asarray(cl)
+        if cl.shape[0] < L:
+            return jnp.pad(cl, (0, L - cl.shape[0]), constant_values=0)
+        return cl[:L]
 
-    valid_left = get_valid_mask_alms(lmax, mmax_positive=0)
-    left_half = conj_right_flipped * valid_left
+    # Normalize the spectra into healpy "old" (by-row) order with n(n+1)/2 entries.
+    k = len(cls_list)
+    if k == 4:
+        # healpy: 4 cls always map to n=3 (T, E, B) with EB = TB = 0.
+        if new:  # new input order: TT, EE, BB, TE
+            row_order = _new_to_old_spectra_order([cls_list[0], cls_list[1], cls_list[2], cls_list[3], None, None])
+        else:  # old input order: TT, TE, EE, BB
+            row_order = [cls_list[0], cls_list[1], None, cls_list[2], None, cls_list[3]]
+        n = 3
+    else:
+        n = _getn(k)
+        if n < 0:
+            raise ValueError('cls must contain 1, 4, or n(n+1)/2 spectra')
+        row_order = _new_to_old_spectra_order(cls_list) if new else cls_list
 
-    return jnp.concatenate([left_half, alms[:, L - 1 : L], right_half], axis=1)
+    # Build the symmetric per-ell covariance matrix cov[l, i, j].
+    cols = [pad_cl(c) for c in row_order]
+    rows = [[None] * n for _ in range(n)]
+    idx = 0
+    for i in range(n):
+        for j in range(i, n):
+            rows[i][j] = cols[idx]
+            rows[j][i] = cols[idx]
+            idx += 1
+    cov = jnp.stack([jnp.stack(rows[i], axis=-1) for i in range(n)], axis=-2)  # (L, n, n)
+    return cov
+
+
+def _check_spectra(cls: ArrayLike | tuple[ArrayLike, ...], lmax: int | None, new: bool) -> None:
+    """Raise a ``ValueError`` if the spectra are negative or if their covariance matrix is not
+    positive semi-definite at some multipole. Traced spectra, whose values are unknown, are not
+    checked: they give NaN alms.
+    """
+    is_multi, payload = _as_spectra_list(cls)
+    spectra = payload if is_multi else [payload]
+    if any(_is_traced(c) for c in spectra if c is not None):
+        return
+    if not is_multi:
+        cl = np.asarray(payload)[: None if lmax is None else lmax + 1]
+        if (cl < 0).any():
+            raise ValueError(f'The power spectrum is negative at ell = {np.flatnonzero(cl < 0).tolist()}.')
+        return
+    factor = _cholesky_psd(_spectra_covariance([None if c is None else jnp.asarray(c) for c in payload], lmax, new))
+    invalid = ~np.all(np.isfinite(np.asarray(factor)), axis=(-2, -1))
+    if invalid.any():
+        raise ValueError(
+            'The covariance matrix of the spectra is not positive semi-definite at '
+            f'ell = {np.flatnonzero(invalid).tolist()}: a spectrum is negative, or a correlation '
+            'coefficient is greater than 1 in absolute value.'
+        )
+
+
+def _checks_spectra(
+    get_lmax: Callable[[dict], int | None],
+) -> Callable[[Callable[Param, ReturnType]], Callable[Param, ReturnType]]:
+    """Check the spectra of a compiled function before calling it, where their values are known.
+
+    ``get_lmax`` returns the maximum multipole of the spectra to check from the arguments of the call.
+    """
+
+    def decorator(function: Callable[Param, ReturnType]) -> Callable[Param, ReturnType]:
+        signature = inspect.signature(function)
+
+        @wraps(function)
+        def wrapper(*args: Param.args, **kwargs: Param.kwargs) -> ReturnType:
+            arguments = signature.bind(*args, **kwargs)
+            arguments.apply_defaults()
+            _check_spectra(arguments.arguments['cls'], get_lmax(arguments.arguments), arguments.arguments['new'])
+            return function(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def _cholesky_psd(cov: ArrayLike) -> Array:
+    """Lower Cholesky factors of a stack of covariance matrices of shape ``(..., n, n)``.
+
+    The fields of zero variance are left out of the factorization: their rows and columns of
+    the factor are zero. The other fields must have a positive definite covariance, up to a
+    relative regularization of 100 times the machine precision, which handles perfectly
+    correlated fields: otherwise, the factor is NaN. Unlike the matrix square root, the
+    factorization is differentiable.
+    """
+    n = cov.shape[-1]
+    variance = jnp.diagonal(cov, axis1=-2, axis2=-1)
+    active = variance != 0
+    active_pair = active[..., :, None] & active[..., None, :]
+    eye = jnp.eye(n, dtype=cov.dtype)
+    safe_cov = jnp.where(active_pair, cov, eye)
+    jitter = 100 * jnp.finfo(cov.dtype).eps
+    safe_cov = safe_cov + jitter * eye * jnp.diagonal(safe_cov, axis1=-2, axis2=-1)[..., None, :]
+    return jnp.where(active_pair, jnp.linalg.cholesky(safe_cov), 0)
 
 
 def _getn(k: int) -> int:
@@ -2079,6 +2207,7 @@ def smoothing(
     return jnp.where(bad, UNSEEN, out)
 
 
+@_checks_spectra(lambda arguments: arguments['lmax'])
 @jax.jit(static_argnames=['lmax', 'mmax', 'new', 'healpy_ordering'])
 def synalm(
     prng_key: PRNGKeyArray,
@@ -2134,8 +2263,22 @@ def synalm(
     - m>0: a_lm is complex, real and imag parts drawn from N(0, C_l/2)
 
     For the polarization case the per-multipole field covariance matrix is built
-    from the input (cross-)spectra and its matrix square root mixes independent
+    from the input (cross-)spectra and its Cholesky factor mixes independent
     unit-variance realizations, reproducing cross-spectra such as TE exactly.
+
+    The spectra must be non-negative and, for the polarization, the covariance
+    matrix of each multipole positive semi-definite: the cross-spectra cannot
+    exceed the geometric mean of the auto-spectra in absolute value. Otherwise,
+    a ``ValueError`` is raised, or the alms are NaN when the spectra are traced,
+    for instance by ``jax.jit``.
+
+    The alms are differentiable with respect to the spectra, including where the
+    spectra vanish, as the monopole and dipole of the CMB: there, the derivative
+    is zero, whereas that of the square root of the spectrum is infinite, which
+    does not affect the derivatives with respect to an amplitude or the
+    tensor-to-scalar ratio. For perfectly correlated fields, the derivative
+    depends on the regularization of the Cholesky factorization and is not
+    meaningful.
 
     Examples
     --------
@@ -2163,51 +2306,15 @@ def synalm(
             raise NotImplementedError('Specifying mmax != lmax is not implemented.')
         L = lmax + 1
         real_dtype = _spectra_real_dtype(*[c for c in cls_list if c is not None])
+        cov = _spectra_covariance(cls_list, lmax, new)  # (L, n, n)
+        n = cov.shape[-1]
 
-        def pad_cl(cl):
-            if cl is None:
-                return jnp.zeros(L, dtype=real_dtype)
-            cl = jnp.asarray(cl)
-            if cl.shape[0] < L:
-                return jnp.pad(cl, (0, L - cl.shape[0]), constant_values=0)
-            return cl[:L]
-
-        # Normalize the spectra into healpy "old" (by-row) order with n(n+1)/2 entries.
-        k = len(cls_list)
-        if k == 4:
-            # healpy: 4 cls always map to n=3 (T, E, B) with EB = TB = 0.
-            if new:  # new input order: TT, EE, BB, TE
-                row_order = _new_to_old_spectra_order([cls_list[0], cls_list[1], cls_list[2], cls_list[3], None, None])
-            else:  # old input order: TT, TE, EE, BB
-                row_order = [cls_list[0], cls_list[1], None, cls_list[2], None, cls_list[3]]
-            n = 3
-        else:
-            n = _getn(k)
-            if n < 0:
-                raise ValueError('cls must contain 1, 4, or n(n+1)/2 spectra')
-            row_order = _new_to_old_spectra_order(cls_list) if new else cls_list
-
-        # Build the symmetric per-ell covariance matrix cov[l, i, j].
-        cols = [pad_cl(c) for c in row_order]
-        rows = [[None] * n for _ in range(n)]
-        idx = 0
-        for i in range(n):
-            for j in range(i, n):
-                rows[i][j] = cols[idx]
-                rows[j][i] = cols[idx]
-                idx += 1
-        cov = jnp.stack([jnp.stack(rows[i], axis=-1) for i in range(n)], axis=-2)  # (L, n, n)
-
-        # Per-multipole matrix square root: principal sqrt of a symmetric PSD matrix is
-        # symmetric PSD, so R @ R == cov (incl. the singular low-ell blocks). Mix n
-        # independent unit-variance draws below.
-        # TODO: in case of non-symmetric cls this needs to be done differently
-        #       (dropping the imaginary part / assuming a symmetric sqrt no longer holds).
-        sqrt_cov = jax.vmap(sqrtm)(cov)  # (L, n, n)
+        # Per-multipole Cholesky factor, R @ R.T == cov, which mixes n independent unit-variance
+        # draws, as in healpy: T is drawn first, then E is correlated with T, etc.
+        factor = _cholesky_psd(cov)  # (L, n, n)
         keys = jax.random.split(prng_key, n)
-        ones = jnp.ones(L, dtype=real_dtype)
-        unit = jnp.stack([_generate_random_alm(ones, lmax, keys[i]) for i in range(n)], axis=0)  # (n, L, 2L-1)
-        alms = jnp.einsum('lij,jlm->ilm', sqrt_cov, unit)  # (n, L, 2L-1)
+        unit = jnp.stack([_draw_unit_alms(keys[i], L, real_dtype) for i in range(n)])  # (n, L, L), m >= 0
+        alms = _alms_with_negative_m(jnp.einsum('lij,jlm->ilm', factor, unit))  # (n, L, 2L-1)
 
         if healpy_ordering:
             alms = _alm_2d_to_hp(alms, lmax)
@@ -2269,6 +2376,11 @@ def pixwin(nside: int, pol: bool = False, lmax: int | None = None, datapath: str
     )
 
 
+@_checks_spectra(
+    lambda arguments: (
+        3 * arguments['nside'] - 1 if arguments['lmax'] is None or arguments['lmax'] < 0 else arguments['lmax']
+    )
+)
 @_with_default_method
 @jax.jit(
     static_argnames=['nside', 'lmax', 'mmax', 'alm', 'pol', 'pixwin', 'fwhm', 'sigma', 'new', 'method'],
@@ -2350,13 +2462,9 @@ def synfast(
     This function generates random alm coefficients from the input power
     spectrum/spectra (see [`synalm`][]), then transforms them to a map using
     [`alm2map`][]. For polarization the per-multipole field covariance is built
-    from the (cross-)spectra and its matrix square root is used so that
+    from the (cross-)spectra and its Cholesky factor is used so that
     cross-spectra such as TE are reproduced exactly. Pixel window functionality
     is not yet implemented.
-
-    The polarized version of synfast does not run on GPU yet: it uses ``sqrtm``,
-    whose Schur decomposition is not yet implemented on GPU by JAX. The scalar
-    (single-spectrum) path is unaffected.
 
     Examples
     --------
