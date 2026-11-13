@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/pypi/l/jax-healpy)](https://github.com/CMBSciPol/jax-healpy/blob/main/LICENSE)
 
 **jax-healpy** is a JAX-based implementation of the HEALPix (Hierarchical Equal Area isoLatitude
-Pixelization) functions, designed for high-performance scientific computing on CPUs and GPUs. It provides JAX-native versions of popular healpy functions, enabling automatic differentiation,
+Pixelization) functions, running on CPUs and GPUs. It provides JAX-native versions of popular healpy functions, enabling automatic differentiation,
 just-in-time compilation and seamless integration with modern scientific computing workflows.
 
 !!! warning
@@ -16,7 +16,8 @@ just-in-time compilation and seamless integration with modern scientific computi
 
 ## Key Features
 
-🚀 **GPU acceleration**: XLA compilation for high-performance computing on CPUs and GPUs
+🚀 **GPU acceleration**: XLA compilation on CPUs and GPUs, with pixel functions up to 1000 times
+faster than healpy on GPU (see [Performance](#performance))
 
 🔄 **Automatic differentiation**: forward and reverse-mode automatic differentiation
 
@@ -24,7 +25,8 @@ just-in-time compilation and seamless integration with modern scientific computi
 
 🔁 **HEALPix compatibility**: drop-in replacement for many healpy functions
 
-🌐 **Spherical harmonics**: spherical harmonic transforms through ducc0 on CPU and s2fft on GPU
+🌐 **Spherical harmonics**: differentiable spherical harmonic transforms through ducc0 on CPU
+and s2fft on GPU, which agree with healpy to $10^{-12}$
 
 🗺️ **Clustering tools**: clustering of HEALPix maps into regions
 
@@ -48,7 +50,35 @@ recovered_pixels = hp.ang2pix(nside, theta, phi)
 skymap = jax.random.normal(jax.random.key(0), pixels.shape)
 alm = hp.map2alm(skymap, lmax=2 * nside)
 smoothed_map = hp.alm2map(alm, nside=nside, lmax=2 * nside)
+
+# Differentiate and vectorize: derivative of the power of simulated maps with respect to
+# the amplitude of their power spectrum, for 8 random realizations at once
+cl = 1 / (jnp.arange(3 * nside) + 10.0) ** 2
+
+
+def total_power(amplitude, key):
+    cmb_map = hp.synfast(key, amplitude * cl, nside)
+    return jnp.sum(hp.anafast(cmb_map))
+
+
+keys = jax.random.split(jax.random.key(0), 8)
+gradients = jax.vmap(jax.grad(total_power), in_axes=(None, 0))(1.0, keys)
 ```
+
+The [inference](user-guide/inference.md) page puts these tools to work on the measurement of
+the tensor-to-scalar ratio of the CMB, with the NUTS sampler of NumPyro.
+
+## Performance
+
+The pixel functions, benchmarked on 10 million points against healpy, run about 10 times
+faster on CPU and up to 1000 times faster on GPU (Intel Xeon Gold 2648, NVIDIA Tesla V100;
+times relative to jax-healpy on GPU in 32-bit precision):
+
+![Benchmark of the pixel functions](benchmarks/chart-default-n10000000.png#only-light){ width="600" .centered }
+![Benchmark of the pixel functions](benchmarks/chart-darkbackground-n10000000.png#only-dark){ width="600" .centered }
+
+The spherical harmonic transforms, computed by ducc0 on CPU and by s2fft on GPU, are not part
+of this benchmark.
 
 ## Documentation Contents
 
