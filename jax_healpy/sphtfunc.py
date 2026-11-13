@@ -207,6 +207,21 @@ def _lmax_from_nalm(nalm: int) -> int:
     return int((-1 + np.sqrt(1 + 8 * (nalm - 1))) / 2)
 
 
+def _lmax_from_alm(alm: ArrayLike, healpy_ordering: bool) -> int:
+    """Infer lmax from the shape of the alms (mmax == lmax), ignoring the leading axes.
+
+    The alms have the shape ``(..., nalm)`` in the healpy layout and ``(..., L, 2L - 1)`` in
+    the s2fft layout.
+    """
+    if not healpy_ordering:
+        return alm.shape[-2] - 1
+    nalm = alm.shape[-1]
+    lmax = _lmax_from_nalm(nalm)
+    if (lmax + 1) * (lmax + 2) // 2 != nalm:
+        raise ValueError(f'Invalid number of alms in the healpy layout: {nalm}.')
+    return lmax
+
+
 def _resolve_lmax(nside: int, lmax: int | None) -> int:
     """Resolve ``lmax`` (default ``3*nside - 1``) and enforce the s2fft ``lmax >= 2*nside - 1`` floor."""
     target_lmax = 3 * nside - 1 if lmax is None else lmax
@@ -638,7 +653,8 @@ def alm2map(
     nside : int, scalar
       The nside of the output map.
     lmax : None or int, scalar, optional
-      Explicitly define lmax (needed if mmax!=lmax)
+      Explicitly define lmax (needed if mmax!=lmax). Default: inferred from the size of
+      the alms, assuming mmax == lmax.
     mmax : None or int, scalar, optional
       Explicitly define mmax (needed if mmax!=lmax)
     pixwin : bool, optional
@@ -694,6 +710,9 @@ def alm2map(
     if pixwin:
         raise NotImplementedError('Pixel-window smoothing is not implemented; set pixwin=False.')
 
+    if lmax is None:
+        lmax = _lmax_from_alm(alms, healpy_ordering)
+
     # Polarized branch: input is shape (n, ...) with n in {1, 2, 3}.
     #   n == 1 -> T        -> T map                 (spin 0)
     #   n == 2 -> E, B     -> (Q, U) maps           (spin 2; not possible in healpy)
@@ -703,8 +722,7 @@ def alm2map(
         if n not in (1, 2, 3):
             raise ValueError(f'pol=True requires alms with shape (n, ...), n in (1, 2, 3); got shape {alms.shape}.')
 
-        target_L = 3 * nside if lmax is None else lmax + 1
-        target_lmax = target_L - 1
+        target_lmax = lmax
         if mmax is not None and mmax != target_lmax:
             raise NotImplementedError('Specifying mmax != lmax is not implemented.')
 
@@ -767,13 +785,10 @@ def alm2map(
         # only happens if pol=True
         raise NotImplementedError('TEB alms are not implemented.')
 
-    if lmax is None:
-        L = 3 * nside
-    else:
-        L = lmax + 1
+    L = lmax + 1
 
-    if mmax is not None and (lmax is None or mmax != lmax):
-        raise NotImplementedError('Specifying mmax != lmax (or without lmax) is not implemented.')
+    if mmax is not None and mmax != lmax:
+        raise NotImplementedError('Specifying mmax != lmax is not implemented.')
 
     # Apply smoothing if requested (scalar spin-0 beam; mirrors the polarized branch above).
     if fwhm != 0 or sigma is not None:
@@ -1218,10 +1233,7 @@ def alm2cl(
 
         # Infer lmax from first alm if not provided
         if lmax is None:
-            if healpy_ordering:
-                lmax = _lmax_from_nalm(alms1_list[0].shape[0])
-            else:
-                lmax = alms1_list[0].shape[0] - 1
+            lmax = _lmax_from_alm(alms1_list[0], healpy_ordering)
 
         L = lmax + 1
 
@@ -1260,10 +1272,7 @@ def alm2cl(
 
     # Infer lmax if not provided
     if lmax is None:
-        if healpy_ordering:
-            lmax = _lmax_from_nalm(alms1.shape[0])
-        else:
-            lmax = alms1.shape[0] - 1
+        lmax = _lmax_from_alm(alms1, healpy_ordering)
 
     L = lmax + 1
 
@@ -1565,11 +1574,6 @@ def smoothalm(
     """
     alms = jnp.asarray(alms)
 
-    def _lmax_of(component: ArrayLike) -> int:
-        if healpy_ordering:
-            return _lmax_from_nalm(component.shape[0])
-        return component.shape[0] - 1
-
     # A single alm (no stacked component axis) is always smoothed as a scalar field,
     # matching healpy; pol only applies to a stacked (n, ...) input.
     expected_ndim = 1 if healpy_ordering else 2
@@ -1586,7 +1590,7 @@ def smoothalm(
             spins = (0, 2, 2)
         else:
             raise ValueError('smoothalm pol supports 1 (T), 2 (E, B), or 3 (T, E, B) components')
-        lmax = _lmax_of(alms[0])
+        lmax = _lmax_from_alm(alms[0], healpy_ordering)
         ell = jnp.arange(lmax + 1)
         if sigma is None:
             sigma_val = fwhm / np.sqrt(8.0 * np.log(2.0))
@@ -1603,7 +1607,7 @@ def smoothalm(
         return jnp.stack(smoothed, axis=0)
 
     # Scalar branch.
-    lmax = _lmax_of(alms)
+    lmax = _lmax_from_alm(alms, healpy_ordering)
     if beam_window is not None:
         bl = jnp.asarray(beam_window)
     else:
@@ -2245,21 +2249,12 @@ def alm2map_spin(
             raise ValueError(f'For spin={spin}, alms must be a list/tuple of 2 arrays')
         alms = [jnp.asarray(a) for a in alms]
 
-        # Infer lmax from shape
         if lmax is None:
-            if healpy_ordering:
-                # healpy 1D layout (mmax == lmax): nalm = (lmax+1)*(lmax+2)/2
-                lmax = _lmax_from_nalm(alms[0].shape[0])
-            else:
-                # For s2fft format: shape is (L, 2L-1)
-                lmax = alms[0].shape[0] - 1
+            lmax = _lmax_from_alm(alms[0], healpy_ordering)
     else:
         alms = jnp.asarray(alms)
         if lmax is None:
-            if healpy_ordering:
-                lmax = _lmax_from_nalm(alms.shape[0])
-            else:
-                lmax = alms.shape[0] - 1
+            lmax = _lmax_from_alm(alms, healpy_ordering)
 
     # Call core function
     maps = _alm2map_core(

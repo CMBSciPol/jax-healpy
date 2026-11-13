@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Importing jax-healpy no longer ignores all the Python warnings of the process, a side effect of importing s2fft (#54)
+- `alm2map` infers `lmax` from the size of the alms when it is not given, as documented and as in healpy, instead of assuming `3 * nside - 1`; `smoothalm` infers it correctly for a batch of alms (#57)
 
 ## [0.8.2] - 2026-09-28
 
