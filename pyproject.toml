@@ -61,6 +61,7 @@ repository = 'https://github.com/CMBSciPol/jax-healpy'
 [dependency-groups]
 dev = [
     {include-group = 'docs'},
+    {include-group = 'hooks'},
     'chex',
     'cyclopts',
     'healpy>=1.20',
@@ -81,7 +82,9 @@ docs = [
     'mkdocstrings-python>=2.0',
     'zensical>=0.1',
 ]
-cuda = ['jax[cuda13]>=0.10.0']
+# The runner of the git hooks, which the CI installs alone
+hooks = ['prek']
+cuda =['jax[cuda13]>=0.10.0']
 
 [tool.uv.sources]
 s2fft = { git = "https://github.com/astro-informatics/s2fft" }

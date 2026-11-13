@@ -23,10 +23,9 @@ We welcome contributions to jax-healpy! This guide will help you get started wit
    uv sync --all-extras
    ```
 
-3. **Install the git hooks** with [prek](https://github.com/j178/prek):
+3. **Install the git hooks** with [prek](https://github.com/j178/prek), one of the development dependencies:
    ```bash
-   uv tool install prek
-   prek install
+   uv run prek install
    ```
 
 ## Development Workflow
@@ -35,7 +34,7 @@ We welcome contributions to jax-healpy! This guide will help you get started wit
 
 1. **Create a new branch** for your feature or bug fix:
    ```bash
-   git checkout -b feature/your-feature-name
+   git checkout -b feat/your-feature-name
    ```
 
 2. **Make your changes** following our coding standards (see below)
@@ -60,10 +59,10 @@ We welcome contributions to jax-healpy! This guide will help you get started wit
    To preview the site with live reload while editing a Markdown page, run `uv run zensical serve`
    after a first build.
 
-5. **Commit your changes**:
+5. **Commit your changes**, adding the files by path and following [Conventional Commits](https://www.conventionalcommits.org):
    ```bash
-   git add .
-   git commit -m "Descriptive commit message"
+   git add jax_healpy/pixelfunc.py tests/pixelfunc/test_ang_pix.py
+   git commit -m "feat(pixelfunc): support the NEST ordering in ang2pix"
    ```
 
 ### Running Tests
@@ -89,13 +88,13 @@ pytest -m "not slow"
 We use several tools to maintain code quality:
 
 ```bash
-prek install
+uv run prek install
 
 # The git hooks run ruff and other QA tools automatically at each commit
-git commit -am "New commit"
+git commit -m "fix(sphtfunc): infer lmax from the size of the alms"
 
 # To run the QA tools on the whole repository:
-prek run --all-files
+uv run prek run --all-files
 ```
 
 ## Coding Standards
@@ -246,7 +245,10 @@ For new features:
 1. **Ensure tests pass**: All existing and new tests must pass
 2. **Update documentation**: Include docstrings and user guides
 3. **Add changelog entry**: Describe your changes in the appropriate section
-4. **Request review**: Tag relevant maintainers for review
+4. **Title the pull request** as its commit, following Conventional Commits: `<type>[(<scope>)]: <description>`
+5. **Keep a single commit**: amend it at each revision (`git commit --amend`) and push it with `git push --force-with-lease`
+6. **Link the issue** that the pull request closes: `Closes #<number>`
+7. **Request review**: Tag relevant maintainers for review
 
 ### Pull Request Template
 
