@@ -150,8 +150,8 @@ def precompute_temperature_harmonic_transforms(
 @requires_s2fft
 def precompute_polarization_harmonic_transforms(
     nside: int, lmax: int | None = None, sampling: str = 'healpix', pix2harm: bool = False
-) -> tuple:
-    """Pre-compute recursion coefficients for s2fft polarization transforms (spin=±2).
+) -> list:
+    """Pre-compute recursion coefficients for s2fft polarization transforms (spin 2).
 
     Only relevant when using the 'jax' method with s2fft. Pre-computing these
     coefficients can significantly speed up repeated calls to polarization transforms.
@@ -176,15 +176,15 @@ def precompute_polarization_harmonic_transforms(
 
     Returns
     -------
-    tuple
-        Tuple of (precomps_spin2, precomps_spinm2) containing pre-computed
-        recursion coefficients for spin=+2 and spin=-2 transforms
+    list
+        Pre-computed recursion coefficients of the spin 2 transforms. Those of spin -2 are
+        not needed: the polarized transforms deduce them from the spin 2 ones
 
     Examples
     --------
     >>> import jax_healpy as jhp
     >>> # Precompute for polarization transforms at nside=128
-    >>> precomps_p2, precomps_m2 = jhp.precompute_polarization_harmonic_transforms(128, lmax=383)
+    >>> precomps = jhp.precompute_polarization_harmonic_transforms(128, lmax=383)
     >>> # Reserved for future use; alm2map/map2alm do not accept ``precomps`` yet.
     """
     if lmax is None:
@@ -192,9 +192,7 @@ def precompute_polarization_harmonic_transforms(
     else:
         L = lmax + 1
 
-    precomps_plus2 = generate_precomputes_jax(L, spin=2, sampling=sampling, nside=nside, forward=pix2harm)
-    precomps_minus2 = generate_precomputes_jax(L, spin=-2, sampling=sampling, nside=nside, forward=pix2harm)
-    return precomps_plus2, precomps_minus2
+    return generate_precomputes_jax(L, spin=2, sampling=sampling, nside=nside, forward=pix2harm)
 
 
 def _compute_beam_window(lmax: int, fwhm: float = 0.0, sigma: float | None = None) -> ArrayLike:
@@ -343,6 +341,18 @@ def _with_default_method(func: Callable[Param, ReturnType]) -> Callable[Param, R
         if hasattr(func, name):
             setattr(wrapper, name, with_method(getattr(func, name)))
     return wrapper
+
+
+def _check_real_maps(maps: ArrayLike | list[ArrayLike]) -> None:
+    """Raise a ``TypeError`` if a map to transform is complex.
+
+    The transforms assume real maps: the imaginary part of a scalar map would be ignored, and the
+    E and B coefficients of complex Q and U maps would be wrong, since they are deduced from the
+    symmetry of the spin transforms of real fields.
+    """
+    for m in maps if isinstance(maps, (list, tuple)) else [maps]:
+        if jnp.iscomplexobj(m):
+            raise TypeError(f'The maps to transform must be real, not of type {jnp.result_type(m)}.')
 
 
 def get_valid_mask_alms(lmax: int, mmax_positive: int | None = None, mmax_negative: int | None = None) -> ArrayLike:
@@ -814,6 +824,7 @@ def _map2alm_core(
     ArrayLike
         Output spherical harmonic coefficients
     """
+    _check_real_maps(maps)
     warn_if_not_x64()
     if mmax is not None and mmax != lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
@@ -861,7 +872,7 @@ def _map2alm_core(
         #     E = -(_{s}a + (-1)^s _{-s}a) / 2,    B = i (_{s}a - (-1)^s _{-s}a) / 2,
         # in which the sign (-1)^s cancels the one of the symmetry.
         m = jnp.arange(-L + 1, L)
-        flm_mirror = jnp.where(m % 2 == 0, 1, -1) * jnp.conj(flm_pos[:, ::-1])
+        flm_mirror = jnp.where(m % 2 == 0, 1, -1) * jnp.conj(flm_pos[..., ::-1])
         alm_E = -0.5 * (flm_pos + flm_mirror)
         alm_B = 0.5j * (flm_pos - flm_mirror)
 
@@ -969,19 +980,9 @@ def alm2map(
       True if the input alms follow the healpy ordering. By default, the s2fft
       ordering is assumed.
     method : str, optional
-      Transform backend:
-
-      - ``'ducc0'``: the transforms of the C++ library [ducc0](https://pypi.org/project/ducc0/),
-        which run on the CPU, on all its cores. On CPU, they are two to three orders of
-        magnitude faster than the other backends. ducc0 is installed by the extra ``cpu``.
-      - ``'jax'``: the pure JAX transforms of s2fft, for CPU and GPU. s2fft is installed by
-        the extra ``gpu``.
-      - ``'jax_cuda'``: the same transforms with the CUDA kernel of s2fft for the Fourier
-        transforms along the rings, which is faster to compile. It only runs on NVIDIA GPUs
-        and requires s2fft to be built with CUDA support.
-
-      With any of them, the transform can be compiled, batched and differentiated.
-      Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
+      Transform backend, ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``: see the
+      [transform backends](#transform-backends). Default: ``'ducc0'`` on CPU if ducc0 is
+      installed, ``'jax'`` otherwise.
 
     Returns
     -------
@@ -1176,19 +1177,9 @@ def map2alm(
       By default, we follow the s2fft ordering for the alms. To use healpy
       ordering, set it to True.
     method : str, optional
-      Transform backend:
-
-      - ``'ducc0'``: the transforms of the C++ library [ducc0](https://pypi.org/project/ducc0/),
-        which run on the CPU, on all its cores. On CPU, they are two to three orders of
-        magnitude faster than the other backends. ducc0 is installed by the extra ``cpu``.
-      - ``'jax'``: the pure JAX transforms of s2fft, for CPU and GPU. s2fft is installed by
-        the extra ``gpu``.
-      - ``'jax_cuda'``: the same transforms with the CUDA kernel of s2fft for the Fourier
-        transforms along the rings, which is faster to compile. It only runs on NVIDIA GPUs
-        and requires s2fft to be built with CUDA support.
-
-      With any of them, the transform can be compiled, batched and differentiated.
-      Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
+      Transform backend, ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``: see the
+      [transform backends](#transform-backends). Default: ``'ducc0'`` on CPU if ducc0 is
+      installed, ``'jax'`` otherwise.
     bad_mask : array-like of bool, optional
       Mask of pixels to zero before the transform, broadcastable to the shape of
       ``maps``. Use [`bad_pixel_mask`][] to build it from a map containing
@@ -1677,8 +1668,9 @@ def anafast(
         Enable pixel-by-pixel weighting. Not supported.
         Raises NotImplementedError if True. Default: False
     method : str, optional
-        Transform backend: ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``, see [`alm2map`][].
-        Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
+        Transform backend, ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``: see the
+        [transform backends](#transform-backends). Default: ``'ducc0'`` on CPU if ducc0 is
+        installed, ``'jax'`` otherwise.
         JAX-specific parameter not present in healpy.
 
     Returns
@@ -1994,8 +1986,9 @@ def smoothing(
         Input map ordering. Not supported (only RING).
         Raises NotImplementedError if True. Default: False
     method : str, optional
-        Transform backend: ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``, see [`alm2map`][].
-        Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
+        Transform backend, ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``: see the
+        [transform backends](#transform-backends). Default: ``'ducc0'`` on CPU if ducc0 is
+        installed, ``'jax'`` otherwise.
 
     Returns
     -------
@@ -2322,8 +2315,9 @@ def synfast(
         True for the new by-diagonal order, False (default) for the old by-row
         order. Ignored for a single input spectrum. See [`synalm`][].
     method : str, optional
-        Transform backend: ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``, see [`alm2map`][].
-        Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
+        Transform backend, ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``: see the
+        [transform backends](#transform-backends). Default: ``'ducc0'`` on CPU if ducc0 is
+        installed, ``'jax'`` otherwise.
         JAX-specific parameter not present in healpy.
 
     Returns
@@ -2438,8 +2432,9 @@ def map2alm_spin(
         Unlike healpy's ``map2alm_spin`` (which has no ``iter``), this is exposed
         here. Default: 0 (no iteration, matching healpy's behavior).
     method : str, optional
-        Transform backend: ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``, see [`alm2map`][].
-        Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
+        Transform backend, ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``: see the
+        [transform backends](#transform-backends). Default: ``'ducc0'`` on CPU if ducc0 is
+        installed, ``'jax'`` otherwise.
     healpy_ordering : bool, optional
         If True, return alms in healpy format. If False, s2fft format. Default: False
     bad_mask : array-like of bool, optional
@@ -2530,8 +2525,9 @@ def alm2map_spin(
     mmax : int, optional
         Maximum m. Default: lmax
     method : str, optional
-        Transform backend: ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``, see [`alm2map`][].
-        Default: ``'ducc0'`` on CPU if ducc0 is installed, ``'jax'`` otherwise.
+        Transform backend, ``'ducc0'``, ``'jax'`` or ``'jax_cuda'``: see the
+        [transform backends](#transform-backends). Default: ``'ducc0'`` on CPU if ducc0 is
+        installed, ``'jax'`` otherwise.
     healpy_ordering : bool, optional
         If True, input alms are in healpy format. If False, s2fft format. Default: False
 

@@ -45,6 +45,8 @@ uses all the logical CPUs. The environment variable `DUCC0_NUM_THREADS` or, if i
 `'jax_cuda'` shortens the compilation of the transforms on GPU. It requires s2fft to be
 [built from source with CUDA](https://github.com/astro-informatics/s2fft#cuda-extension-support).
 
+The maps to transform must be real: complex maps raise a `TypeError`.
+
 ## Transforms
 
 ::: jax_healpy.sphtfunc.map2alm
