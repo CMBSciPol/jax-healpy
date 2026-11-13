@@ -144,8 +144,8 @@ def precompute_temperature_harmonic_transforms(
 @requires_s2fft
 def precompute_polarization_harmonic_transforms(
     nside: int, lmax: int | None = None, sampling: str = 'healpix', pix2harm: bool = False
-) -> tuple:
-    """Pre-compute recursion coefficients for s2fft polarization transforms (spin=±2).
+) -> list:
+    """Pre-compute recursion coefficients for s2fft polarization transforms (spin 2).
 
     Only relevant when using the 'jax' method with s2fft. Pre-computing these
     coefficients can significantly speed up repeated calls to polarization transforms.
@@ -170,15 +170,15 @@ def precompute_polarization_harmonic_transforms(
 
     Returns
     -------
-    tuple
-        Tuple of (precomps_spin2, precomps_spinm2) containing pre-computed
-        recursion coefficients for spin=+2 and spin=-2 transforms
+    list
+        Pre-computed recursion coefficients of the spin 2 transforms. Those of spin -2 are
+        not needed: the polarized transforms deduce them from the spin 2 ones
 
     Examples
     --------
     >>> import jax_healpy as jhp
     >>> # Precompute for polarization transforms at nside=128
-    >>> precomps_p2, precomps_m2 = jhp.precompute_polarization_harmonic_transforms(128, lmax=383)
+    >>> precomps = jhp.precompute_polarization_harmonic_transforms(128, lmax=383)
     >>> # Reserved for future use; alm2map/map2alm do not accept ``precomps`` yet.
     """
     if lmax is None:
@@ -186,9 +186,7 @@ def precompute_polarization_harmonic_transforms(
     else:
         L = lmax + 1
 
-    precomps_plus2 = generate_precomputes_jax(L, spin=2, sampling=sampling, nside=nside, forward=pix2harm)
-    precomps_minus2 = generate_precomputes_jax(L, spin=-2, sampling=sampling, nside=nside, forward=pix2harm)
-    return precomps_plus2, precomps_minus2
+    return generate_precomputes_jax(L, spin=2, sampling=sampling, nside=nside, forward=pix2harm)
 
 
 def _compute_beam_window(lmax: int, fwhm: float = 0.0, sigma: float | None = None) -> ArrayLike:
@@ -228,6 +226,34 @@ def _resolve_lmax(nside: int, lmax: int | None) -> int:
     if target_lmax < 2 * nside - 1:
         raise NotImplementedError('Transform requires lmax >= 2*nside - 1 for s2fft transforms.')
     return target_lmax
+
+
+_METHODS = ('jax', 'jax_cuda')
+
+
+def _check_method(method: str) -> None:
+    """Raise a ``ValueError`` if ``method`` is not a transform backend that jax-healpy can use."""
+    if method == 'jax_healpy':
+        # s2fft would accept it, but its healpy wrappers have no lowering rule (the compilation
+        # fails) and they ignore the spin (polarization would be transformed as two scalar fields).
+        raise ValueError(
+            "method='jax_healpy' is not supported: the healpy wrappers of s2fft cannot be compiled by "
+            "jax.jit and transform every field as a scalar, whatever its spin. Use method='jax'."
+        )
+    if method not in _METHODS:
+        raise ValueError(f'Invalid method {method!r}: the transform backends are {", ".join(map(repr, _METHODS))}.')
+
+
+def _check_real_maps(maps: ArrayLike | list[ArrayLike]) -> None:
+    """Raise a ``TypeError`` if a map to transform is complex.
+
+    The transforms assume real maps: the imaginary part of a scalar map would be ignored, and the
+    E and B coefficients of complex Q and U maps would be wrong, since they are deduced from the
+    symmetry of the spin transforms of real fields.
+    """
+    for m in maps if isinstance(maps, (list, tuple)) else [maps]:
+        if jnp.iscomplexobj(m):
+            raise TypeError(f'The maps to transform must be real, not of type {jnp.result_type(m)}.')
 
 
 def get_valid_mask_alms(lmax: int, mmax_positive: int | None = None, mmax_negative: int | None = None) -> ArrayLike:
@@ -376,7 +402,7 @@ def _alm2map_core(
     mmax : int, optional
         Maximum m
     method : str
-        s2fft method ('jax', 'jax_healpy', 'jax_cuda')
+        s2fft method ('jax', 'jax_cuda')
     spin : int
         Spin weight (0 for scalar, 2 for polarization, etc.)
     healpy_ordering : bool
@@ -387,6 +413,7 @@ def _alm2map_core(
     ArrayLike
         Output map(s)
     """
+    _check_method(method)
     warn_if_not_x64()
     if mmax is not None and mmax != lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
@@ -514,7 +541,7 @@ def _map2alm_core(
     iter : int
         Number of iterative refinement iterations
     method : str
-        s2fft method ('jax', 'jax_healpy', 'jax_cuda')
+        s2fft method ('jax', 'jax_cuda')
     spin : int
         Spin weight (0 for scalar, 2 for polarization, etc.)
     bad_mask : ArrayLike, optional
@@ -524,11 +551,13 @@ def _map2alm_core(
     ArrayLike
         Output spherical harmonic coefficients
     """
+    _check_method(method)
+    _check_real_maps(maps)
     warn_if_not_x64()
     if mmax is not None and mmax != lmax:
         raise NotImplementedError('Specifying mmax != lmax is not implemented.')
 
-    # For spin transforms, use dual-transform approach
+    # For spin transforms, use single-transform approach
     # Reference: healpy alm2map_spin/map2alm_spin convention
     if spin != 0:
         # Input: [Q_map, U_map] where Q and U are real-valued Stokes parameters
@@ -540,49 +569,35 @@ def _map2alm_core(
         nside = npix2nside(q_map.shape[-1])
         L = lmax + 1
 
-        # Construct spin-weighted maps for +spin and -spin transforms
-        spin_map_pos = q_map + 1j * u_map  # _s S = Q + iU
-        spin_map_neg = q_map - 1j * u_map  # _-s S = Q - iU
-
         sampling = 'healpix'
         spmd = False
 
-        # Generate precomputes for both transforms
-        precomps_pos = generate_precomputes_jax(L, spin, sampling, nside, False)
-        precomps_neg = generate_precomputes_jax(L, -spin, sampling, nside, False)
+        # Generate precomputes for spin-s transform
+        precomps = generate_precomputes_jax(L, spin, sampling, nside, False)
 
-        # Forward transforms for +spin and -spin
+        # Single spin-s forward transform of the complex field Q + iU
         flm_pos = spherical.forward(
-            spin_map_pos,
+            q_map + 1j * u_map,
             L,
             spin=spin,
             nside=nside,
             sampling=sampling,
             method=method,
             reality=False,  # Complex input
-            precomps=precomps_pos,
+            precomps=precomps,
             spmd=spmd,
             iter=iter,
         )
 
-        flm_neg = spherical.forward(
-            spin_map_neg,
-            L,
-            spin=-spin,
-            nside=nside,
-            sampling=sampling,
-            method=method,
-            reality=False,  # Complex input
-            precomps=precomps_neg,
-            spmd=spmd,
-            iter=iter,
-        )
-
-        # Combine to get E and B mode coefficients
-        # E and B are extracted using the HEALPix convention
-        phase = (-1) ** spin
-        alm_E = -0.5 * (flm_pos + phase * flm_neg)
-        alm_B = 0.5j * (flm_pos - phase * flm_neg)
+        # The spin -s coefficients of Q - iU are not transformed: since Q and U are real, they
+        # follow from the symmetry  _{-s}a_{l,m} = (-1)^(s+m) conj(_{s}a_{l,-m}).
+        # E and B are then extracted using the HEALPix convention,
+        #     E = -(_{s}a + (-1)^s _{-s}a) / 2,    B = i (_{s}a - (-1)^s _{-s}a) / 2,
+        # in which the sign (-1)^s cancels the one of the symmetry.
+        m = jnp.arange(-L + 1, L)
+        flm_mirror = jnp.where(m % 2 == 0, 1, -1) * jnp.conj(flm_pos[..., ::-1])
+        alm_E = -0.5 * (flm_pos + flm_mirror)
+        alm_B = 0.5j * (flm_pos - flm_mirror)
 
         return [alm_E, alm_B]
     else:
@@ -684,7 +699,8 @@ def alm2map(
       True if the input alms follow the healpy ordering. By default, the s2fft
       ordering is assumed.
     method : str, optional
-      Transform backend ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'.
+      Transform backend, ``'jax'`` or ``'jax_cuda'``: see the
+      [transform backends](#transform-backends). Default: ``'jax'``.
 
     Returns
     -------
@@ -877,7 +893,8 @@ def map2alm(
       By default, we follow the s2fft ordering for the alms. To use healpy
       ordering, set it to True.
     method : str, optional
-      Transform backend ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'.
+      Transform backend, ``'jax'`` or ``'jax_cuda'``: see the
+      [transform backends](#transform-backends). Default: ``'jax'``.
     bad_mask : array-like of bool, optional
       Mask of pixels to zero before the transform, broadcastable to the shape of
       ``maps``. Use [`bad_pixel_mask`][] to build it from a map containing
@@ -1372,7 +1389,8 @@ def anafast(
         Enable pixel-by-pixel weighting. Not supported.
         Raises NotImplementedError if True. Default: False
     method : str, optional
-        Transform method ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'
+        Transform backend, ``'jax'`` or ``'jax_cuda'``: see the
+        [transform backends](#transform-backends). Default: ``'jax'``.
         JAX-specific parameter not present in healpy.
 
     Returns
@@ -2000,7 +2018,8 @@ def synfast(
         True for the new by-diagonal order, False (default) for the old by-row
         order. Ignored for a single input spectrum. See [`synalm`][].
     method : str, optional
-        Transform method ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'
+        Transform backend, ``'jax'`` or ``'jax_cuda'``: see the
+        [transform backends](#transform-backends). Default: ``'jax'``.
         JAX-specific parameter not present in healpy.
 
     Returns
@@ -2122,7 +2141,8 @@ def map2alm_spin(
         Unlike healpy's ``map2alm_spin`` (which has no ``iter``), this is exposed
         here. Default: 0 (no iteration, matching healpy's behavior).
     method : str, optional
-        Transform method ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'
+        Transform backend, ``'jax'`` or ``'jax_cuda'``: see the
+        [transform backends](#transform-backends). Default: ``'jax'``.
     healpy_ordering : bool, optional
         If True, return alms in healpy format. If False, s2fft format. Default: False
     bad_mask : array-like of bool, optional
@@ -2218,7 +2238,8 @@ def alm2map_spin(
     mmax : int, optional
         Maximum m. Default: lmax
     method : str, optional
-        Transform method ('jax', 'jax_healpy', 'jax_cuda'). Default: 'jax'
+        Transform backend, ``'jax'`` or ``'jax_cuda'``: see the
+        [transform backends](#transform-backends). Default: ``'jax'``.
     healpy_ordering : bool, optional
         If True, input alms are in healpy format. If False, s2fft format. Default: False
 
