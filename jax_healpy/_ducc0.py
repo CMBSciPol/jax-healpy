@@ -39,6 +39,7 @@ the two representations. ``alm2map`` and ``map2alm`` are the transforms on the c
 import importlib.util
 import os
 import sys
+import warnings
 from collections.abc import Callable
 from functools import cache, partial
 
@@ -111,8 +112,21 @@ def _thread_count() -> int:
 
 @cache
 def is_available() -> bool:
-    """Whether ducc0 is installed."""
-    return importlib.util.find_spec('ducc0') is not None
+    """Whether ducc0 is installed and can be imported.
+
+    A ducc0 that is installed but cannot be imported, such as a build for another processor or
+    version of Python, is reported by a warning, and the transforms of s2fft are used instead.
+    """
+    if importlib.util.find_spec('ducc0') is None:
+        return False
+    try:
+        import ducc0  # noqa: F401
+    except ImportError as error:
+        warnings.warn(
+            f'ducc0 is installed but cannot be imported, so it is not used: {error}', UserWarning, stacklevel=2
+        )
+        return False
+    return True
 
 
 def alm2map(alms: Complex[Array, '... ncomp nalm'], nside: int, lmax: int, spin: int) -> Float[Array, '... ncomp npix']:

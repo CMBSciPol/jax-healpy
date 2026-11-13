@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from pytest_mock import MockerFixture
 
+import jax_healpy as jhp
 from jax_healpy import sphtfunc
 
 from .helpers import METHODS, flm_2d_to_hp, flm_hp_to_2d, hp_indices, requires_s2fft
@@ -84,12 +85,78 @@ def test_alm_hp_indices_beyond_the_int32_limit() -> None:
 
 
 @pytest.mark.usefixtures('low_int32_limit')
-def test_alm_hp_indices_beyond_the_int32_limit_require_x64() -> None:
+def test_alm_hp_indices_beyond_the_int32_limit_without_x64() -> None:
+    """Without 64-bit precision, the square root would overflow: the orders are repeated instead."""
+    expected_ell, expected_m = hp_indices(LMAX + 1)
+    with jax.enable_x64(False):
+        ell, m = sphtfunc._alm_hp_indices(LMAX)
+    assert ell.dtype == m.dtype == np.int32
+    np.testing.assert_array_equal(ell, expected_ell)
+    np.testing.assert_array_equal(m, expected_m)
+
+
+def test_alm_int32_limits() -> None:
+    """The limits of the 32-bit indices are the last lmax at which they do not overflow."""
+    int32_max = np.iinfo(np.int32).max
+    limit = sphtfunc._INT32_ALMS_LMAX
+    assert (limit + 1) * (limit + 2) // 2 - 1 <= int32_max < (limit + 2) * (limit + 3) // 2 - 1
+    limit = sphtfunc._INT32_FLAT_INDICES_LMAX
+    assert (limit + 1) ** 2 - 1 <= int32_max < (limit + 2) ** 2 - 1
+
+
+@pytest.fixture
+def low_int32_alms_limit(mocker: MockerFixture) -> None:
+    """Reach the limit of the 32-bit indices of the alms at lmax = 7, with computed indices."""
+    mocker.patch.object(sphtfunc, '_STORED_INDICES_LMAX', -1)
+    mocker.patch.object(sphtfunc, '_INT32_INDICES_LMAX', 3)
+    mocker.patch.object(sphtfunc, '_INT32_ALMS_LMAX', 7)
+
+
+@pytest.mark.usefixtures('low_int32_alms_limit')
+def test_alms_beyond_the_int32_limit_require_x64() -> None:
     """Beyond the limit of the 32-bit indices, 32-bit precision is refused instead of overflowing."""
+    alms = jnp.zeros(NALM, dtype=jnp.complex64)
     with jax.enable_x64(False):
         assert sphtfunc._alm_hp_indices(7)[0].dtype == np.int32
         with pytest.raises(ValueError, match='lmax=8 cannot be indexed with 32-bit integers.*enable 64-bit precision'):
             sphtfunc._alm_hp_indices(8)
+        with pytest.raises(ValueError, match='lmax=15 cannot be indexed with 32-bit integers'):
+            sphtfunc._alm_hp_to_2d(alms, LMAX)
+
+
+@pytest.mark.usefixtures('low_int32_alms_limit')
+def test_alm_hp_to_2d_beyond_the_int32_limit() -> None:
+    """Beyond the limit of the 32-bit indices, the conversion uses 64-bit integers."""
+    rng = np.random.RandomState(0)
+    alms = rng.randn(NALM) + 1j * rng.randn(NALM)
+    with jax.enable_x64(True):
+        actual = sphtfunc._alm_hp_to_2d(alms, LMAX)
+    np.testing.assert_array_equal(actual, flm_hp_to_2d(alms, LMAX + 1))
+
+
+@pytest.mark.parametrize('x64', [False, True])
+def test_alm_2d_to_hp_beyond_the_flat_int32_limit(mocker: MockerFixture, x64: bool) -> None:
+    """Beyond the limit of the 32-bit flat indices, the 2-D alms are read with two indices."""
+    mocker.patch.object(sphtfunc, '_STORED_INDICES_LMAX', -1)
+    mocker.patch.object(sphtfunc, '_INT32_FLAT_INDICES_LMAX', 7)
+    L = LMAX + 1
+    rng = np.random.RandomState(0)
+    alms = (rng.randn(2, L, 2 * L - 1) + 1j * rng.randn(2, L, 2 * L - 1)).astype(np.complex64)
+    with jax.enable_x64(x64):
+        actual = sphtfunc._alm_2d_to_hp(alms, LMAX)
+    np.testing.assert_array_equal(actual, np.stack([flm_2d_to_hp(alm, L) for alm in alms]))
+
+
+@pytest.mark.usefixtures('low_int32_limit')
+def test_almxfl_beyond_the_int32_limit_without_x64() -> None:
+    """almxfl in the healpy ordering works without 64-bit precision beyond the square root limit."""
+    rng = np.random.RandomState(0)
+    alms = (rng.randn(NALM) + 1j * rng.randn(NALM)).astype(np.complex64)
+    fl = rng.randn(LMAX + 1).astype(np.float32)
+    ell, _ = hp_indices(LMAX + 1)
+    with jax.enable_x64(False):
+        actual = jhp.almxfl(alms, fl, healpy_ordering=True)
+    np.testing.assert_allclose(actual, alms * fl[ell], rtol=1e-6)
 
 
 @pytest.mark.usefixtures('alm_indices')

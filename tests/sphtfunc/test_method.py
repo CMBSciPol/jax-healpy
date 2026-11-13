@@ -146,6 +146,15 @@ def test_default_method_requires_s2fft_on_gpu(installed: Callable[..., None]) ->
         select_default_method()
 
 
+@pytest.mark.parametrize('device', [jax.devices('cpu')[0], 'cpu'])
+def test_default_method_follows_the_default_device(installed: Callable[..., None], device: object) -> None:
+    """On a GPU host, the computations sent to the CPU by jax.default_device use ducc0."""
+    installed(ducc0=True, s2fft=True, backend='gpu')
+    assert select_default_method() == 'jax'
+    with jax.default_device(device):
+        assert select_default_method() == 'ducc0'
+
+
 @pytest.mark.parametrize('backend', ['cpu', 'gpu'])
 @pytest.mark.parametrize('name', FUNCTIONS)
 def test_default_method_requires_a_library(name: str, backend: str, installed: Callable[..., None]) -> None:

@@ -242,18 +242,34 @@ _SLOW_ON_CPU = (
 _warned_slow_on_cpu = False
 
 
+def _default_platform() -> str:
+    """Return the platform of the device on which the computations run by default.
+
+    It is the platform of the device set by ``jax.default_device``, as a context manager or as the
+    ``jax_default_device`` option, and otherwise that of the default backend of JAX. The arrays
+    that are committed to another device are not taken into account.
+    """
+    device = jax.config.jax_default_device
+    if device is None:
+        return jax.default_backend()
+    if isinstance(device, str):
+        return device
+    return device.platform
+
+
 def _default_method() -> str:
     """Return the transform backend used when none is requested.
 
     The transforms of ducc0 only run on CPU, where they are orders of magnitude faster than those
-    of s2fft: they are the default there, if ducc0 is installed. Those of s2fft are the default on
+    of s2fft: they are the default there, if ducc0 is installed. The device is the default one of
+    JAX, which ``jax.default_device`` can change. Those of s2fft are the default on
     the other devices. They are also used on CPU when ducc0 is missing, with a warning emitted once
     per session.
 
     An ``ImportError`` is raised if the library of the default backend is not installed.
     """
     global _warned_slow_on_cpu
-    backend = jax.default_backend()
+    backend = _default_platform()
     if backend == 'cpu' and _ducc0.is_available():
         return 'ducc0'
     if not _s2fft_is_available():
@@ -447,6 +463,42 @@ def _new_to_old_spectra_order(cls_new_order: list) -> list:
     return cls_old_order
 
 
+# Up to this lmax, the indices of the alms in the healpy ordering, which are below their number
+# (lmax + 1)(lmax + 2) / 2, fit in 32-bit integers. Beyond, 64-bit integers are required, and so the
+# 64-bit precision of JAX.
+_INT32_ALMS_LMAX = 65534
+
+# Up to this lmax, the flat indices m L + ell of the 2-D alms read by order, below L², fit in
+# 32-bit integers.
+_INT32_FLAT_INDICES_LMAX = 46339
+
+
+def _alm_index_dtype(lmax: int) -> type:
+    """Return the integer type of the indices of the alms of ``lmax`` in the healpy ordering.
+
+    It is ``int32`` up to lmax = 65534 and ``int64`` beyond, which requires the 64-bit precision
+    of JAX: a ``ValueError`` is raised without it.
+    """
+    if lmax <= _INT32_ALMS_LMAX:
+        return jnp.int32
+    if jnp.result_type(int) == jnp.int64:
+        return jnp.int64
+    raise ValueError(
+        f'The alms of lmax={lmax} cannot be indexed with 32-bit integers, which are limited to '
+        f"lmax={_INT32_ALMS_LMAX}: enable 64-bit precision with jax.config.update('jax_enable_x64', True)."
+    )
+
+
+def _order_offsets(lmax: int) -> np.ndarray:
+    """Return, for each order m, the index of the coefficient (0, m) in the healpy ordering.
+
+    The coefficient (ell, m) has the index ``offsets[m] + ell``. The offsets are below the number
+    of alms, and computed with 64-bit integers.
+    """
+    m = np.arange(lmax + 1, dtype=np.int64)
+    return m * (2 * lmax + 1 - m) // 2
+
+
 def _alm_hp_to_2d(alms: Complex[Array, '... nalm'], lmax: int) -> Complex[Array, '... L M']:
     """Convert the alms of real fields from the healpy ordering (m >= 0) to the 2-D one (all m).
 
@@ -454,12 +506,13 @@ def _alm_hp_to_2d(alms: Complex[Array, '... nalm'], lmax: int) -> Complex[Array,
     instead of scattered: ``jax.linear_transpose`` can then transpose it.
     """
     L = lmax + 1
-    ell = jnp.arange(L)[:, None]
-    m = jnp.arange(-lmax, L)[None, :]
+    dtype = _alm_index_dtype(lmax)
+    ell = jnp.arange(L, dtype=dtype)[:, None]
+    m = jnp.arange(-lmax, L, dtype=dtype)[None, :]
     abs_m = jnp.abs(m)
     valid = abs_m <= ell
     # index of (ell, |m|) in the healpy ordering
-    index = jnp.where(valid, abs_m * (2 * lmax + 1 - abs_m) // 2 + ell, 0)
+    index = jnp.where(valid, jnp.asarray(_order_offsets(lmax), dtype=dtype)[abs_m] + ell, 0)
     values = jnp.asarray(alms)[..., index]
     # a_{l,-m} = (-1)^m conj(a_{l,m})
     values = jnp.where(m < 0, jnp.where(abs_m % 2 == 0, 1, -1) * jnp.conj(values), values)
@@ -471,8 +524,8 @@ def _alm_hp_to_2d(alms: Complex[Array, '... nalm'], lmax: int) -> Complex[Array,
 # each time the functions run: it is faster than reading constants that do not fit in the caches.
 _STORED_INDICES_LMAX = 1023
 
-# Up to this lmax, the indices are computed with 32-bit integers: the largest integer of the
-# computation, (2 lmax + 3)², does not exceed 2³¹ - 1. Beyond, 64-bit integers are required.
+# Up to this lmax, the orders of the alms can be computed from a square root with 32-bit integers:
+# the largest integer of the computation, (2 lmax + 3)², does not exceed 2³¹ - 1.
 _INT32_INDICES_LMAX = 23168
 
 
@@ -483,8 +536,9 @@ def _alm_hp_indices(
 
     The alms are stored order by order: (0, 0), (1, 0), ..., (lmax, 0), (1, 1), ..., (lmax, lmax).
     The indices are numpy arrays when they are stored in the compiled functions, and JAX arrays
-    when they are computed. They are 32-bit integers up to lmax = 23168 and 64-bit integers
-    beyond, which requires the 64-bit precision of JAX: a ``ValueError`` is raised without it.
+    when they are computed. They are 32-bit integers up to lmax = 23168, and beyond if 64-bit
+    precision is disabled, up to lmax = 65534 (see ``_alm_index_dtype``). Otherwise, they are
+    64-bit integers.
     """
     L = lmax + 1
     nalm = L * (L + 1) // 2
@@ -498,10 +552,12 @@ def _alm_hp_indices(
     elif jnp.result_type(int) == jnp.int64:
         dtype = jnp.int64
     else:
-        raise ValueError(
-            f'The alms of lmax={lmax} cannot be indexed with 32-bit integers, which are limited to '
-            f"lmax={_INT32_INDICES_LMAX}: enable 64-bit precision with jax.config.update('jax_enable_x64', True)."
-        )
+        # The square root below would overflow 32-bit integers: the orders are repeated instead,
+        # which is about three times slower.
+        dtype = _alm_index_dtype(lmax)
+        m = jnp.repeat(jnp.arange(L, dtype=dtype), np.arange(L, 0, -1), total_repeat_length=nalm)
+        ell = jnp.arange(nalm, dtype=dtype) - jnp.asarray(_order_offsets(lmax), dtype=dtype)[m]
+        return ell, m
 
     # The first coefficient of the order m has the index m (b - m) / 2, with b = 2 lmax + 3: the
     # order of the coefficient i is the integer part of the smallest root of m² - b m + 2 i.
@@ -524,8 +580,13 @@ def _alm_2d_to_hp(alms: Complex[Array, '... L M'], lmax: int) -> Complex[Array, 
     alms = jnp.asarray(alms)
     ell, m = _alm_hp_indices(lmax)
     # With the orders as rows, the coefficients are read in the order in which they are stored.
-    by_order = jnp.swapaxes(alms[..., lmax:], -1, -2).reshape(*alms.shape[:-2], L * L)
-    return by_order.at[..., m * L + ell].get(mode='promise_in_bounds', indices_are_sorted=True, unique_indices=True)
+    by_order = jnp.swapaxes(alms[..., lmax:], -1, -2)
+    keywords = {'mode': 'promise_in_bounds', 'indices_are_sorted': True, 'unique_indices': True}
+    if lmax > _INT32_FLAT_INDICES_LMAX and ell.dtype == np.int32:
+        # The flat indices would overflow 32-bit integers
+        return by_order.at[..., m, ell].get(**keywords)
+    by_order = by_order.reshape(*alms.shape[:-2], L * L)
+    return by_order.at[..., m * L + ell].get(**keywords)
 
 
 def _alm2map_ducc0(

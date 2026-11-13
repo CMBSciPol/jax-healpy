@@ -25,7 +25,9 @@ require `lmax >= 2 * nside - 1` and raise a `NotImplementedError` below, whereas
 like those of healpy, accept any `lmax`.
 
 By default, `'ducc0'` is used when the computations run on CPU and ducc0 is installed, and `'jax'`
-otherwise. On CPU, the transforms of ducc0 are two to three orders of magnitude faster than the
+otherwise. The device is the default one of JAX, which `jax.default_device` can change: on a
+machine with a GPU, the transforms computed within `with jax.default_device(jax.devices('cpu')[0])`
+use ducc0. A ducc0 that is installed but cannot be imported is reported by a warning and not used. On CPU, the transforms of ducc0 are two to three orders of magnitude faster than the
 JAX ones, which run on a single core, and they are compiled in a fraction of a second: when the
 transforms of s2fft are used on CPU because ducc0 is missing, a warning recommends to install it.
 It is not emitted when `method='jax'` is requested.
