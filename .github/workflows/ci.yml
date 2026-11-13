@@ -25,18 +25,28 @@ jobs:
           persist-credentials: false
 
       - name: Set up prek and run hooks
-        uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
+        uses: j178/prek-action@44924fe9ef4a6f88253c4b6b1bf11c689d3ce53d # v3.1.0
         with:
           prek-version: "0.5.3"
 
   test:
-    name: Run tests on Python ${{ matrix.python-version }}
+    name: Run tests on Python ${{ matrix.python.version }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        # Each Python version is tested with the oldest supported JAX minor version, in its
+        # latest patch release, except the most recent Python, tested with the latest JAX.
+        python:
+          - version: "3.11"
+            jax: ">=0.10,<0.11"
+          - version: "3.12"
+            jax: ">=0.10,<0.11"
+          - version: "3.13"
+            jax: ">=0.10,<0.11"
+          - version: "3.14"
+            jax: ">=0.12"
 
     steps:
       - name: Checkout project
@@ -45,17 +55,26 @@ jobs:
           persist-credentials: false
 
       - name: Install uv and set up environment
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.19"
           enable-cache: true
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python.version }}
 
       - name: Install dependencies
         run: uv sync --locked --group dev --extra recommended
 
+      # Override the locked JAX version. The following steps use --no-sync, so that uv run
+      # does not reinstall the locked version.
+      - name: Install JAX ${{ matrix.python.jax }}
+        env:
+          JAX_SPEC: ${{ matrix.python.jax }}
+        run: |
+          uv pip install "jax${JAX_SPEC}" "jaxlib${JAX_SPEC}"
+          uv run --no-sync python -c "import jax, jaxlib; print('jax', jax.__version__, 'jaxlib', jaxlib.__version__)"
+
       - name: Run tests
-        run: uv run pytest -vv -n auto -m "not slow"
+        run: uv run --no-sync pytest -vv -n auto -m "not slow"
 
   docs:
     name: Build documentation
@@ -69,7 +88,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.19"
           enable-cache: true

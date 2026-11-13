@@ -8,6 +8,11 @@ repo_url = "https://github.com/CMBSciPol/jax-healpy"
 repo_name = "CMBSciPol/jax-healpy"
 edit_uri = "edit/main/docs/"
 
+# The scripts that generate the logos and the CMB maps they use are not published.
+exclude_docs = """
+logo/*
+"""
+
 # https://zensical.org/docs/setup/navigation/
 # The user-guide pages, except the installation, are generated from the notebooks before the
 # build: uv run --group docs --extra recommended sh docs/build.sh
