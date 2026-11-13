@@ -37,6 +37,7 @@ updates:
           - "cyclopts"
           - "matplotlib"
           - "pandas"
+          - "prek"
           - "pyyaml"
       docs:
         patterns:

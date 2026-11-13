@@ -55,16 +55,6 @@ The extra `gpu` requires an s2fft more recent than 1.5.0, its latest release, wh
 pip install "jax-healpy[gpu]" "jax[cuda13]" "s2fft @ git+https://github.com/astro-informatics/s2fft"
 ```
 
-### Development Installation
-
-Clone the repository and set up the development environment with [uv](https://docs.astral.sh/uv/):
-
-```bash
-git clone https://github.com/CMBSciPol/jax-healpy.git
-cd jax-healpy
-uv sync --all-extras
-```
-
 ## Quick Start
 
 ```python
@@ -129,33 +119,6 @@ Complete documentation is available at [jax-healpy.readthedocs.io](https://jax-h
 - [Getting Started Guide](https://jax-healpy.readthedocs.io/en/latest/user-guide/getting-started/)
 - [API Reference](https://jax-healpy.readthedocs.io/en/latest/api/pixelfunc/)
 - [Examples and Tutorials](https://jax-healpy.readthedocs.io/en/latest/user-guide/basic-usage/)
-
-## Development
-
-### Setting up Development Environment
-
-Install development dependencies:
-
-```bash
-pip install -e .[test]
-```
-
-### Running Tests
-
-Execute the test suite:
-
-```bash
-pytest
-```
-
-### Code Quality
-
-This project uses pre-commit hooks for code quality:
-
-```bash
-pip install pre-commit
-pre-commit install
-```
 
 ## High-Performance Computing
 
