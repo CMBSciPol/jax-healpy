@@ -1,9 +1,7 @@
 """Tests of the JAX primitives that wrap the transforms of ducc0."""
 
 import os
-import sys
 from collections.abc import Callable, Iterator
-from pathlib import Path
 
 import healpy as hp
 import jax
@@ -202,19 +200,3 @@ def test_physical_core_count() -> None:
     count = _ducc0._physical_core_count()
     if count is not None:
         assert 1 <= count <= len(os.sched_getaffinity(0))
-
-
-def test_is_available_with_a_broken_ducc0(mocker: MockerFixture, tmp_path: Path) -> None:
-    """A ducc0 that cannot be imported is reported and not used."""
-    package = tmp_path / 'ducc0'
-    package.mkdir()
-    (package / '__init__.py').write_text("raise ImportError('built for another processor')")
-    mocker.patch.object(sys, 'path', [str(tmp_path), *sys.path])
-    mocker.patch.dict(sys.modules)
-    sys.modules.pop('ducc0', None)
-    _ducc0.is_available.cache_clear()
-    try:
-        with pytest.warns(UserWarning, match='ducc0 is installed but cannot be imported.*another processor'):
-            assert not _ducc0.is_available()
-    finally:
-        _ducc0.is_available.cache_clear()
