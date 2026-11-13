@@ -1,13 +1,13 @@
 repos:
 - repo: https://github.com/hadialqattan/pycln
-  rev: v2.6.0
+  rev: v2.6.1
   hooks:
   - id: pycln
     args:
     - --all
 
 - repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.16.8
+  rev: v0.17.3
   hooks:
     - id: ruff-check
     - id: ruff-format
@@ -39,7 +39,7 @@ repos:
   - id: check-merge-conflict
 
 - repo: https://github.com/astral-sh/uv-pre-commit
-  rev: 0.12.19
+  rev: 0.13.7
   hooks:
   - id: uv-lock
 
@@ -50,6 +50,6 @@ repos:
     files: ^jax_healpy/
 
 - repo: https://github.com/zizmorcore/zizmor-pre-commit
-  rev: v1.30.1
+  rev: v1.32.0
   hooks:
   - id: zizmor
