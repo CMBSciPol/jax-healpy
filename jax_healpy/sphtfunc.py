@@ -293,10 +293,14 @@ def _resolve_method(method: str | None) -> str:
     """Return the transform backend designated by ``method``, which is the default one for ``None``.
 
     A ``ValueError`` is raised if ``method`` is not a transform backend that jax-healpy can use, and
-    an ``ImportError`` if the library of the backend is not installed.
+    an ``ImportError`` if the library of the backend is not installed, or if ducc0 is installed but
+    cannot be imported.
     """
     if method is None:
-        return _default_method()
+        method = _default_method()
+        if method == 'ducc0':
+            _ducc0.check_import()
+        return method
     if method == 'jax_healpy':
         # s2fft would accept it, but its healpy wrappers have no lowering rule (the compilation
         # fails) and they ignore the spin (polarization would be transformed as two scalar fields).
@@ -310,6 +314,7 @@ def _resolve_method(method: str | None) -> str:
     if method == 'ducc0':
         if not _ducc0.is_available():
             raise ImportError(f"Missing optional library 'ducc0', required by method='ducc0': {_INSTALL_DUCC0}.")
+        _ducc0.check_import()
     elif not _s2fft_is_available():
         raise ImportError(f"Missing optional library 's2fft', required by method={method!r}: {_INSTALL_S2FFT}.")
     return method

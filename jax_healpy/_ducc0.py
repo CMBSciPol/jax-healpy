@@ -55,6 +55,7 @@ __all__ = [
     'adjoint_synthesis',
     'alm2map',
     'alm_to_real',
+    'check_import',
     'is_available',
     'map2alm',
     'real_to_alm',
@@ -113,6 +114,22 @@ def _thread_count() -> int:
 def is_available() -> bool:
     """Whether ducc0 is installed."""
     return importlib.util.find_spec('ducc0') is not None
+
+
+def check_import() -> None:
+    """Import ducc0, which is installed, and raise an ``ImportError`` if it cannot be imported.
+
+    A broken installation then fails where a transform is called, with the error of the import,
+    instead of in the call back to the host of the compiled function, where the error is buried
+    in a ``JaxRuntimeError``.
+    """
+    try:
+        import ducc0  # noqa: F401
+    except ImportError as error:
+        raise ImportError(
+            f'ducc0 is installed but cannot be imported: {error}. Reinstall it, or report the problem; '
+            "to compute the transforms with s2fft instead, pass method='jax'."
+        ) from error
 
 
 def alm2map(alms: Complex[Array, '... ncomp nalm'], nside: int, lmax: int, spin: int) -> Float[Array, '... ncomp npix']:

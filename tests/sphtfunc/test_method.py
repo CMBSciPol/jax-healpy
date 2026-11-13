@@ -1,5 +1,7 @@
+import sys
 import warnings
 from collections.abc import Callable
+from pathlib import Path
 
 import healpy as hp
 import jax
@@ -196,6 +198,24 @@ def test_jitted_function_methods_are_kept() -> None:
     assert jhp.map2alm.eval_shape(m, lmax=LMAX).shape == (L, 2 * L - 1)
     compiled = jhp.alm2map.lower(alm, NSIDE, lmax=LMAX).compile()
     np.testing.assert_array_equal(compiled(alm), jhp.alm2map(alm, NSIDE, lmax=LMAX))
+
+
+@pytest.mark.parametrize('method', [None, 'ducc0'])
+def test_broken_ducc0_raises_its_import_error(
+    mocker: MockerFixture, installed: Callable[..., None], tmp_path: Path, method: str | None
+) -> None:
+    """A ducc0 that cannot be imported is not replaced by s2fft: its import error is raised."""
+    package = tmp_path / 'ducc0'
+    package.mkdir()
+    (package / '__init__.py').write_text("raise ImportError('built for another processor')")
+    mocker.patch.object(sys, 'path', [str(tmp_path), *sys.path])
+    mocker.patch.dict(sys.modules)
+    sys.modules.pop('ducc0', None)
+    installed(ducc0=True, s2fft=True)
+    L = LMAX + 1
+    alm = jnp.zeros((L, 2 * L - 1), dtype=complex)
+    with pytest.raises(ImportError, match='ducc0 is installed but cannot be imported: built for another processor'):
+        jhp.alm2map(alm, NSIDE, lmax=LMAX, method=method)
 
 
 def test_method_can_be_positional() -> None:
