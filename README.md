@@ -51,6 +51,12 @@ pip install "jax-healpy[gpu]" "jax[cuda13]"
 
 On a machine with a GPU, install both extras (`"jax-healpy[cpu,gpu]"`) if the transforms are also run without it: on CPU, those of ducc0 are two to three orders of magnitude faster than those of s2fft.
 
+The extra `gpu` requires an s2fft more recent than 1.5.0, its latest release, whose transforms of polarization are wrong by a few percent on HEALPix maps. Until this version is released, install s2fft from GitHub in the same command, which requires git and a C++ compiler:
+
+```bash
+pip install "jax-healpy[gpu]" "jax[cuda13]" "s2fft @ git+https://github.com/astro-informatics/s2fft"
+```
+
 ### Development Installation
 
 Clone the repository and set up the development environment with [uv](https://docs.astral.sh/uv/):

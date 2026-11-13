@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking:** the `recommended` extra is replaced by one extra per library of spherical harmonic transforms: `cpu` installs ducc0 and `gpu` installs s2fft. `pip install "jax-healpy[recommended]"` becomes `pip install "jax-healpy[cpu]"` on CPU, `pip install "jax-healpy[gpu]"` on GPU, and `pip install "jax-healpy[cpu,gpu]"` on a machine that is used with and without its GPU (#66)
+- The `gpu` extra requires an s2fft more recent than 1.5.0, its latest release, whose transforms of polarization are wrong by a few percent on HEALPix maps ([s2fft#387](https://github.com/astro-informatics/s2fft/pull/387)). Until this version is released, `pip install "jax-healpy[gpu]"` fails unless s2fft is installed from GitHub in the same command: see the installation page (#66)
 - s2fft is no longer required on CPU: the transforms of ducc0 run without it, and `alm2cl`, `almxfl`, `smoothalm` and `synalm` do not need any optional library (#66)
 - Without ducc0, the transforms still run on CPU with s2fft, and a `UserWarning` recommends installing the `cpu` extra. It is emitted once, and not when `method='jax'` is requested (#66)
 - The warning about 32-bit precision is a `UserWarning`, emitted once when a pixel function or a spherical harmonic transform is first called, instead of a log message at import: enabling 64-bit precision after importing jax-healpy no longer triggers it, nor the similar warning of s2fft (#54)

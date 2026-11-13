@@ -61,6 +61,19 @@ pip install "jax-healpy[gpu]" "jax[cuda13]"
 The extra `gpu` does not install the GPU version of JAX: it is selected by the extra of JAX, as described
 in the [prerequisites](#jax-installation).
 
+!!! warning "The extra `gpu` currently requires s2fft from GitHub"
+    s2fft 1.5.0, its latest release, computes the transforms of polarization on HEALPix maps with errors
+    of a few percent, which [s2fft#387](https://github.com/astro-informatics/s2fft/pull/387) fixes. The
+    extra `gpu` requires a more recent version, which is not released yet. Meanwhile, the commands that
+    request this extra fail with `No matching distribution found for s2fft>1.5.0`, unless s2fft is
+    installed from GitHub in the same command:
+
+    ```bash
+    pip install "jax-healpy[gpu]" "jax[cuda13]" "s2fft @ git+https://github.com/astro-informatics/s2fft"
+    ```
+
+    s2fft is then built from its sources, which requires git and a C++ compiler.
+
 On a machine with a GPU, install both extras if the transforms are also run without the GPU, on a login
 node for instance:
 
@@ -199,6 +212,16 @@ pip install "jax-healpy[gpu]"
 ```
 
 The extra `recommended` of the previous versions no longer exists: it is replaced by these two.
+
+### No Matching Distribution Found for s2fft
+
+```
+ERROR: No matching distribution found for s2fft>1.5.0
+```
+
+**Solution**: the extra `gpu` requires a version of s2fft that is not released yet. Install s2fft from
+GitHub in the same command, as described in the section on the
+[spherical harmonic transforms](#spherical-harmonic-transforms).
 
 ### Getting Help
 
