@@ -50,8 +50,7 @@ cpu = [
 ]
 gpu = [
     # s2fft 1.5.0 computes the spin transforms on HEALPix maps with errors of a few percent, fixed
-    # by https://github.com/astro-informatics/s2fft/pull/387. '>=1.5.1' would refuse the versions
-    # built from its GitHub repository, such as 1.5.1.dev16, as long as 1.5.1 is not released.
+    # by https://github.com/astro-informatics/s2fft/pull/387.
     's2fft>1.5.0',
 ]
 
