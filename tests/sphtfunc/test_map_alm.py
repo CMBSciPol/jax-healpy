@@ -78,6 +78,25 @@ def test_alm2map(
     np.testing.assert_allclose(actual_map, expected_map, atol=1e-10, rtol=1e-6)
 
 
+@pytest.mark.parametrize('healpy_ordering', [False, True])
+@pytest.mark.parametrize('ncomp', [None, 2, 3])
+def test_alm2map_infers_lmax(synthesized_map: np.ndarray, healpy_ordering: bool, ncomp: int | None) -> None:
+    """Without lmax, alm2map infers it from the size of the alms, like healpy."""
+    nside = hp.npix2nside(synthesized_map.size)
+    lmax = 2 * nside  # not the default 3 * nside - 1
+    maps = synthesized_map if ncomp is None else jnp.stack([synthesized_map * (i + 1) for i in range(ncomp)])
+    alms = jhp.map2alm(maps, lmax=lmax, iter=0, healpy_ordering=healpy_ordering)
+
+    actual_maps = jhp.alm2map(alms, nside, healpy_ordering=healpy_ordering)
+    expected_maps = jhp.alm2map(alms, nside, lmax=lmax, healpy_ordering=healpy_ordering)
+    np.testing.assert_array_equal(actual_maps, expected_maps)
+
+
+def test_alm2map_invalid_number_of_alms(nside: int) -> None:
+    with pytest.raises(ValueError, match='Invalid number of alms'):
+        _ = jhp.alm2map(jnp.zeros(9, dtype=complex), nside, healpy_ordering=True)
+
+
 def test_alm2map_pixwin_not_supported(flm_generator: Callable[[...], np.ndarray], nside: int) -> None:
     L = 3 * nside
     flm = flm_generator(L=L, spin=0, reality=True, healpy_ordering=False)
