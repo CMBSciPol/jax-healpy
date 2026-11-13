@@ -6,9 +6,12 @@ import healpy as hp
 import jax
 import numpy as np
 import pytest
-from s2fft.sampling.s2_samples import flm_2d_to_hp
+from pytest_mock import MockerFixture
 
 import jax_healpy as jhp
+from jax_healpy import sphtfunc
+
+from .helpers import flm_2d_to_hp, requires_s2fft
 
 jax.config.update('jax_enable_x64', True)
 
@@ -118,6 +121,7 @@ def test_pixwin_not_implemented() -> None:
         jhp.pixwin(64)
 
 
+@requires_s2fft
 def test_precompute_harmonic_transforms_smoke() -> None:
     """The precompute helpers return s2fft recursion coefficients (not yet consumed by the
     transforms, but exported, so at least exercise the code path)."""
@@ -125,6 +129,16 @@ def test_precompute_harmonic_transforms_smoke() -> None:
     assert isinstance(temp, (list, tuple)) and len(temp) > 0
     pol = jhp.precompute_polarization_harmonic_transforms(32, lmax=63)
     assert isinstance(pol, (list, tuple)) and len(pol) > 0
+
+
+@pytest.mark.parametrize(
+    'precompute',
+    [jhp.precompute_temperature_harmonic_transforms, jhp.precompute_polarization_harmonic_transforms],
+)
+def test_precompute_harmonic_transforms_require_s2fft(mocker: MockerFixture, precompute) -> None:
+    mocker.patch.object(sphtfunc, '_s2fft_is_available', return_value=False)
+    with pytest.raises(ImportError, match=r"Missing optional library 's2fft'.*jax-healpy\[gpu\]"):
+        precompute(32, lmax=63)
 
 
 # --- smoothing remembers and restores masked pixels (UNSEEN/non-finite) ------------------

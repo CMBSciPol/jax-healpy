@@ -16,7 +16,7 @@ This project provides a comprehensive JAX-native implementation of HEALPix (Hier
 - **🔄 Automatic Differentiation**: Full support for forward and reverse-mode automatic differentiation
 - **📊 Vectorized Operations**: Efficient batch processing of HEALPix operations
 - **🔧 HEALPix Compatibility**: Drop-in replacement for many healpy functions
-- **🌐 Spherical Harmonics**: Integration with s2fft for spherical harmonic transforms
+- **🌐 Spherical Harmonics**: Spherical harmonic transforms computed by ducc0 on CPU and by s2fft on GPU
 - **🎯 Clustering Tools**: Advanced clustering algorithms for astronomical data analysis
 
 ## Installation
@@ -39,10 +39,20 @@ If JAX is not already installed, this command installs its CPU version. JAX and 
 pip install jax-healpy "jax[cuda13]"
 ```
 
-For spherical harmonics functionality, install with recommended dependencies:
+The spherical harmonic transforms are computed by an additional library, which depends on the device and is installed by an extra:
 
 ```bash
-pip install "jax-healpy[recommended]"
+# On CPU: ducc0
+pip install "jax-healpy[cpu]"
+
+# On GPU: s2fft, here with NVIDIA CUDA 13 support
+pip install "jax-healpy[gpu]" "jax[cuda13]"
+```
+
+The extra `gpu` requires an s2fft more recent than 1.5.0, its latest release, whose transforms of polarization are wrong by a few percent on HEALPix maps. Until this version is released, install s2fft from GitHub in the same command, which requires git and a C++ compiler:
+
+```bash
+pip install "jax-healpy[gpu]" "jax[cuda13]" "s2fft @ git+https://github.com/astro-informatics/s2fft"
 ```
 
 ### Development Installation
@@ -73,7 +83,7 @@ theta, phi = hp.pix2ang(nside, pixels)
 # Convert sky coordinates back to pixels
 recovered_pixels = hp.ang2pix(nside, theta, phi, nest=False)
 
-# Spherical harmonics transform (requires s2fft)
+# Spherical harmonics transform (requires the cpu or the gpu extra)
 skymap = jax.random.normal(jax.random.PRNGKey(0), (npix,))
 alm = hp.map2alm(skymap, lmax=128)
 reconstructed_map = hp.alm2map(alm, nside=nside, lmax=128)
@@ -199,5 +209,5 @@ with the support of the [CNRS](https://www.cnrs.fr/).
 
 - Built on [JAX](https://github.com/google/jax) for high-performance computing
 - Compatible with [HEALPix](https://healpix.jpl.nasa.gov/) pixelization scheme
-- Integrates with [s2fft](https://github.com/astro-informatics/s2fft) for spherical harmonics
+- Integrates with [ducc0](https://pypi.org/project/ducc0/) and [s2fft](https://github.com/astro-informatics/s2fft) for spherical harmonics
 - Inspired by the original [healpy](https://github.com/healpy/healpy) package

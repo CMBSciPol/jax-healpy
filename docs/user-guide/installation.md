@@ -40,11 +40,43 @@ JAX and jax-healpy can be installed in a single command, for instance with NVIDI
 pip install jax-healpy "jax[cuda13]"
 ```
 
-For the spherical harmonics functionalities, install the extra dependency `recommended`:
+### Spherical Harmonic Transforms
+
+The spherical harmonic transforms are computed by an additional library, which depends on the device
+on which the computations run. Each one is installed by an extra dependency:
+
+| Extra | Library | Transforms |
+|---|---|---|
+| `cpu` | [ducc0](https://pypi.org/project/ducc0/), in C++ | on CPU, on all the physical cores |
+| `gpu` | [s2fft](https://github.com/astro-informatics/s2fft), in JAX | on GPU |
 
 ```bash
-pip install "jax-healpy[recommended]"
+# On CPU
+pip install "jax-healpy[cpu]"
+
+# On GPU, here with NVIDIA CUDA 13 support
+pip install "jax-healpy[gpu]" "jax[cuda13]"
 ```
+
+The extra `gpu` does not install the GPU version of JAX: it is selected by the extra of JAX, as described
+in the [prerequisites](#jax-installation).
+
+!!! warning "The extra `gpu` currently requires s2fft from GitHub"
+    s2fft 1.5.0, its latest release, computes the transforms of polarization on HEALPix maps with errors
+    of a few percent, which [s2fft#387](https://github.com/astro-informatics/s2fft/pull/387) fixes. The
+    extra `gpu` requires a more recent version, which is not released yet. Meanwhile, the commands that
+    request this extra fail with `No matching distribution found for s2fft>1.5.0`, unless s2fft is
+    installed from GitHub in the same command:
+
+    ```bash
+    pip install "jax-healpy[gpu]" "jax[cuda13]" "s2fft @ git+https://github.com/astro-informatics/s2fft"
+    ```
+
+    s2fft is then built from its sources, which requires git and a C++ compiler.
+
+The transforms of s2fft also run on CPU, but they are two to three orders of magnitude slower there than
+those of ducc0: without ducc0, jax-healpy uses them and emits a warning. See the
+[transform backends](../api/sphtfunc.md#transform-backends).
 
 ## Developer Installation
 
@@ -73,7 +105,7 @@ module load python/3.12
 module load cuda/13.0  # If using GPU
 python -m venv .venv
 source .venv/bin/activate
-pip install "jax-healpy[recommended]" "jax[cuda13]"
+pip install "jax-healpy[gpu]" "jax[cuda13]"
 ```
 
 ### SLURM Job Scripts
@@ -103,7 +135,7 @@ module load python/3.12.7
 module load cuda/12.8.0
 python -m venv .venv
 source .venv/bin/activate
-pip install "jax-healpy[recommended]" "jax[cuda12]"
+pip install "jax-healpy[gpu]" "jax[cuda12]"
 ```
 
 ### NERSC Perlmutter
@@ -113,7 +145,7 @@ module load python
 module load cuda
 python -m venv .venv
 source .venv/bin/activate
-pip install "jax-healpy[recommended]" "jax[cuda12]"
+pip install "jax-healpy[gpu]" "jax[cuda12]"
 ```
 
 ## Verifying Installation
@@ -159,13 +191,30 @@ for instance with `pip install "jax[cuda13]"`.
 
 See the memory management section of the [performance tips](performance-tips.md).
 
-### Import Errors with s2fft
+### Import Errors with ducc0 or s2fft
 
-If the spherical harmonics functions fail, install the `recommended` extra dependency:
+If the spherical harmonic transforms raise an `ImportError`, install the extra dependency of the device
+on which they run:
 
 ```bash
-pip install "jax-healpy[recommended]"
+# On CPU
+pip install "jax-healpy[cpu]"
+
+# On GPU
+pip install "jax-healpy[gpu]"
 ```
+
+The extra `recommended` of the previous versions no longer exists: it is replaced by these two.
+
+### No Matching Distribution Found for s2fft
+
+```
+ERROR: No matching distribution found for s2fft>1.5.0
+```
+
+**Solution**: the extra `gpu` requires a version of s2fft that is not released yet. Install s2fft from
+GitHub in the same command, as described in the section on the
+[spherical harmonic transforms](#spherical-harmonic-transforms).
 
 ### Getting Help
 

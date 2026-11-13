@@ -44,8 +44,14 @@ dependencies = [
 dynamic = ['version']
 
 [project.optional-dependencies]
-recommended = [
-    's2fft',
+# The libraries that compute the spherical harmonic transforms: ducc0 on CPU, s2fft on GPU
+cpu = [
+    'ducc0',
+]
+gpu = [
+    # s2fft 1.5.0 computes the spin transforms on HEALPix maps with errors of a few percent, fixed
+    # by https://github.com/astro-informatics/s2fft/pull/387.
+    's2fft>1.5.0',
 ]
 
 [project.urls]

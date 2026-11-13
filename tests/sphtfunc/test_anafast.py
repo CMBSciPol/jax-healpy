@@ -3,9 +3,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from s2fft.sampling.reindex import flm_hp_to_2d_fast
 
 import jax_healpy as jhp
+
+from .helpers import flm_hp_to_2d, requires_ducc0, requires_s2fft
 
 jax.config.update('jax_enable_x64', True)
 
@@ -58,7 +59,7 @@ def test_anafast_with_alm_return(synthesized_map: np.ndarray, lmax: int) -> None
     assert cl.shape == (L,)
     assert alm.shape == (L, 2 * L - 1)  # s2fft 2D format
 
-    alm_hp_2d = flm_hp_to_2d_fast(jnp.asarray(alm_hp), L)
+    alm_hp_2d = flm_hp_to_2d(alm_hp, L)
     np.testing.assert_allclose(cl, cl_hp, atol=1e-10, rtol=1e-10)
     np.testing.assert_allclose(alm, alm_hp_2d, atol=1e-10, rtol=1e-10)
 
@@ -82,8 +83,8 @@ def test_anafast_cross_with_alm_return(synthesized_map: np.ndarray, lmax: int) -
     assert alm1.shape == (L, 2 * L - 1)
     assert alm2.shape == (L, 2 * L - 1)
 
-    alm1_hp_2d = flm_hp_to_2d_fast(jnp.asarray(alm1_hp), L)
-    alm2_hp_2d = flm_hp_to_2d_fast(jnp.asarray(alm2_hp), L)
+    alm1_hp_2d = flm_hp_to_2d(alm1_hp, L)
+    alm2_hp_2d = flm_hp_to_2d(alm2_hp, L)
     np.testing.assert_allclose(cl, cl_hp, atol=1e-10, rtol=1e-10)
     np.testing.assert_allclose(alm1, alm1_hp_2d, atol=1e-10, rtol=1e-10)
     np.testing.assert_allclose(alm2, alm2_hp_2d, atol=1e-10, rtol=1e-10)
@@ -413,13 +414,24 @@ def test_synfast_with_sigma(cla: np.ndarray, nside: int) -> None:
     assert not jnp.allclose(map_sigma, map_no_smooth)
 
 
+@requires_s2fft
 def test_synfast_lmax_under_resolution_raises(cla: np.ndarray) -> None:
     """Ensure synfast raises before calling s2fft when lmax is below 2*nside-1."""
     nside = 64
     too_low_lmax = 2 * nside - 2
 
-    with pytest.raises(ValueError, match='lmax >='):
-        jhp.synfast(jax.random.PRNGKey(0), cla, nside, lmax=too_low_lmax, pol=False)
+    with pytest.raises(NotImplementedError, match='require lmax >= 2\\*nside - 1'):
+        jhp.synfast(jax.random.PRNGKey(0), cla, nside, lmax=too_low_lmax, pol=False, method='jax')
+
+
+@requires_ducc0
+def test_synfast_lmax_under_resolution_with_ducc0(cla: np.ndarray) -> None:
+    """With ducc0, synfast accepts any lmax, like healpy."""
+    nside = 64
+    lmax = nside - 1
+    cmb_map = jhp.synfast(jax.random.PRNGKey(0), cla, nside, lmax=lmax, pol=False, method='ducc0')
+    assert cmb_map.shape == (12 * nside**2,)
+    assert jnp.all(jnp.isfinite(cmb_map))
 
 
 # Tests for alm2cl

@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `method='ducc0'`: the spherical harmonic transforms are computed by the C++ library ducc0, on all the physical cores of the CPU (or as many threads as `DUCC0_NUM_THREADS` or `OMP_NUM_THREADS` sets). On CPU, they are two to three orders of magnitude faster than the transforms of s2fft, and they can be compiled, batched and differentiated like them. This backend is the default one on CPU, including within `jax.default_device` on a machine with a GPU, when ducc0 is installed, which the new `cpu` extra does: `pip install "jax-healpy[cpu]"` (#66)
+- `method` argument of `smoothing` (#66)
+
 ### Changed
 
+- **Breaking:** the `recommended` extra is replaced by one extra per library of spherical harmonic transforms: `cpu` installs ducc0 and `gpu` installs s2fft. `pip install "jax-healpy[recommended]"` becomes `pip install "jax-healpy[cpu]"` on CPU and `pip install "jax-healpy[gpu]"` on GPU (#66)
+- The `gpu` extra requires an s2fft more recent than 1.5.0, its latest release, whose transforms of polarization are wrong by a few percent on HEALPix maps ([s2fft#387](https://github.com/astro-informatics/s2fft/pull/387)). Until this version is released, `pip install "jax-healpy[gpu]"` fails unless s2fft is installed from GitHub in the same command: see the installation page (#66)
+- The transforms of ducc0 accept any `lmax`, like those of healpy. Those of s2fft require `lmax >= 2 * nside - 1`, which `alm2map`, `alm2map_spin` and `synfast` now check as `map2alm` does: they raise a `NotImplementedError` naming the backend, instead of an `AssertionError` of s2fft, or, for `synfast`, a `ValueError` (#66)
+- s2fft is no longer required on CPU: the transforms of ducc0 run without it, and `alm2cl`, `almxfl`, `smoothalm` and `synalm` do not need any optional library (#66)
+- Without ducc0, the transforms still run on CPU with s2fft, and a `UserWarning` recommends installing the `cpu` extra. It is emitted once, and not when `method='jax'` is requested (#66)
 - The warning about 32-bit precision is a `UserWarning`, emitted once when a pixel function or a spherical harmonic transform is first called, instead of a log message at import: enabling 64-bit precision after importing jax-healpy no longer triggers it, nor the similar warning of s2fft (#54)
 - On polarized maps, `map2alm`, `map2alm_spin`, `anafast` and `smoothing` take about 40 % less time to run and to compile: the spin −s coefficients are deduced from the spin +s ones instead of being transformed (#65)
 - `precompute_polarization_harmonic_transforms` returns only the coefficients of the spin 2 transforms, instead of a tuple with those of spin −2, which no transform uses (#65)

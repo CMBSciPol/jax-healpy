@@ -24,7 +24,7 @@ just-in-time compilation and seamless integration with modern scientific computi
 
 🔁 **HEALPix compatibility**: drop-in replacement for many healpy functions
 
-🌐 **Spherical harmonics**: spherical harmonic transforms through s2fft
+🌐 **Spherical harmonics**: spherical harmonic transforms through ducc0 on CPU and s2fft on GPU
 
 🗺️ **Clustering tools**: clustering of HEALPix maps into regions
 
@@ -44,7 +44,7 @@ pixels = jnp.arange(hp.nside2npix(nside))
 theta, phi = hp.pix2ang(nside, pixels)
 recovered_pixels = hp.ang2pix(nside, theta, phi)
 
-# Spherical harmonic transforms (requires the `recommended` extra dependencies)
+# Spherical harmonic transforms (requires the `cpu` or the `gpu` extra dependencies)
 skymap = jax.random.normal(jax.random.key(0), pixels.shape)
 alm = hp.map2alm(skymap, lmax=2 * nside)
 smoothed_map = hp.alm2map(alm, nside=nside, lmax=2 * nside)

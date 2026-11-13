@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build the documentation site into site/.
-# Run from the repository root: uv run --group docs --extra recommended sh docs/build.sh
+# Run from the repository root: uv run --group docs --extra cpu sh docs/build.sh
 set -e
 
 # Execute the notebooks and convert them to the Markdown pages the nav references
