@@ -739,3 +739,75 @@ def test_anafast_pol_invalid_count_raises(synthesized_tqu_map: np.ndarray) -> No
     # Cross-spectrum: map2 must have the same component count as map1.
     with pytest.raises(ValueError, match=r'map2 with the same shape'):
         jhp.anafast(synthesized_tqu_map[1:], synthesized_tqu_map, pol=True)  # QU vs IQU
+
+
+def _cl_without_monopole_dipole(lmax: int) -> np.ndarray:
+    ell = np.arange(lmax + 1)
+    return np.where(ell >= 2, 1 / (ell + 10.0) ** 2, 0.0)
+
+
+def _finite_difference(func, x: float, step: float = 1e-6) -> float:
+    return (func(x + step) - func(x - step)) / (2 * step)
+
+
+def test_synalm_grad_with_vanishing_spectrum(x64: bool) -> None:
+    """The gradient is finite and exact where the spectrum vanishes (monopole and dipole)."""
+    cl = _cl_without_monopole_dipole(31)
+
+    def power(amplitude):
+        alm = jhp.synalm(jax.random.key(0), amplitude * jnp.asarray(cl), lmax=31)
+        return jnp.sum(jnp.abs(alm) ** 2)
+
+    grad = jax.grad(power)(1.0)
+    assert jnp.isfinite(grad)
+    # The power is linear in the amplitude: its derivative is the power at amplitude 1.
+    np.testing.assert_allclose(grad, power(1.0), rtol=1e-12 if x64 else 1e-5)
+
+
+def test_synalm_pol_grad(x64: bool) -> None:
+    """The polarized alms are differentiable with respect to the spectra, such as BB."""
+    cl = _cl_without_monopole_dipole(31)
+
+    def power(r):
+        cls = [cl, cl / 20, r * cl + cl / 200, 0.5 * cl / np.sqrt(20)]
+        alms = jhp.synalm(jax.random.key(0), cls, lmax=31, new=True)
+        return jnp.sum(jnp.abs(alms) ** 2)
+
+    step, rtol = (1e-6, 1e-6) if x64 else (1e-2, 1e-3)
+    np.testing.assert_allclose(jax.grad(power)(0.1), _finite_difference(power, 0.1, step), rtol=rtol)
+
+
+@pytest.mark.parametrize('rho', [1.0, -1.0])
+def test_synalm_pol_perfect_correlation(rho: float) -> None:
+    """Perfectly correlated T and E spectra give finite, perfectly correlated alms."""
+    cl = _cl_without_monopole_dipole(127)
+    alms = jhp.synalm(jax.random.key(0), [cl, cl / 20, cl / 200, rho * cl / np.sqrt(20)], lmax=127, new=True)
+    assert jnp.all(jnp.isfinite(alms))
+    cl_tt, cl_ee, cl_te = jhp.alm2cl([alms[0], alms[1]])
+    np.testing.assert_allclose(cl_te[2:] / np.sqrt(cl_tt[2:] * cl_ee[2:]), rho, rtol=1e-10)
+
+
+def test_synalm_negative_spectrum() -> None:
+    """A negative spectrum raises a ValueError, or gives NaN alms under jit."""
+    cl = _cl_without_monopole_dipole(15)
+    cl[5] = -cl[5]
+    with pytest.raises(ValueError, match=r'negative at ell = \[5\]'):
+        jhp.synalm(jax.random.key(0), cl, lmax=15)
+    alm = jax.jit(jhp.synalm, static_argnames='lmax')(jax.random.key(0), cl, lmax=15)
+    assert jnp.all(jnp.isnan(alm[5, 15 - 5 : 15 + 6]))
+    assert jnp.all(jnp.isfinite(alm[6:]))
+
+
+@pytest.mark.parametrize('spectrum', ['te', 'ee'])
+def test_synalm_pol_invalid_covariance(spectrum: str) -> None:
+    """A correlation coefficient above 1 or a negative spectrum raises, or gives NaN alms under jit."""
+    cl = _cl_without_monopole_dipole(15)
+    cls = {'tt': cl, 'ee': cl / 20, 'bb': cl / 200, 'te': 0.5 * cl / np.sqrt(20)}
+    cls[spectrum] = cls[spectrum].copy()
+    cls[spectrum][7] = -3 * cl[7] / np.sqrt(20) if spectrum == 'ee' else 1.01 * cl[7] / np.sqrt(20)
+    cls = [cls['tt'], cls['ee'], cls['bb'], cls['te']]
+    with pytest.raises(ValueError, match=r'not positive semi-definite at ell = \[7\]'):
+        jhp.synalm(jax.random.key(0), cls, lmax=15, new=True)
+    alms = jax.jit(jhp.synalm, static_argnames=('lmax', 'new'))(jax.random.key(0), cls, lmax=15, new=True)
+    assert jnp.any(jnp.isnan(alms[:, 7]))
+    assert jnp.all(jnp.isfinite(alms[:, 8:]))
