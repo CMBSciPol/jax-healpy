@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The transforms of complex maps raise a `TypeError`: the imaginary part of a scalar map was ignored, and the E and B coefficients of complex Q and U maps were wrong (#65)
 - `method='jax_healpy'` raises a `ValueError` instead of failing during the compilation: this backend of s2fft cannot be compiled, and it transforms polarization as two scalar fields (#65)
 - `alm2map` infers `lmax` from the size of the alms when it is not given, as documented and as in healpy, instead of assuming `3 * nside - 1`; `smoothalm` infers it correctly for a batch of alms (#57)
+- `synalm` and `synfast` draw float64 alms from weakly typed or integer spectra when 64-bit precision is enabled, instead of complex64 alms that the spherical harmonic transforms rejected (#51)
+- The polarized `synfast` no longer swaps the E and B modes for an even `lmax`: all the alms of negative m drawn by `synalm` had the wrong sign (#51)
 
 ## [0.8.2] - 2026-09-28
 

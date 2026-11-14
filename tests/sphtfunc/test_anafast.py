@@ -362,6 +362,42 @@ def test_synalm_mmax_raises() -> None:
         jhp.synalm(jax.random.PRNGKey(42), cl, lmax=lmax, mmax=lmax - 1)
 
 
+@pytest.mark.parametrize('pol', [False, True])
+@pytest.mark.parametrize(
+    'make_cl',
+    [
+        pytest.param(lambda ell: 1 / (ell + 10.0) ** 2, id='weak-float64'),
+        pytest.param(lambda ell: np.ones(ell.shape, dtype=int), id='int'),
+    ],
+)
+def test_synfast_spectrum_dtype(x64: bool, pol_nside, pol_lmax, make_cl, pol) -> None:
+    """Weakly typed float64 or integer spectra draw alms in the precision of JAX."""
+    cl = make_cl(jnp.arange(pol_lmax + 1))
+    cls = [cl, cl, cl, 0 * cl] if pol else cl
+
+    map_synth, alms = jhp.synfast(jax.random.PRNGKey(0), cls, pol_nside, lmax=pol_lmax, new=True, alm=True)
+
+    assert alms.dtype == (jnp.complex128 if x64 else jnp.complex64)
+    assert map_synth.dtype == (jnp.float64 if x64 else jnp.float32)
+
+
+@pytest.mark.parametrize('lmax', [31, 32])
+@pytest.mark.parametrize('pol', [False, True])
+def test_synalm_reality_condition(lmax: int, pol: bool) -> None:
+    """synalm alms satisfy a_{l,-m} = (-1)^m conj(a_{lm}), for odd and even lmax."""
+    L = lmax + 1
+    cl = np.ones(L)
+    cls = [cl, cl, cl, 0 * cl] if pol else cl
+
+    alms = np.asarray(jhp.synalm(jax.random.PRNGKey(0), cls, lmax=lmax, new=True))
+    alms = alms.reshape(-1, L, 2 * L - 1)
+
+    m = np.arange(1, L)
+    negative_m = alms[:, :, L - 1 - m]
+    positive_m = alms[:, :, L - 1 + m]
+    np.testing.assert_array_equal(negative_m, (-1) ** m * np.conj(positive_m))
+
+
 def test_synfast_pixwin_raises() -> None:
     """Test that synfast raises NotImplementedError for pixwin=True."""
     nside = 16
