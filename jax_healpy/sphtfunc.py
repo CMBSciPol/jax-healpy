@@ -405,13 +405,26 @@ def _compute_cl(alms: ArrayLike, L: int, alms2: ArrayLike | None = None) -> Arra
     return cl
 
 
+def _spectra_real_dtype(*cls: ArrayLike) -> jnp.dtype:
+    """Return the real dtype in which to draw alms from the spectra `cls`.
+
+    It is the floating dtype of the spectra, at least float32. Non-floating spectra use
+    JAX's default float dtype (float64 only when x64 is enabled, so that an unavailable
+    float64 is never requested). The dtypes are read without their weak type: a weakly typed
+    float64 spectrum, such as ``1 / (jnp.arange(n) + 10.0) ** 2``, would otherwise promote
+    with float32 to float32 and produce complex64 alms.
+    """
+    dtype = jnp.result_type(*[jnp.asarray(cl).dtype for cl in cls])
+    if not jnp.issubdtype(dtype, jnp.floating):
+        return jnp.result_type(float)
+    return jnp.promote_types(dtype, jnp.float32)
+
+
 def _generate_random_alm(cl: ArrayLike, lmax: int, prng_key: PRNGKeyArray) -> ArrayLike:
     """Draw random alm with healpy reality convention (mmax == lmax)."""
     L = lmax + 1
     cl = jnp.asarray(cl)
-    # Real working dtype follows the input spectrum (float64 only when x64 is enabled), so we
-    # don't request an unavailable float64 and trigger JAX's silent-truncation warning.
-    real_dtype = jnp.result_type(cl, jnp.float32)
+    real_dtype = _spectra_real_dtype(cl)
     if cl.shape[0] < L:
         cl = jnp.pad(cl, (0, L - cl.shape[0]), constant_values=0)
     elif cl.shape[0] > L:
@@ -437,7 +450,8 @@ def _generate_random_alm(cl: ArrayLike, lmax: int, prng_key: PRNGKeyArray) -> Ar
     right_half = alms[:, L:]
     m_positive = jnp.arange(1, L)
     phase = (-1) ** m_positive
-    conj_right_flipped = jnp.flip(jnp.conj(right_half), axis=1) * phase[None, :]
+    # a_{l,-m} = (-1)^m conj(a_{lm}): apply the phase of each m before flipping the columns.
+    conj_right_flipped = jnp.flip(jnp.conj(right_half) * phase[None, :], axis=1)
 
     valid_left = get_valid_mask_alms(lmax, mmax_positive=0)
     left_half = conj_right_flipped * valid_left
@@ -2148,8 +2162,7 @@ def synalm(
         if mmax is not None and mmax != lmax:
             raise NotImplementedError('Specifying mmax != lmax is not implemented.')
         L = lmax + 1
-        # Real working dtype follows the input spectra (float64 only when x64 is enabled).
-        real_dtype = jnp.result_type(*[c for c in cls_list if c is not None], jnp.float32)
+        real_dtype = _spectra_real_dtype(*[c for c in cls_list if c is not None])
 
         def pad_cl(cl):
             if cl is None:
