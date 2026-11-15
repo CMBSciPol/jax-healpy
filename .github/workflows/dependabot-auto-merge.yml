@@ -1,0 +1,44 @@
+name: Dependabot auto-merge
+
+permissions: {}
+
+on:
+  pull_request:
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Only the pull requests that Dependabot opens in this repository
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'CMBSciPol/jax-healpy'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Read the metadata of the update
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      # Merged without a review, once the required checks pass: the updates of the CI (the
+      # GitHub actions and the pre-commit hooks), and the patch and minor updates of the
+      # development tools and of the documentation tools, which the users of the package
+      # never install. The other updates, and every major update, wait for a review.
+      - name: Enable auto-merge
+        if: >-
+          steps.metadata.outputs.update-type != 'version-update:semver-major'
+          && (
+            steps.metadata.outputs.package-ecosystem == 'github_actions'
+            || steps.metadata.outputs.package-ecosystem == 'pre_commit'
+            || (
+              steps.metadata.outputs.package-ecosystem == 'uv'
+              && (
+                steps.metadata.outputs.dependency-group == 'dev-tooling'
+                || steps.metadata.outputs.dependency-group == 'docs'
+              )
+            )
+          )
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
