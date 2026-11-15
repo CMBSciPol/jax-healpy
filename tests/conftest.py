@@ -1,3 +1,4 @@
+import gc
 import os
 from pathlib import Path
 
@@ -21,6 +22,22 @@ def default_x64():
 
     with jax.enable_x64(True):
         yield
+
+
+@pytest.fixture(scope='module', autouse=True)
+def clear_jax_caches():
+    """Drop the programs compiled by JAX after each test module.
+
+    JAX keeps in memory every program it compiles, until the end of the process: over the whole
+    suite, each xdist worker would grow by several GB. A program that a later module needs again
+    is compiled again, or read back from the persistent compilation cache when
+    ``JAX_COMPILATION_CACHE_DIR`` is set, as in the CI.
+    """
+    yield
+    import jax
+
+    jax.clear_caches()
+    gc.collect()
 
 
 @pytest.fixture(params=[False, True], ids=['x32', 'x64'])
