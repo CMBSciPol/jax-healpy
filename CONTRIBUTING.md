@@ -83,6 +83,16 @@ pytest --cov=jax_healpy
 pytest -m "not slow"
 ```
 
+Most of the time of the tests goes to the compilation of the JAX programs, and the tests drop the
+programs compiled by a module once it is done, to bound their memory. A persistent compilation
+cache, which the CI keeps between its runs, spares the compilations from one run to the next:
+
+```bash
+export JAX_COMPILATION_CACHE_DIR=~/.cache/jax-healpy-tests
+export JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0
+pytest -m "not slow"
+```
+
 ### Code Quality
 
 We use several tools to maintain code quality:

@@ -99,8 +99,57 @@ jobs:
           uv pip install "jax${JAX_SPEC}" "jaxlib${JAX_SPEC}"
           uv run --no-sync python -c "import jax, jaxlib; print('jax', jax.__version__, 'jaxlib', jaxlib.__version__)"
 
+      # JAX writes every program it compiles to a persistent cache, whatever its compilation
+      # time. An entry of the cache is valid only for the versions of JAX and of its backend,
+      # and for the CPU that compiled it: the runners have several CPU models, each with its
+      # own cache.
+      - name: Configure the compilation cache of JAX
+        id: jax-cache-config
+        env:
+          VARIANT: ${{ matrix.extras == '--extra cpu' && 'cpu' || 'cpu-gpu' }}
+          PYTHON_VERSION: ${{ matrix.python.version }}
+          LOCK_HASH: ${{ hashFiles('uv.lock') }}
+        run: |
+          echo "JAX_COMPILATION_CACHE_DIR=${RUNNER_TEMP}/jax-cache" >> "$GITHUB_ENV"
+          echo "JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0" >> "$GITHUB_ENV"
+          jax_version=$(uv run --no-sync python -c "import jax; print(jax.__version__)")
+          cpu=$(grep -m 1 'model name' /proc/cpuinfo | cut -d : -f 2 | xargs | tr -cs 'A-Za-z0-9\n' '-')
+          echo "prefix=jax-${RUNNER_OS}-${cpu}-py${PYTHON_VERSION}-${VARIANT}-jax${jax_version}-${LOCK_HASH}" >> "$GITHUB_OUTPUT"
+
+      # An entry per state of the sources and the tests. When they change, the latest entry of
+      # the job is restored, and the programs that did not change are not compiled again.
+      - name: Restore the compilation cache of JAX
+        id: jax-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.JAX_COMPILATION_CACHE_DIR }}
+          key: ${{ steps.jax-cache-config.outputs.prefix }}-${{ hashFiles('jax_healpy/**', 'tests/**') }}
+          restore-keys: ${{ steps.jax-cache-config.outputs.prefix }}-
+
+      # The memory used on the runner is sampled every 10 s and its peak is printed after the
+      # tests: a runner that runs out of memory stops without a log. The number of entries of
+      # the compilation cache, before and after the tests, tells how many programs were compiled.
       - name: Run tests
-        run: uv run --no-sync pytest -vv -n auto -m "not slow"
+        run: |
+          grep -m 1 'model name' /proc/cpuinfo
+          free -m
+          echo "Entries of the compilation cache: $(find "${JAX_COMPILATION_CACHE_DIR}" -type f 2>/dev/null | wc -l)"
+          while sleep 10; do free -m | awk '/^Mem:/ {print $3}'; done > "${RUNNER_TEMP}/memory.log" &
+          trap 'kill $!' EXIT
+          uv run --no-sync pytest -vv -n auto -m "not slow"
+
+      - name: Show the peak memory used during the tests
+        if: ${{ !cancelled() }}
+        run: |
+          echo "Peak memory used: $(sort -n "${RUNNER_TEMP}/memory.log" | tail -n 1) MB"
+          echo "Entries of the compilation cache: $(find "${JAX_COMPILATION_CACHE_DIR}" -type f | wc -l)"
+
+      - name: Save the compilation cache of JAX
+        if: ${{ !cancelled() && steps.jax-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.JAX_COMPILATION_CACHE_DIR }}
+          key: ${{ steps.jax-cache.outputs.cache-primary-key }}
 
   docs:
     name: Build documentation
