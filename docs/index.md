@@ -11,9 +11,6 @@
 Pixelization) functions, designed for high-performance scientific computing on CPUs and GPUs. It provides JAX-native versions of popular healpy functions, enabling automatic differentiation,
 just-in-time compilation and seamless integration with modern scientific computing workflows.
 
-!!! warning
-    This project is in beta stage. APIs may change and some features are still under development.
-
 ## Key Features
 
 🚀 **GPU acceleration**: XLA compilation for high-performance computing on CPUs and GPUs
