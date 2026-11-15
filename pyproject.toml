@@ -80,6 +80,7 @@ docs = [
     'jupyter>=1.0',
     'matplotlib',
     'mkdocstrings-python>=2.0',
+    'numpyro>=0.22',
     'zensical>=0.1',
 ]
 # The runner of the git hooks, which the CI installs alone
