@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The transforms of ducc0 accept any `lmax`, like those of healpy. Those of s2fft require `lmax >= 2 * nside - 1`, which `alm2map`, `alm2map_spin` and `synfast` now check as `map2alm` does: they raise a `NotImplementedError` naming the backend, instead of an `AssertionError` of s2fft, or, for `synfast`, a `ValueError` (#66)
 - s2fft is no longer required on CPU: the transforms of ducc0 run without it, and `alm2cl`, `almxfl`, `smoothalm` and `synalm` do not need any optional library (#66)
 - Without ducc0, the transforms still run on CPU with s2fft, and a `UserWarning` recommends installing the `cpu` extra. It is emitted once, and not when `method='jax'` is requested (#66)
+- The polarized `synalm` and `synfast` correlate the T, E and B alms with a Cholesky factorization, as healpy, instead of a matrix square root: they run on GPU and are differentiable (#58)
+- `synalm` draws only the alms of m ≥ 0 and ℓ ≥ m, instead of four times as many random numbers: it runs about three times faster for a single spectrum and twice as fast for polarization. With the Cholesky factorization, the realizations differ from the previous ones for a given PRNG key (#58)
 - The warning about 32-bit precision is a `UserWarning`, emitted once when a pixel function or a spherical harmonic transform is first called, instead of a log message at import: enabling 64-bit precision after importing jax-healpy no longer triggers it, nor the similar warning of s2fft (#54)
 - On polarized maps, `map2alm`, `map2alm_spin`, `anafast` and `smoothing` take about 40 % less time to run and to compile: the spin −s coefficients are deduced from the spin +s ones instead of being transformed (#65)
 - `precompute_polarization_harmonic_transforms` returns only the coefficients of the spin 2 transforms, instead of a tuple with those of spin −2, which no transform uses (#65)
@@ -31,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `alm2map` infers `lmax` from the size of the alms when it is not given, as documented and as in healpy, instead of assuming `3 * nside - 1`; `smoothalm` infers it correctly for a batch of alms (#57)
 - `synalm` and `synfast` draw float64 alms from weakly typed or integer spectra when 64-bit precision is enabled, instead of complex64 alms that the spherical harmonic transforms rejected (#51)
 - The polarized `synfast` no longer swaps the E and B modes for an even `lmax`: all the alms of negative m drawn by `synalm` had the wrong sign (#51)
+- The gradient of `synalm` and `synfast` with respect to the spectra is finite where they vanish, as the monopole and dipole of the CMB, instead of NaN (#58)
+- `synalm` and `synfast` raise a `ValueError` for a negative spectrum or a covariance matrix of the spectra that is not positive semi-definite, instead of returning NaN or, for a negative scalar spectrum, zero alms. Spectra traced by a JAX transformation give NaN alms (#58)
 
 ## [0.8.2] - 2026-09-28
 
