@@ -25,7 +25,8 @@ above, to get native arrays.
 jax-healpy follows the API and the conventions of healpy: most computations run after replacing
 `import healpy as hp` by `import jax_healpy as hp`. This page lists the differences: the
 functionality that jax-healpy lacks, its intentional deviations from the API of healpy, and the
-behaviors that come from JAX.
+behaviors that come from JAX. What jax-healpy brings in addition to healpy is in
+[What jax-healpy adds](what-jax-healpy-adds.md).
 
 ## Missing functionality
 

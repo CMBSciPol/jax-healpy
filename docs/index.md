@@ -29,6 +29,8 @@ and s2fft on GPU, which agree with healpy to $10^{-12}$
 
 🗺️ **Clustering tools**: clustering of HEALPix maps into regions
 
+See [What jax-healpy adds](user-guide/what-jax-healpy-adds.md) for the details.
+
 ## Quick Start
 
 ```python
@@ -84,6 +86,7 @@ of this benchmark.
 - **User Guide**: [Installation](user-guide/installation.md),
   [Getting started](user-guide/getting-started.md),
   [Differences from healpy](user-guide/differences-from-healpy.md),
+  [What jax-healpy adds](user-guide/what-jax-healpy-adds.md),
   [Pixelization](user-guide/pixelization.md), [Polarization](user-guide/polarization.md),
   [Inference of the tensor-to-scalar ratio](user-guide/inference.md),
   [Clustering](user-guide/clustering.md),
