@@ -91,40 +91,45 @@ def _max_pixrad(nside: int) -> float:
 
 
 def estimate_disc_pixel_count(nside: int, radius: float) -> int:
-    """Estimate number of pixels in a disc of given radius.
+    r"""Estimate the number of pixels within a disc, from its area.
 
-    Uses the analytical approximation: n_approx = 6 * nside^2 * (1 - cos(radius))
-
-    This approximation is exact at radius = π (full sphere) and loses precision
-    for smaller radii. It provides a good estimate for setting the max_length
-    parameter in query_disc functions.
+    The estimate is the area of the disc divided by that of the pixels,
+    $6\,n_\mathrm{side}^2\,(1 - \cos r)$ for a radius $r$, rounded up, and `npix` for
+    $r \geq \pi$. The number of pixels whose centers are within a disc depends on its position,
+    and can exceed this estimate by a few percent; [`query_disc`][jax_healpy._query_disc.query_disc]
+    with `inclusive=True` returns more pixels. Used as the `max_length` of `query_disc`, which drops
+    the pixels beyond it, the estimate needs a margin.
 
     Parameters
     ----------
     nside : int
-        HEALPix nside parameter
+        The resolution parameter.
     radius : float
-        Disc radius in radians
+        The radius of the disc, in radians.
 
     Returns
     -------
-    pixel_count : int
-        Estimated number of pixels in the disc
+    int
+        The estimated number of pixels.
 
-    Notes
-    -----
-    The approximation assumes uniform pixel density across the sphere, which
-    is accurate for large discs but less precise for small discs where
-    pixel shape variations matter more.
+    See Also
+    --------
+    estimate_disc_radius, query_disc
 
     Examples
     --------
+    >>> import jax.numpy as jnp
     >>> import jax_healpy as hp
-    >>> nside = 64
-    >>> radius = 0.1  # ~5.7 degrees
-    >>> estimated_count = hp.estimate_disc_pixel_count(nside, radius)
-    >>> # Use as max_length for query_disc
-    >>> actual_disc = hp.query_disc(nside, [1, 0, 0], radius, max_length=estimated_count)
+    >>> hp.estimate_disc_pixel_count(64, 0.1)
+    123
+
+    With a margin of 10 %, `query_disc` returns all the pixels of the disc, followed by at least
+    one padding value `npix`:
+
+    >>> max_length = int(1.1 * hp.estimate_disc_pixel_count(64, 0.1))
+    >>> pixels = hp.query_disc(64, jnp.array([1.0, 0.0, 0.0]), 0.1, max_length=max_length)
+    >>> bool(pixels[-1] == hp.nside2npix(64))
+    True
     """
 
     # Clip radius to valid range
@@ -142,39 +147,34 @@ def estimate_disc_pixel_count(nside: int, radius: float) -> int:
 
 
 def estimate_disc_radius(nside: int, pixel_count: int) -> float:
-    """Estimate radius needed for a disc containing given pixel count.
+    r"""Estimate the radius of a disc that contains a number of pixels.
 
-    Inverse of estimate_disc_pixel_count. Uses the analytical relationship:
-    radius = arccos(1 - pixel_count / (6 * nside^2))
+    The inverse of [`estimate_disc_pixel_count`][jax_healpy._query_disc.estimate_disc_pixel_count]:
+    the radius is $\arccos\left(1 - N / (6\,n_\mathrm{side}^2)\right)$ for $N$ pixels, 0 for
+    $N \leq 0$ and $\pi$ for $N \geq N_\mathrm{pix}$.
 
     Parameters
     ----------
     nside : int
-        HEALPix nside parameter
+        The resolution parameter.
     pixel_count : int
-        Desired number of pixels in the disc
+        The number of pixels of the disc.
 
     Returns
     -------
-    radius : float
-        Estimated disc radius in radians
+    float
+        The estimated radius, in radians.
 
-    Notes
-    -----
-    This is the inverse of estimate_disc_pixel_count and has the same
-    accuracy characteristics: exact at full sphere, less precise for
-    small discs.
+    See Also
+    --------
+    estimate_disc_pixel_count, query_disc
 
     Examples
     --------
     >>> import jax_healpy as hp
-    >>> nside = 64
-    >>> target_pixels = 1000
-    >>> estimated_radius = hp.estimate_disc_radius(nside, target_pixels)
-    >>> # Verify the relationship
-    >>> back_pixels = hp.estimate_disc_pixel_count(nside, estimated_radius)
-    >>> abs(back_pixels - target_pixels) < 10  # Should be close
-    True
+    >>> radius = hp.estimate_disc_radius(64, 1000)
+    >>> hp.estimate_disc_pixel_count(64, radius)
+    1000
     """
 
     npix_total = 12 * nside**2
@@ -559,86 +559,94 @@ def query_disc(
     nest: bool = False,
     max_length: int | None = None,
 ) -> Array:
-    """Find pixels within a disc on the sphere.
+    r"""Return the pixels within discs on the sphere.
 
-    This function supports both single and batched queries. It is fully JIT-compatible
-    and differentiable with respect to vec and radius parameters.
+    The pixels of a disc are those whose centers are within the angle `radius` of its center
+    $\vec{v}$, $\vec{v}_\mathrm{pixel} \cdot \vec{v} \geq \cos(\mathrm{radius})$ for unit vectors,
+    or with `inclusive=True` those that overlap the disc. They are sorted in increasing order. With
+    `inclusive=False`, they are the pixels that healpy returns.
+
+    !!! note "Difference from healpy"
+        - The output has a fixed size, `max_length`, as JAX requires: the pixels of the disc are
+          followed by the value `npix`. Out of the bounds of a map, it is dropped by an update such
+          as `m.at[pixels].set(value)`.
+        - If the disc has more than `max_length` pixels, only the first `max_length` are returned,
+          without warning.
+        - A batch of centers, of shape `(B, 3)`, gives an output of shape `(B, max_length)`.
+        - The NESTED ordering is not supported: `nest=True` raises a `NotImplementedError`. The
+          arguments `buff` and `return_ranges` are not available.
+        - With `inclusive=True`, a pixel that barely overlaps the disc may be returned by one of
+          jax-healpy and healpy, and not by the other.
+
+    `nside`, `inclusive`, `fact`, `nest` and `max_length` are static arguments under `jax.jit`;
+    `vec` and `radius` can be traced.
 
     Parameters
     ----------
     nside : int
-        The resolution parameter of the HEALPix map
+        The resolution parameter.
     vec : array-like
-        Either a single three-component unit vector (3,) defining the center of the disc,
-        or a batch of vectors (B, 3) defining B disc centers
+        The center of the disc, a vector of shape `(3,)`, or the centers of a batch of discs, of
+        shape `(B, 3)`. They need not be normalized.
     radius : float
-        The radius of the disc in radians
+        The radius of the disc, in radians.
     inclusive : bool, optional
-        If False (default), return pixels whose centers lie within the disc.
-        Results are guaranteed to match healpy exactly for inclusive=False.
-        If True, return all pixels that overlap with the disc.
-        Note: inclusive=True may produce slightly different results compared to healpy
-        due to algorithm differences in determining pixel overlap.
+        If True, return the pixels that overlap the disc, otherwise those whose centers are within
+        it.
     fact : int, optional
-        For inclusive queries, the pixelization factor (default: 4)
+        With `inclusive=True`, the factor by which the pixels are subdivided to test whether they
+        overlap the disc: the larger, the more accurate and the slower.
     nest : bool, optional
-        If True, assume NESTED pixel ordering, otherwise RING ordering (default: False)
+        Must be False: the NESTED ordering is not supported.
     max_length : int, optional
-        Maximum number of pixels to return per disc. If None, defaults to npix.
-        For batched inputs, this limits memory usage by returning (max_length, B)
-        instead of (npix, B).
+        The number of pixels returned for each disc, `npix` by default.
+        [`estimate_disc_pixel_count`][jax_healpy._query_disc.estimate_disc_pixel_count] estimates
+        the number of pixels of a disc.
 
     Returns
     -------
-    ipix : array
-        For single vector input (3,): returns (max_length,) or (npix,) if max_length is None
-        For batch vector input (B, 3): returns (max_length, B)
-        Pixels outside the disc are marked as npix (sentinel value).
-        This allows direct indexing like: map.at[disc].set(value)
+    Array
+        The pixels of the disc, followed by `npix`, of shape `(max_length,)` for a single disc and
+        `(B, max_length)` for a batch.
 
     Raises
     ------
     NotImplementedError
-        If nest=True (nested ordering not yet supported)
+        If `nest` is True.
 
-    Notes
-    -----
-    This function currently only supports RING ordering. The function is
-    JIT-compatible and differentiable when compiled with static_argnums=(0,)
-    for the nside parameter. The returned array has fixed size for JIT
-    compatibility - pixels outside the disc have value npix.
-
-    When indexing a JAX array, pixels outside the disc should be ignored.
-    If indexing a numpy array, this will raise an out-of-bounds error.
+    See Also
+    --------
+    estimate_disc_pixel_count, estimate_disc_radius
 
     Examples
     --------
-    Single disc query:
-
-    >>> import jax_healpy as hp
-    >>> import jax.numpy as jnp
     >>> import jax
+    >>> import jax.numpy as jnp
+    >>> import jax_healpy as hp
     >>> nside = 16
-    >>> vec = jnp.array([1.0, 0.0, 0.0])  # Point on equator
-    >>> radius = 0.1  # ~5.7 degrees
-    >>> disc = hp.query_disc(nside, vec, radius)
-    >>> # Use directly for indexing
-    >>> map = jnp.zeros(hp.nside2npix(nside))
-    >>> map = map.at[disc].set(1.0)
+    >>> pixels = hp.query_disc(nside, jnp.array([1.0, 0.0, 0.0]), 0.1, max_length=12)
+    >>> print(pixels)
+    [1376 1439 1440 1504 1567 1568 1632 1695 3072 3072 3072 3072]
 
-    Batch disc query:
+    The value `npix` that pads the output is out of the bounds of the map, so that an update drops
+    it:
 
-    >>> vecs = jnp.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])  # (2, 3) - two centers
-    >>> discs = hp.query_disc(nside, vecs, radius, max_length=1000)  # (1000, 2)
-    >>> # Each column contains pixels for one disc
-    >>> map1 = map.at[discs[:, 0]].set(1.0)  # First disc
-    >>> map2 = map.at[discs[:, 1]].set(2.0)  # Second disc
+    >>> m = jnp.zeros(hp.nside2npix(nside)).at[pixels].set(1.0)
+    >>> print(m.sum())
+    8.0
 
-    For JIT compilation, `nside` is static:
+    A batch of discs, one per row of the output:
 
-    >>> jit_query_disc = jax.jit(hp.query_disc, static_argnames='nside')
-    >>> disc_jit = jit_query_disc(nside, vec, radius)
-    >>> bool(jnp.all(disc_jit == disc))
+    >>> centers = jnp.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    >>> discs = hp.query_disc(nside, centers, 0.1, max_length=12)
+    >>> print(discs)
+    [[1376 1439 1440 1504 1567 1568 1632 1695 3072 3072 3072 3072]
+     [1391 1392 1456 1519 1520 1584 1647 1648 3072 3072 3072 3072]]
+
+    Compiled with `jax.jit`, with `nside` and `max_length` static:
+
+    >>> query_disc = jax.jit(hp.query_disc, static_argnames=['nside', 'max_length'])
+    >>> bool(jnp.all(query_disc(nside, centers, 0.1, max_length=12) == discs))
     True
     """
     # Raise error for nested ordering
