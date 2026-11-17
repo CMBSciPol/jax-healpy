@@ -47,6 +47,17 @@ uses all the logical CPUs. The environment variable `DUCC0_NUM_THREADS` or, if i
 
 The maps to transform must be real: complex maps raise a `TypeError`.
 
+## Layout of the coefficients
+
+By default, the spherical harmonic coefficients $a_{\ell m}$ are stored in the layout of s2fft: a
+two-dimensional array of shape `(lmax + 1, 2 * lmax + 1)`, whose element `[ell, m + lmax]` is
+$a_{\ell m}$, for $-\ell \le m \le \ell$, the elements of $|m| > \ell$ being zero. The functions that
+take or return coefficients have a `healpy_ordering` argument: with `healpy_ordering=True`, they
+use the layout of healpy instead, a one-dimensional array of `(lmax + 1) * (lmax + 2) // 2`
+elements that stores the coefficients of $m \ge 0$, ordered by $m$, then by $\ell$. The
+coefficients of $m < 0$ follow from those of $m > 0$, since the maps are real:
+$a_{\ell, -m} = (-1)^m a_{\ell m}^*$.
+
 ## Transforms
 
 ::: jax_healpy.sphtfunc.map2alm
