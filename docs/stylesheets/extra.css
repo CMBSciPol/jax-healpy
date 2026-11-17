@@ -1,10 +1,12 @@
-/* Hide the intra-page table of contents: the left sidebar carries the whole
-   inter-page navigation, and the API page links its members from the summary
-   tables at the top. The copy embedded in the navigation drawer is untouched.
-   !important, as the theme shows it with the higher-specificity selector
+/* The table of contents of the page is on the right, from 76.25em (1220px) up only. From
+   60em to 76.25em, docs/build.sh pins the navigation sidebar on the left, which leaves no
+   room for a second sidebar, and the page has no table of contents; below 60em, it is in the
+   navigation drawer. !important, as the theme shows it with the higher-specificity selector
    `.md-sidebar--secondary:not([hidden])`. */
-.md-sidebar--secondary {
-  display: none !important;
+@media screen and (max-width: 76.234375em) {
+  .md-sidebar--secondary {
+    display: none !important;
+  }
 }
 
 /* Distinguish the section headers from their pages in the navigation: muted
