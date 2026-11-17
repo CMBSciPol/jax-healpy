@@ -4,27 +4,9 @@ This page provides detailed installation instructions for jax-healpy.
 
 ## Prerequisites
 
-### Python Version
-
-jax-healpy requires Python 3.11 or later.
-
-### JAX Installation
-
-jax-healpy depends on JAX, whose installation depends on your target hardware. If JAX is not already
-installed, `pip install jax-healpy` installs the CPU version. To run on accelerators, install JAX with
-the appropriate extra, as described in the [official JAX documentation](https://docs.jax.dev/en/latest/installation.html).
-For example:
-
-```bash
-# NVIDIA GPU, CUDA 13
-pip install "jax[cuda13]"
-
-# NVIDIA GPU, CUDA 12
-pip install "jax[cuda12]"
-
-# Google Cloud TPU
-pip install "jax[tpu]"
-```
+jax-healpy requires Python 3.11 or later, and JAX. If JAX is not already installed,
+`pip install jax-healpy` installs its CPU version. To run on a GPU or a TPU, install JAX as
+described in its [installation guide](https://docs.jax.dev/en/latest/installation.html).
 
 ## Installation
 
@@ -32,12 +14,6 @@ Wheels are available on PyPI:
 
 ```bash
 pip install jax-healpy
-```
-
-JAX and jax-healpy can be installed in a single command, for instance with NVIDIA CUDA 13 support:
-
-```bash
-pip install jax-healpy "jax[cuda13]"
 ```
 
 ### Spherical Harmonic Transforms
@@ -58,8 +34,8 @@ pip install "jax-healpy[cpu]"
 pip install "jax-healpy[gpu]" "jax[cuda13]"
 ```
 
-The extra `gpu` does not install the GPU version of JAX: it is selected by the extra of JAX, as described
-in the [prerequisites](#jax-installation).
+The extra `gpu` does not install the GPU version of JAX: it is selected by the extra of JAX, here
+`jax[cuda13]`, as described in its [installation guide](https://docs.jax.dev/en/latest/installation.html).
 
 !!! warning "The extra `gpu` currently requires s2fft from GitHub"
     s2fft 1.5.0, its latest release, computes the transforms of polarization on HEALPix maps with errors
@@ -94,60 +70,6 @@ uv sync --all-extras --group cuda
 
 See the [contributing guide](../contributing.md) for more details.
 
-## High-Performance Computing Systems
-
-### General HPC Setup
-
-Many HPC systems require module loading:
-
-```bash
-module load python/3.12
-module load cuda/13.0  # If using GPU
-python -m venv .venv
-source .venv/bin/activate
-pip install "jax-healpy[gpu]" "jax[cuda13]"
-```
-
-### SLURM Job Scripts
-
-Example SLURM script for GPU jobs:
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=jax-healpy
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:1
-#SBATCH --time=01:00:00
-
-module load python/3.12
-module load cuda/13.0
-source .venv/bin/activate
-
-python your_script.py
-```
-
-### Jean Zay (France)
-
-```bash
-module load python/3.12.7
-module load cuda/12.8.0
-python -m venv .venv
-source .venv/bin/activate
-pip install "jax-healpy[gpu]" "jax[cuda12]"
-```
-
-### NERSC Perlmutter
-
-```bash
-module load python
-module load cuda
-python -m venv .venv
-source .venv/bin/activate
-pip install "jax-healpy[gpu]" "jax[cuda12]"
-```
-
 ## Verifying Installation
 
 Test your installation:
@@ -176,7 +98,7 @@ print(f'Successfully converted {len(pixels)} pixels to coordinates')
 ModuleNotFoundError: No module named 'jax'
 ```
 
-**Solution**: Install JAX according to your hardware configuration (see above).
+**Solution**: Install JAX according to your hardware configuration (see the [prerequisites](#prerequisites)).
 
 ### GPU Not Detected
 
@@ -185,7 +107,7 @@ print(jax.devices())  # Should show GPU devices
 ```
 
 **Solution**: Ensure that the NVIDIA driver is properly installed and that JAX was installed with GPU support,
-for instance with `pip install "jax[cuda13]"`.
+as described in its [installation guide](https://docs.jax.dev/en/latest/installation.html).
 
 ### Out of Memory Errors
 

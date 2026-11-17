@@ -33,11 +33,7 @@ Install via PyPI:
 pip install jax-healpy
 ```
 
-If JAX is not already installed, this command installs its CPU version. JAX and jax-healpy can also be installed together, for instance with NVIDIA CUDA 13 support:
-
-```bash
-pip install jax-healpy "jax[cuda13]"
-```
+If JAX is not already installed, this command installs its CPU version.
 
 The spherical harmonic transforms are computed by an additional library, which depends on the device and is installed by an extra:
 
@@ -120,23 +116,6 @@ Complete documentation is available at [jax-healpy.readthedocs.io](https://jax-h
 - [Migrating from healpy](https://jax-healpy.readthedocs.io/en/latest/user-guide/migrating-from-healpy/)
 - [API Reference](https://jax-healpy.readthedocs.io/en/latest/api/pixelfunc/)
 - [Examples and Tutorials](https://jax-healpy.readthedocs.io/en/latest/user-guide/basic-usage/)
-
-## High-Performance Computing
-
-### Environment Setup
-
-For HPC systems, load required modules:
-
-```bash
-module load python/3.10
-python -m venv venv
-source venv/bin/activate
-pip install jax-healpy
-```
-
-### GPU Support
-
-Ensure JAX is properly configured for your GPU architecture. See the [JAX GPU installation guide](https://jax.readthedocs.io/en/latest/installation.html#gpu) for details.
 
 ## Contributing
 
