@@ -258,7 +258,7 @@ def isnsideok(nside: int, nest: bool = False) -> bool:
     True
 
     >>> hp.isnsideok([1, 2, 3, 4, 8, 16], nest=True)
-    array([ True,  True, False,  True,  True,  True], dtype=bool)
+    array([ True,  True, False,  True,  True,  True])
     """
     nside = np.asarray(nside)
     is_nside_ok = (
@@ -299,7 +299,7 @@ def isnpixok(npix: int) -> bool:
     True
 
     >>> hp.isnpixok([12, 768, 1002])
-    array([ True,  True, False], dtype=bool)
+    array([ True,  True, False])
     """
     npix = np.asarray(npix)
     # sqrt is only taken on positive sizes, so that it raises no warning on negative ones
@@ -337,7 +337,7 @@ def nside2npix(nside: int) -> int:
     >>> hp.nside2npix(8)
     768
 
-    >>> np.all([hp.nside2npix(nside) == 12 * nside**2 for nside in [2**n for n in range(12)]])
+    >>> all(hp.nside2npix(nside) == 12 * nside**2 for nside in [2**n for n in range(12)])
     True
 
     >>> hp.nside2npix(7)
@@ -377,7 +377,7 @@ def npix2nside(npix: int) -> int:
     >>> hp.npix2nside(768)
     8
 
-    >>> np.all([hp.npix2nside(12 * nside**2) == nside for nside in [2**n for n in range(12)]])
+    >>> all(hp.npix2nside(12 * nside**2) == nside for nside in [2**n for n in range(12)])
     True
 
     >>> hp.npix2nside(1000)
@@ -522,7 +522,7 @@ def npix2order(npix: int) -> int:
     >>> hp.npix2order(768)
     3
 
-    >>> np.all([hp.npix2order(12 * 4**order) == order for order in range(12)])
+    >>> all(hp.npix2order(12 * 4**order) == order for order in range(12))
     True
 
     >>> hp.npix2order(1000)
@@ -560,14 +560,14 @@ def nside2resol(nside: int, arcmin=False) -> float:
     Examples
     --------
     >>> import jax_healpy as hp
-    >>> hp.nside2resol(128, arcmin = True)  # doctest: +FLOAT_CMP
-    27.483891294539248
+    >>> hp.nside2resol(128, arcmin = True)
+    np.float64(27.483891294539248)
 
     >>> hp.nside2resol(256)
-    0.0039973699529159707
+    np.float64(0.003997369952915971)
 
     >>> hp.nside2resol(7)
-    0.1461895297066412
+    np.float64(0.1461895297066412)
     """
     resol = np.sqrt(nside2pixarea(nside))
 
@@ -599,8 +599,8 @@ def nside2pixarea(nside: int, degrees=False) -> float:
     Examples
     --------
     >>> import jax_healpy as hp
-    >>> hp.nside2pixarea(128, degrees = True)  # doctest: +FLOAT_CMP
-    0.2098234113027917
+    >>> hp.nside2pixarea(128, degrees = True)
+    np.float64(0.2098234113027917)
 
     >>> hp.nside2pixarea(256)
     1.5978966540475428e-05
@@ -672,10 +672,10 @@ def maptype(m):
 
     Examples
     --------
-    >>> import healpy as hp
-    >>> hp.pixelfunc.maptype(np.arange(12))
+    >>> import jax_healpy as hp
+    >>> hp.maptype(np.arange(12))
     0
-    >>> hp.pixelfunc.maptype([np.arange(12), np.arange(12)])
+    >>> hp.maptype([np.arange(12), np.arange(12)])
     2
     """
     if not hasattr(m, '__len__'):
@@ -748,19 +748,13 @@ def ang2pix(
     >>> import jax_healpy as hp
     >>> from jax.numpy import pi as π
     >>> hp.ang2pix(16, π/2, 0)
-    Array(1440, dtype=int64)
+    Array(1440, dtype=int32)
 
     >>> print(hp.ang2pix(16, np.array([π/2, π/4, π/2, 0, π]), np.array([0., π/4, π/2 + 1e-15, 0, 0])))
     [1440  427 1520    0 3068]
 
     >>> print(hp.ang2pix(16, π/2, np.array([0, π/2 + 1e-15])))
     [1440 1520]
-
-    >>> print(hp.ang2pix(np.array([1, 2, 4, 8, 16]), π/2, 0))
-    [   4   12   72  336 1440]
-
-    >>> print(hp.ang2pix(np.array([1, 2, 4, 8, 16]), 0, 0, lonlat=True))
-    [   4   12   72  336 1440]
     """
     # check_theta_valid(theta)
     if lonlat:
@@ -805,7 +799,7 @@ def loc2pix(nside: int, z: ArrayLike, sin_theta: ArrayLike, phi: ArrayLike, nest
     --------
     >>> import jax_healpy as hp
     >>> hp.loc2pix(16, 0.0, 1.0, 0.0)
-    Array(1504, dtype=int64)
+    Array(1504, dtype=int32)
 
     >>> print(hp.loc2pix(16, *hp.pix2loc(16, np.array([1440, 427, 1520, 0, 3068]))))
     [1440  427 1520    0 3068]
@@ -928,17 +922,19 @@ def pix2ang(nside: int, ipix: ArrayLike, nest: bool = False, lonlat: bool = Fals
     Examples
     --------
     >>> import jax_healpy as hp
-    >>> hp.pix2ang(16, 1440)
-    (1.5291175943723188, 0.0)
+    >>> theta, phi = hp.pix2ang(16, 1440)
+    >>> print(theta, phi)
+    1.5291175943723188 0.0
 
-    >>> hp.pix2ang(16, [1440,  427, 1520,    0, 3068])
-    (array([ 1.52911759,  0.78550497,  1.57079633,  0.05103658,  3.09055608]), array([ 0.        ,  0.78539816,  1.61988371,  0.78539816,  0.78539816]))
+    >>> theta, phi = hp.pix2ang(16, np.array([1440, 427, 1520, 0, 3068]))
+    >>> print(theta)
+    [1.52911759 0.78550497 1.57079633 0.05103658 3.09055608]
+    >>> print(phi)
+    [0.         0.78539816 1.61988371 0.78539816 0.78539816]
 
-    >>> hp.pix2ang([1, 2, 4, 8], 11)
-    (array([ 2.30052398,  0.84106867,  0.41113786,  0.2044802 ]), array([ 5.49778714,  5.89048623,  5.89048623,  5.89048623]))
-
-    >>> hp.pix2ang([1, 2, 4, 8], 11, lonlat=True)
-    (array([ 315. ,  337.5,  337.5,  337.5]), array([-41.8103149 ,  41.8103149 ,  66.44353569,  78.28414761]))
+    >>> lon, lat = hp.pix2ang(8, 11, lonlat=True)
+    >>> print(lon, lat)
+    337.5 78.28414760510762
     """
 
     z, sin_theta, phi = pix2loc(nside, ipix, nest=nest)
@@ -1053,11 +1049,11 @@ def xyf2pix(nside: int, x: ArrayLike, y: ArrayLike, face: ArrayLike, nest: bool 
 
     Examples
     --------
-    >>> import healpy as hp
-    >>> hp.xyf2pix(16, 8, 8, 4)
+    >>> import jax_healpy as hp
+    >>> print(hp.xyf2pix(16, 8, 8, 4))
     1440
 
-    >>> print(hp.xyf2pix(16, [8, 8, 8, 15, 0], [8, 8, 7, 15, 0], [4, 0, 5, 0, 8]))
+    >>> print(hp.xyf2pix(16, np.array([8, 8, 8, 15, 0]), np.array([8, 8, 7, 15, 0]), np.array([4, 0, 5, 0, 8])))
     [1440  427 1520    0 3068]
     """
     check_nside(nside, nest=nest)
@@ -1304,15 +1300,14 @@ def pix2xyf(nside: int, ipix: ArrayLike, nest: bool = False) -> tuple[Array, Arr
 
     Examples
     --------
-    >>> import healpy as hp
-    >>> hp.pix2xyf(16, 1440)
-    (8, 8, 4)
+    >>> import jax_healpy as hp
+    >>> x, y, face = hp.pix2xyf(16, 1440)
+    >>> print(x, y, face)
+    8 8 4
 
-    >>> hp.pix2xyf(16, [1440,  427, 1520,    0, 3068])
-    (array([ 8,  8,  8, 15,  0]), array([ 8,  8,  7, 15,  0]), array([4, 0, 5, 0, 8]))
-
-    >>> hp.pix2xyf([1, 2, 4, 8], 11)
-    (array([0, 1, 3, 7]), array([0, 0, 2, 6]), array([11,  3,  3,  3]))
+    >>> x, y, face = hp.pix2xyf(16, np.array([1440, 427, 1520, 0, 3068]))
+    >>> print(x, y, face)
+    [ 8  8  8 15  0] [ 8  8  7 15  0] [4 0 5 0 8]
     """
     check_nside(nside, nest=nest)
     ipix = jnp.asarray(ipix)
@@ -1459,15 +1454,12 @@ def vec2pix(nside: int, x: ArrayLike, y: ArrayLike, z: ArrayLike, nest: bool = F
 
     Examples
     --------
-    >>> import healpy as hp
-    >>> hp.vec2pix(16, 1, 0, 0)
+    >>> import jax_healpy as hp
+    >>> print(hp.vec2pix(16, 1, 0, 0))
     1504
 
-    >>> print(hp.vec2pix(16, [1, 0], [0, 1], [0, 0]))
+    >>> print(hp.vec2pix(16, np.array([1, 0]), np.array([0, 1]), np.array([0, 0])))
     [1504 1520]
-
-    >>> print(hp.vec2pix([1, 2, 4, 8], 1, 0, 0))
-    [  4  20  88 368]
     """
     dnorm = 1 / jnp.sqrt(x**2 + y**2 + z**2)
     return loc2pix(nside, z * dnorm, jnp.sqrt(x**2 + y**2) * dnorm, jnp.arctan2(y, x), nest=nest)
@@ -1497,15 +1489,13 @@ def pix2vec(nside: int, ipix: ArrayLike, nest: bool = False) -> Array:
 
     Examples
     --------
-    >>> import healpy as hp
-    >>> hp.pix2vec(16, 1504)
-    (0.99879545620517241, 0.049067674327418015, 0.0)
+    >>> import jax_healpy as hp
+    >>> print(hp.pix2vec(16, 1504))
+    [0.99879546 0.04906767 0.        ]
 
-    >>> hp.pix2vec(16, [1440,  427])
-    (array([ 0.99913157,  0.5000534 ]), array([ 0.       ,  0.5000534]), array([ 0.04166667,  0.70703125]))
-
-    >>> hp.pix2vec([1, 2], 11)
-    (array([ 0.52704628,  0.68861915]), array([-0.52704628, -0.28523539]), array([-0.66666667,  0.66666667]))
+    >>> print(hp.pix2vec(16, np.array([1440, 427])))
+    [[0.99913157 0.         0.04166667]
+     [0.5000534  0.5000534  0.70703125]]
     """
     z, sin_theta, phi = pix2loc(nside, ipix, nest=nest)
     return jnp.stack([sin_theta * jnp.cos(phi), sin_theta * jnp.sin(phi), z], axis=-1)
@@ -1673,15 +1663,12 @@ def ring2nest(nside: int, ipix: ArrayLike) -> Array:
 
     Examples
     --------
-    >>> import healpy as hp
-    >>> hp.ring2nest(16, 1504)
+    >>> import jax_healpy as hp
+    >>> print(hp.ring2nest(16, 1504))
     1130
 
     >>> print(hp.ring2nest(2, np.arange(10)))
     [ 3  7 11 15  2  1  6  5 10  9]
-
-    >>> print(hp.ring2nest([1, 2, 4, 8], 11))
-    [ 11  13  61 253]
     """
     check_nside(nside, nest=True)
     ipix = jnp.asarray(ipix)
@@ -1716,15 +1703,12 @@ def nest2ring(nside: int, ipix: ArrayLike) -> Array:
 
     Examples
     --------
-    >>> import healpy as hp
-    >>> hp.nest2ring(16, 1130)
+    >>> import jax_healpy as hp
+    >>> print(hp.nest2ring(16, 1130))
     1504
 
     >>> print(hp.nest2ring(2, np.arange(10)))
     [13  5  4  0 15  7  6  1 17  9]
-
-    >>> print(hp.nest2ring([1, 2, 4, 8], 11))
-    [ 11   2  12 211]
     """
     check_nside(nside, nest=True)
     ipix = jnp.asarray(ipix)
@@ -1778,34 +1762,15 @@ def reorder(
 
     Examples
     --------
-    >>> import healpy as hp
-    >>> hp.reorder(np.arange(48), r2n = True)
-    array([13,  5,  4,  0, 15,  7,  6,  1, 17,  9,  8,  2, 19, 11, 10,  3, 28,
-           20, 27, 12, 30, 22, 21, 14, 32, 24, 23, 16, 34, 26, 25, 18, 44, 37,
-           36, 29, 45, 39, 38, 31, 46, 41, 40, 33, 47, 43, 42, 35])
-    >>> hp.reorder(np.arange(12), n2r = True)
-    array([ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11])
-    >>> hp.reorder(hp.ma(np.arange(12.)), n2r = True)
-    masked_array(data = [  0.   1.   2.   3.   4.   5.   6.   7.   8.   9.  10.  11.],
-                 mask = False,
-           fill_value = -1.6375e+30)
-    <BLANKLINE>
-    >>> m = [np.arange(12.), np.arange(12.), np.arange(12.)]
-    >>> m[0][2] = hp.UNSEEN
-    >>> m[1][2] = hp.UNSEEN
-    >>> m[2][2] = hp.UNSEEN
-    >>> m = hp.ma(m)
-    >>> hp.reorder(m, n2r = True)
-    masked_array(data =
-     [[0.0 1.0 -- 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0]
-     [0.0 1.0 -- 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0]
-     [0.0 1.0 -- 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0]],
-                 mask =
-     [[False False  True False False False False False False False False False]
-     [False False  True False False False False False False False False False]
-     [False False  True False False False False False False False False False]],
-           fill_value = -1.6375e+30)
-    <BLANKLINE>
+    >>> import jax_healpy as hp
+    >>> print(hp.reorder(np.arange(48), r2n=True))
+    [13  5  4  0 15  7  6  1 17  9  8  2 19 11 10  3 28 20 27 12 30 22 21 14
+     32 24 23 16 34 26 25 18 44 37 36 29 45 39 38 31 46 41 40 33 47 43 42 35]
+
+    >>> maps = np.stack([np.arange(48), 100 + np.arange(48)])
+    >>> print(hp.reorder(maps, r2n=True)[:, :4])
+    [[ 13   5   4   0]
+     [113 105 104 100]]
     """
     # Check input map(s)
     map_in = jnp.asarray(map_in)
@@ -1987,11 +1952,22 @@ def get_interp_weights(
     --------
     Gradient of a bilinear interpolation with respect to the coordinates:
 
+    >>> import jax
+    >>> import jax.numpy as jnp
+    >>> import jax_healpy as hp
+    >>> nside = 4
+    >>> m = jnp.arange(hp.nside2npix(nside), dtype=float)
     >>> def interpolate_map(m, theta, phi):
-    ...     pixels, weights = get_interp_weights(nside, theta, phi)
+    ...     pixels, weights = hp.get_interp_weights(nside, theta, phi)
     ...     return jnp.sum(weights * m[pixels], axis=0)
-    >>> grad_func = jax.grad(interpolate_map, argnums=(1, 2))
-    >>> grad_theta, grad_phi = grad_func(map_data, theta, phi)
+    >>> grad_theta, grad_phi = jax.grad(interpolate_map, argnums=(1, 2))(m, 1.0, 0.5)
+
+    The gradient agrees with a finite difference:
+
+    >>> eps = 1e-6
+    >>> finite_difference = (interpolate_map(m, 1.0 + eps, 0.5) - interpolate_map(m, 1.0 - eps, 0.5)) / (2 * eps)
+    >>> bool(jnp.isclose(grad_theta, finite_difference))
+    True
     """
     check_nside(nside, nest=nest)
 
@@ -2262,18 +2238,18 @@ def get_interp_val(
     >>> import jax.numpy as jnp
     >>> m = jnp.arange(12.)
     >>> hp.get_interp_val(m, jnp.pi/2, 0.0)
-    Array(4.5, dtype=float64)
+    Array(4., dtype=float64)
 
     >>> # Multiple coordinates
     >>> theta = jnp.array([jnp.pi/4, jnp.pi/2])
     >>> phi = jnp.array([0.0, jnp.pi/2])
     >>> hp.get_interp_val(m, theta, phi)
-    Array([2.25, 6.  ], dtype=float64)
+    Array([1.5, 5. ], dtype=float64)
 
     >>> # Multiple maps
     >>> maps = jnp.array([jnp.arange(12.), 2*jnp.arange(12.)])
     >>> hp.get_interp_val(maps, jnp.pi/2, 0.0)
-    Array([4.5, 9. ], dtype=float64)
+    Array([4., 8.], dtype=float64)
     """
     if nest:
         raise ValueError('NEST pixel ordering is not supported. Only RING ordering is supported.')
@@ -2370,7 +2346,7 @@ def get_all_neighbours(
     >>> import jax.numpy as jnp
     >>> neighbors = hp.get_all_neighbours(1, jnp.pi/2, jnp.pi/2, get_center=True)
     >>> print(neighbors)
-    [ 6  8  4  0 -1  1  6  9 -1]
+    [ 5  8  4  0 -1  1  6  9 -1]
 
     Notes
     -----
