@@ -113,7 +113,7 @@ The pixel functions run about 10 times faster than healpy on CPU and up to 1000 
 Complete documentation is available at [jax-healpy.readthedocs.io](https://jax-healpy.readthedocs.io/)
 
 - [Getting Started Guide](https://jax-healpy.readthedocs.io/en/latest/user-guide/getting-started/)
-- [Migrating from healpy](https://jax-healpy.readthedocs.io/en/latest/user-guide/migrating-from-healpy/)
+- [Differences from healpy](https://jax-healpy.readthedocs.io/en/latest/user-guide/differences-from-healpy/)
 - [API Reference](https://jax-healpy.readthedocs.io/en/latest/api/pixelfunc/)
 
 ## Contributing
