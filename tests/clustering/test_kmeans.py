@@ -172,6 +172,29 @@ def test_normalize_from_clusters(mask: tuple[str, Array], nside: int) -> None:
     assert (np.sort(idx) == idx).all(), 'First-occurrence indices are not sorted'
 
 
+U = jhp.UNSEEN
+
+
+@pytest.mark.parametrize(
+    'arr, n_regions, max_centroids, expected',
+    [
+        ([U, U, 5, 5, 5, 2, 3, 3, 8], 4, 10, [U, U, 0, 0, 0, 1, 2, 2, 3]),
+        ([U, U, 5, 5, 5, 2, 3, 3, 8], 4, 4, [U, U, 0, 0, 0, 1, 2, 2, 3]),
+        ([U, U, 5, 5, 5, 2, 3, 3, 8], 3, 10, [U, U, 0, 0, 0, 1, 2, 2, U]),
+        ([U, U, 5, 5, 5, 2, 3, 3, 8], 3, 4, [U, U, 0, 0, 0, 1, 2, 2, U]),
+        ([U, U, 5, 5, 5, 2, 3, 3, 8], 5, 10, [U, U, 0, 0, 0, 1, 2, 2, 3]),
+        ([U, U, 5, 5, 5, 2, 3, 3, 8], 6, 10, [U, U, 0, 0, 0, 1, 2, 2, 3]),
+        ([3, U, 0, 3, 7, U, 0], 3, 5, [0, U, 1, 0, 2, U, 1]),
+        ([5, 5, 2, 3, 3, 8], 2, 4, [0, 0, 1, U, U, U]),
+    ],
+)
+def test_normalize_by_first_occurrence(
+    x64: bool, arr: list[float], n_regions: int, max_centroids: int, expected: list[float]
+) -> None:
+    labels = normalize_by_first_occurrence(jnp.array(arr), n_regions, max_centroids)
+    assert_array_equal(labels, jnp.array(expected))
+
+
 def test_shuffle_labels_randomizes_labels():
     arr = np.array([0, 0, 1, 1, 2, 2, 3, 3, 3, 4, 4, 5, 6, 6, 6, 6])
     shuffled = shuffle_labels(arr)
