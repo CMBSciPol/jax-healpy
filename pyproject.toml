@@ -6,17 +6,17 @@ requires = ['hatchling', 'hatch-vcs']
 name = 'jax-healpy'
 authors = [
     {name = 'Pierre Chanial', email = 'pierre.chanial@gmail.com'},
-    {name = 'Simon Biquard', email = 'sbiquard@gmail.com'},
-    {name = 'Artem Basyrov', email = 'artem.m.basyrov@gmail.com'},
     {name = 'Wassim Kabalan', email = 'wassim@apc.in2p3.fr'},
-    {name = 'Magdy Morshed', email = 'magdy.morshed@fe.infn.it'}
+    {name = 'Simon Biquard', email = 'sbiquard@gmail.com'},
+    {name = 'Magdy Morshed', email = 'magdy.morshed@fe.infn.it'},
+    {name = 'Artem Basyrov', email = 'artem.m.basyrov@gmail.com'}
 ]
 maintainers = [
     {name = 'Pierre Chanial', email = 'pierre.chanial@gmail.com'},
+    {name = 'Wassim Kabalan', email = 'wassim@apc.in2p3.fr'},
     {name = 'Simon Biquard', email = 'sbiquard@gmail.com'},
-    {name = 'Artem Basyrov', email = 'artem.m.basyrov@gmail.com'},
     {name = 'Magdy Morshed', email = 'magdy.morshed@fe.infn.it'},
-    {name = 'Wassim Kabalan', email = 'wassim@apc.in2p3.fr'}
+    {name = 'Artem Basyrov', email = 'artem.m.basyrov@gmail.com'}
 ]
 description = 'Healpix JAX implementation.'
 readme = 'README.md'

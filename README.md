@@ -132,8 +132,8 @@ If you use jax-healpy in your research, please cite:
 
 ```bibtex
 @software{jax_healpy,
-    author = {Chanial, Pierre and Morshed, Magdy and Biquard, Simon and Kabalan, Wassim and Basyrov, Artem},
-    license = {GPL-3.0},
+    author = {Chanial, Pierre and Kabalan, Wassim and Biquard, Simon and Morshed, Magdy and Basyrov, Artem},
+    license = {GPL-3.0-or-later},
     title = {{jax-healpy: Differentiable implementation of HEALPix functions and extensions in JAX}},
     url = {https://github.com/CMBSciPol/jax-healpy},
     year = {2026}
