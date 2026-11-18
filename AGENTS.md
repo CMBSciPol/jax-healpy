@@ -13,7 +13,7 @@ Its signature and its conventions are those of healpy: departing from them is a 
 
 
 ## Tests
-Run the tests with `uv run pytest`: the tests marked `slow` are deselected by default. Build the documentation with `uv run --group docs sh docs/build.sh`. `CONTRIBUTING.md` has the details.
+Run the tests with `uv run pytest`: the tests marked `slow` are deselected by default. Build the documentation with `uv run --group docs --extra cpu sh docs/build.sh`: the `cpu` extra installs ducc0, which computes the spherical harmonic transforms of the notebooks of the user guide. `CONTRIBUTING.md` has the details.
 
 In the tests, patch with the `mocker` fixture of pytest-mock, never with `monkeypatch`. `mocker` (or `session_mocker`, `module_mocker`...) is the first argument of the test or of the fixture, before `request` and the parametrized arguments.
 
