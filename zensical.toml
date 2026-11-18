@@ -22,7 +22,6 @@ nav = [
       "user-guide/installation.md",
       "user-guide/getting-started.md",
       "user-guide/migrating-from-healpy.md",
-      "user-guide/basic-usage.md",
       "user-guide/pixelization.md",
       "user-guide/polarization.md",
       "user-guide/inference.md",
