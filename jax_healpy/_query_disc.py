@@ -634,12 +634,12 @@ def query_disc(
     >>> map1 = map.at[discs[:, 0]].set(1.0)  # First disc
     >>> map2 = map.at[discs[:, 1]].set(2.0)  # Second disc
 
-    For JIT compilation:
+    For JIT compilation, `nside` is static:
 
-    >>> jit_query_disc = jax.jit(
-    ...     lambda n, v, r: hp.query_disc(n, v, r)
-    ... )
+    >>> jit_query_disc = jax.jit(hp.query_disc, static_argnames='nside')
     >>> disc_jit = jit_query_disc(nside, vec, radius)
+    >>> bool(jnp.all(disc_jit == disc))
+    True
     """
     # Raise error for nested ordering
     if nest:

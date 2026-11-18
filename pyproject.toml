@@ -113,6 +113,7 @@ addopts = [
 minversion = "9"
 strict = true
 testpaths = [
+    'jax_healpy',
     'tests',
     'docs/user-guide',
 ]

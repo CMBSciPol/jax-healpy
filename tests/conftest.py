@@ -1,27 +1,7 @@
 import gc
-import os
 from pathlib import Path
 
 import pytest
-
-# The tests are run in parallel by pytest-xdist: ducc0 gets a single thread in each process, instead of
-# all the cores. It reads this variable when it is first imported.
-os.environ.setdefault('DUCC0_NUM_THREADS', '1')
-
-
-@pytest.fixture(scope='session', autouse=True)
-def default_x64():
-    """Default the whole test session to 64-bit precision.
-
-    jax-healpy no longer enables x64 on import, but most tests check numerical
-    accuracy against healpy at float64 tolerances. Tests that exercise both
-    precisions use the parametrized ``x64`` fixture, whose context manager
-    overrides this default within the test.
-    """
-    import jax
-
-    with jax.enable_x64(True):
-        yield
 
 
 @pytest.fixture(scope='module', autouse=True)
