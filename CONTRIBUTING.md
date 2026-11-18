@@ -58,7 +58,9 @@ uv run pytest -m slow                          # only the slow tests
 The suite runs the tests under `tests/` and executes the notebooks of the user guide. The tests
 marked `slow` are deselected by default, and the CI does not run them. The CI runs the suite on
 Python 3.11 to 3.13 with the oldest supported version of JAX, and on Python 3.14 with the latest
-one, with and without s2fft.
+one, with and without s2fft. On a pull request whose changed files cannot affect the tests, such
+as `README.md` or the Markdown pages of the documentation, the test jobs skip their steps: the
+files are listed in the `changes` job of `.github/workflows/ci.yml`.
 
 Most of the time of the tests goes to the compilation of the JAX programs, and the tests drop the
 programs compiled by a module once it is done, to bound their memory. A persistent compilation
