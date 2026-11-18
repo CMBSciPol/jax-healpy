@@ -84,7 +84,6 @@ of this benchmark.
 - **User Guide**: [Installation](user-guide/installation.md),
   [Getting started](user-guide/getting-started.md),
   [Migrating from healpy](user-guide/migrating-from-healpy.md),
-  [Basic usage](user-guide/basic-usage.md),
   [Pixelization](user-guide/pixelization.md), [Polarization](user-guide/polarization.md),
   [Inference of the tensor-to-scalar ratio](user-guide/inference.md),
   [Clustering](user-guide/clustering.md),
