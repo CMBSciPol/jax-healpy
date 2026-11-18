@@ -19,6 +19,12 @@ jobs:
           persist-credentials: false
           fetch-depth: 0  # Full history for dynamic versioning
 
+      # The changes of the release must be dated in the changelog before it is tagged
+      - name: Check that the changelog has a section for the version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: grep -qF -- "## [${TAG#v}] - " docs/changelog.md || { echo "::error::No section ${TAG#v} in docs/changelog.md"; exit 1; }
+
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
