@@ -7,8 +7,10 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/jax-healpy)](https://pypi.org/project/jax-healpy/)
 [![License](https://img.shields.io/pypi/l/jax-healpy)](https://github.com/CMBSciPol/jax-healpy/blob/main/LICENSE)
 
-**jax-healpy** is a JAX-based implementation of the HEALPix (Hierarchical Equal Area isoLatitude
-Pixelization) functions, designed for high-performance scientific computing on CPUs and GPUs. It provides JAX-native versions of popular healpy functions, enabling automatic differentiation,
+**jax-healpy** is a JAX-based implementation of the [HEALPix](https://healpix.sourceforge.io/)
+(Hierarchical Equal Area isoLatitude Pixelization) functions, designed for high-performance
+scientific computing on CPUs and GPUs. It provides JAX-native versions of popular
+[healpy](https://healpy.readthedocs.io/) functions, enabling automatic differentiation,
 just-in-time compilation and seamless integration with modern scientific computing workflows.
 
 ## Key Features
@@ -92,6 +94,10 @@ of this benchmark.
   [Clustering](api/clustering.md)
 - [**Changelog**](changelog.md)
 - [**Contributing**](contributing.md)
+
+## How to cite
+
+--8<-- "README.md:citation"
 
 ## Acknowledgements
 

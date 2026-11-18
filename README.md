@@ -149,6 +149,7 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## Citation
 
+<!-- --8<-- [start:citation] -->
 If you use jax-healpy in your research, please cite:
 
 ```bibtex
@@ -160,6 +161,7 @@ If you use jax-healpy in your research, please cite:
     year = {2026}
 }
 ```
+<!-- --8<-- [end:citation] -->
 
 ## License
 
