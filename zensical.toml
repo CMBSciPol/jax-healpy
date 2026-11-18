@@ -22,6 +22,7 @@ nav = [
       "user-guide/installation.md",
       "user-guide/getting-started.md",
       "user-guide/differences-from-healpy.md",
+      "user-guide/what-jax-healpy-adds.md",
       "user-guide/pixelization.md",
       "user-guide/polarization.md",
       "user-guide/inference.md",
