@@ -344,29 +344,24 @@ def normalize_by_first_occurrence(arr: Array, n_regions: int, max_centroids: int
     arbitrary order. This function renumbers them by their first occurrence in `arr`: the first
     label met becomes 0, the second one 1, and so on, so that two clusterings that differ only
     by the numbering of their labels get the same labels. The [`UNSEEN`][jax_healpy.UNSEEN]
-    values are kept.
-
-    !!! warning
-        The renumbering is exact only if `arr` has `n_regions` distinct labels besides
-        `UNSEEN`, as the labels of a clustering into `n_regions` regions. With $k$ distinct
-        labels, the ranks of their first occurrences are shifted by $n - k$, where $n$ is
-        `n_regions`, and clipped to $[0, n - 1]$: if $k > n$, the first labels are merged into
-        0 (#44).
+    values are kept, and the labels met after the first `n_regions` ones become `UNSEEN`.
 
     Parameters
     ----------
     arr : jax.Array
         The labels, a one-dimensional array that can contain `UNSEEN` values.
     n_regions : int
-        The number of distinct labels besides `UNSEEN`. It can be traced, for instance by
-        `jax.jit`.
+        The number of labels kept, in the order of their first occurrence. It can be traced,
+        for instance by `jax.jit`.
     max_centroids : int
-        An upper bound of the number of distinct labels. It is a static argument.
+        An upper bound of the number of distinct labels besides `UNSEEN`. It is a static
+        argument.
 
     Returns
     -------
     jax.Array
-        The renumbered labels, of the shape of `arr`, and `UNSEEN` where `arr` is.
+        The renumbered labels, of the shape of `arr`, from 0 to the number of labels kept minus
+        one, and `UNSEEN` where `arr` is or where its label is not kept.
 
     Examples
     --------
@@ -379,21 +374,24 @@ def normalize_by_first_occurrence(arr: Array, n_regions: int, max_centroids: int
     [0. 0. 0. 1. 2. 2. 3.]
     >>> bool(jnp.all(labels[:2] == UNSEEN))
     True
-    """
-    arr_unseen = jnp.concatenate([jnp.array([UNSEEN]), arr])
 
-    unique_vals, first_idxs = jnp.unique(arr_unseen, size=max_centroids + 1, return_index=True)
-    order = jnp.argsort(first_idxs)
-    unique_by_first = unique_vals[order]
-    matches = arr_unseen[..., None] == unique_by_first
-    idxs = jnp.argmax(matches, axis=-1)
-    no_match = ~jnp.any(matches, axis=-1)
-    normalized = jnp.where(no_match, UNSEEN, idxs)
-    normalized = normalized[1:]
-    normalized = jnp.where(
-        arr == UNSEEN, UNSEEN, jnp.clip(normalized - (max_centroids - n_regions) - 1, 0, n_regions - 1)
+    With 3 regions, the label 8, met after the first 3 ones, becomes `UNSEEN`:
+
+    >>> labels = normalize_by_first_occurrence(arr, 3, 10)
+    >>> print(labels[2:-1])
+    [0. 0. 0. 1. 2. 2.]
+    >>> bool(labels[-1] == UNSEEN)
+    True
+    """
+    values, first_indices, inverse = jnp.unique(
+        arr, size=max_centroids + 1, fill_value=UNSEEN, return_index=True, return_inverse=True
     )
-    return normalized
+    # The rank of each distinct value by its first occurrence, UNSEEN and the padding last.
+    order = jnp.argsort(jnp.where(values != UNSEEN, first_indices, arr.size))
+    labels = jnp.argsort(order)[inverse]
+    # The values that do not fit in the size of jnp.unique have an out-of-range inverse index.
+    kept = (arr != UNSEEN) & (inverse < values.size) & (labels < n_regions)
+    return jnp.where(kept, labels, UNSEEN)
 
 
 def shuffle_labels(arr: Array) -> Array:

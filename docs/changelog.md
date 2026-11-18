@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The error that `find_kmeans_clusters` raises when `n_regions` exceeds `max_centroids` names the function and gives both values, instead of a `get_clusters` function and a `comp_sep` module that are not in jax-healpy (#102)
+- `normalize_by_first_occurrence` numbers the labels from 0 in the order of their first occurrence, whatever their number: with fewer distinct labels than `n_regions`, the first one was numbered `n_regions` minus their number, and with more, the first ones were merged into 0. The labels met after the first `n_regions` ones become `UNSEEN` (#105)
 
 ## [0.9.0] - 2026-11-17
 
