@@ -43,8 +43,57 @@ jobs:
       - name: Run hooks
         run: uv run --locked --only-group hooks prek run --all-files --show-diff-on-failure --color=always
 
+  # The tests always run on a push to main and on a manual run. On a pull request, they are
+  # skipped when none of the files it changes can affect them (#98).
+  changes:
+    name: Detect the changes that can affect the tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tests: ${{ steps.files.outputs.tests }}
+    steps:
+      # On a pull request, the merge commit of its branch into the base branch, which is the
+      # first parent of the merge commit
+      - name: Checkout project
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: List the changed files that can affect the tests
+        id: files
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "${EVENT_NAME}" != pull_request ]; then
+            echo "tests=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The files that the tests neither import, read nor run. They execute the notebooks
+          # of the user guide, which read its data: those are not listed.
+          ignored=(
+            '\.gitattributes' '\.gitignore' '\.pre-commit-config\.yaml' '\.readthedocs\.yaml'
+            'AGENTS\.md' 'CITATION\.cff' 'CONTRIBUTING\.md' 'LICENSE' 'README\.md' 'zensical\.toml'
+            '\.github/dependabot\.yml' '\.github/workflows/(dependabot-auto-merge|release)\.yml'
+            'benchmarks/.*'
+            'docs/[^/]+' 'docs/(api|assets|benchmarks|javascripts|logo|stylesheets)/.*'
+            'docs/user-guide/[^/]+\.md'
+          )
+          pattern="($(IFS='|'; echo "${ignored[*]}"))"
+          # A deleted or renamed file counts under its old and its new paths
+          files=$(git diff --name-only --no-renames HEAD^1 HEAD)
+          relevant=$(printf '%s\n' "${files}" | grep -v -x -E "${pattern}" || true)
+          if [ -n "${relevant}" ]; then
+            printf 'Changed files that can affect the tests:\n%s\n' "${relevant}"
+            echo "tests=true" >> "$GITHUB_OUTPUT"
+          else
+            printf 'No changed file can affect the tests, which are skipped:\n%s\n' "${files}"
+            echo "tests=false" >> "$GITHUB_OUTPUT"
+          fi
+
   test:
     name: Run tests on Python ${{ matrix.python.version }}${{ matrix.suffix }}
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -71,13 +120,21 @@ jobs:
             extras: "--extra cpu"
             suffix: ", without s2fft"
 
+    # The required checks are named after the matrix, which is not expanded when the job is
+    # skipped: the jobs always run, and skip their steps when no change can affect the tests.
     steps:
+      - name: Skip the tests
+        if: needs.changes.outputs.tests != 'true'
+        run: echo "No file changed by the pull request can affect the tests."
+
       - name: Checkout project
+        if: needs.changes.outputs.tests == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Install uv and set up environment
+        if: needs.changes.outputs.tests == 'true'
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.19"
@@ -85,6 +142,7 @@ jobs:
           python-version: ${{ matrix.python.version }}
 
       - name: Install dependencies
+        if: needs.changes.outputs.tests == 'true'
         env:
           EXTRAS: ${{ matrix.extras }}
         # EXTRAS holds several options: it is split into words on purpose
@@ -93,6 +151,7 @@ jobs:
       # Override the locked JAX version. The following steps use --no-sync, so that uv run
       # does not reinstall the locked version.
       - name: Install JAX ${{ matrix.python.jax }}
+        if: needs.changes.outputs.tests == 'true'
         env:
           JAX_SPEC: ${{ matrix.python.jax }}
         run: |
@@ -105,6 +164,7 @@ jobs:
       # own cache.
       - name: Configure the compilation cache of JAX
         id: jax-cache-config
+        if: needs.changes.outputs.tests == 'true'
         env:
           VARIANT: ${{ matrix.extras == '--extra cpu' && 'cpu' || 'cpu-gpu' }}
           PYTHON_VERSION: ${{ matrix.python.version }}
@@ -120,6 +180,7 @@ jobs:
       # the job is restored, and the programs that did not change are not compiled again.
       - name: Restore the compilation cache of JAX
         id: jax-cache
+        if: needs.changes.outputs.tests == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.JAX_COMPILATION_CACHE_DIR }}
@@ -130,6 +191,7 @@ jobs:
       # tests: a runner that runs out of memory stops without a log. The number of entries of
       # the compilation cache, before and after the tests, tells how many programs were compiled.
       - name: Run tests
+        if: needs.changes.outputs.tests == 'true'
         run: |
           grep -m 1 'model name' /proc/cpuinfo
           free -m
@@ -139,13 +201,13 @@ jobs:
           uv run --no-sync pytest -vv -n auto -m "not slow"
 
       - name: Show the peak memory used during the tests
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.changes.outputs.tests == 'true' }}
         run: |
           echo "Peak memory used: $(sort -n "${RUNNER_TEMP}/memory.log" | tail -n 1) MB"
           echo "Entries of the compilation cache: $(find "${JAX_COMPILATION_CACHE_DIR}" -type f | wc -l)"
 
       - name: Save the compilation cache of JAX
-        if: ${{ !cancelled() && steps.jax-cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && needs.changes.outputs.tests == 'true' && steps.jax-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.JAX_COMPILATION_CACHE_DIR }}
