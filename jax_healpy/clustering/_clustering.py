@@ -42,14 +42,11 @@ def call_back_check(n_regions: Array, max_centroids: None) -> None:
         If `n_regions` exceeds `max_centroids`.
     """
     if max_centroids is not None and n_regions > max_centroids:
-        raise RuntimeError("""
-            In function [get_clusters] in the comp_sep module:
-            Number of regions (n_regions) is greater than max_centroids.
-            Either:
-            - Increase max_centroids.
-            - Set max_centroids to None, but n_regions will have
-              to be static and can no longer be a tracer.
-            """)
+        raise RuntimeError(
+            f'find_kmeans_clusters: n_regions ({int(n_regions)}) is greater than max_centroids '
+            f'({int(max_centroids)}). Increase max_centroids, or set it to None, in which case '
+            'n_regions must be a Python integer, not a traced value.'
+        )
 
 
 @jax.jit(static_argnums=(2))

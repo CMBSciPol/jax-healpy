@@ -94,6 +94,23 @@ def test_kmeans_jit(mask: tuple[str, Array]) -> None:
         jit_clusters(mask, indices, 20)
 
 
+@pytest.mark.parametrize('jit', [False, True], ids=['eager', 'jit'])
+def test_kmeans_too_many_regions(jit: bool) -> None:
+    nside = 4
+    mask = jnp.ones(jhp.nside2npix(nside))
+    (indices,) = jnp.where(mask == 1)
+    key = jax.random.key(0)
+
+    def clusters(n_regions):
+        return find_kmeans_clusters(mask, indices, n_regions, key, max_centroids=10)
+
+    if jit:
+        clusters = jax.jit(clusters)
+    message = r'find_kmeans_clusters: n_regions \(20\) is greater than max_centroids \(10\)\. Increase'
+    with pytest.raises(RuntimeError, match=message):
+        clusters(20)
+
+
 def test_cutout_and_reconstruct(mask: tuple[str, Array], nside: int) -> None:
     _name, mask = mask
 
