@@ -6,6 +6,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/jax-healpy)](https://pypi.org/project/jax-healpy/)
 [![Python versions](https://img.shields.io/pypi/pyversions/jax-healpy)](https://pypi.org/project/jax-healpy/)
 [![License](https://img.shields.io/pypi/l/jax-healpy)](https://github.com/CMBSciPol/jax-healpy/blob/main/LICENSE)
+[![DOI](https://zenodo.org/badge/1144141842.svg)](https://zenodo.org/badge/latestdoi/1144141842)
 
 **jax-healpy** is a JAX-based implementation of the [HEALPix](https://healpix.sourceforge.io/)
 (Hierarchical Equal Area isoLatitude Pixelization) functions, designed for high-performance
