@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The error that `find_kmeans_clusters` raises when `n_regions` exceeds `max_centroids` names the function and gives both values, instead of a `get_clusters` function and a `comp_sep` module that are not in jax-healpy (#102)
+
 ## [0.9.0] - 2026-11-17
 
 ### Added
