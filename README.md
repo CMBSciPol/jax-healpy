@@ -9,6 +9,7 @@ This project provides a comprehensive JAX-native implementation of HEALPix (Hier
 [![License](https://img.shields.io/github/license/CMBSciPol/jax-healpy)](https://github.com/CMBSciPol/jax-healpy/blob/main/LICENSE)
 [![CI](https://github.com/CMBSciPol/jax-healpy/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/CMBSciPol/jax-healpy/actions/workflows/ci.yml?query=branch%3Amain)
 [![Documentation](https://img.shields.io/readthedocs/jax-healpy/latest)](https://jax-healpy.readthedocs.io/en/latest/)
+[![DOI](https://zenodo.org/badge/1144141842.svg)](https://zenodo.org/badge/latestdoi/1144141842)
 
 ## Key Features
 
