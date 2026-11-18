@@ -21,7 +21,7 @@ nav = [
   { "User Guide" = [
       "user-guide/installation.md",
       "user-guide/getting-started.md",
-      "user-guide/migrating-from-healpy.md",
+      "user-guide/differences-from-healpy.md",
       "user-guide/pixelization.md",
       "user-guide/polarization.md",
       "user-guide/inference.md",
@@ -47,6 +47,10 @@ extra_javascript = [
     "javascripts/mathjax.js",
     "https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"
 ]
+
+# Pages that moved: the old URL redirects to the new page.
+[project.plugins.redirects.redirect_maps]
+"user-guide/migrating-from-healpy.md" = "user-guide/differences-from-healpy.md"
 
 [project.plugins.mkdocstrings.handlers.python]
 inventories = [
