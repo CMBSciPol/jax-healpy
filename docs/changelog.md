@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-17
+
 ### Added
 
 - `method='ducc0'`: the spherical harmonic transforms are computed by the C++ library ducc0, on all the physical cores of the CPU (or as many threads as `DUCC0_NUM_THREADS` or `OMP_NUM_THREADS` sets). On CPU, they are two to three orders of magnitude faster than the transforms of s2fft, and they can be compiled, batched and differentiated like them. This backend is the default one on CPU, including within `jax.default_device` on a machine with a GPU, when ducc0 is installed, which the new `cpu` extra does: `pip install "jax-healpy[cpu]"` (#66)
@@ -166,7 +168,8 @@ Initial tagged release.
 - `nside2npix`, `npix2nside`, `nside2order`, `order2nside`, `order2npix`, `npix2order`, `nside2resol` and `nside2pixarea`
 - `isnsideok`, `isnpixok` and `maptype`
 
-[unreleased]: https://github.com/CMBSciPol/jax-healpy/compare/v0.8.2...HEAD
+[unreleased]: https://github.com/CMBSciPol/jax-healpy/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/CMBSciPol/jax-healpy/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/CMBSciPol/jax-healpy/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/CMBSciPol/jax-healpy/compare/v0.8...v0.8.1
 [0.8]: https://github.com/CMBSciPol/jax-healpy/compare/v0.7.1...v0.8
