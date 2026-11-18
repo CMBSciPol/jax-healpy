@@ -6,10 +6,19 @@ set -e
 # Execute the notebooks and convert them to the Markdown pages the nav references. They
 # run in parallel, one process per notebook, which halves the time of this step where at
 # least 4 cores are available. At most 4 processes, to bound the memory.
+# The kernels communicate over Unix domain sockets (IPC) rather than TCP: a kernel
+# manager picks free TCP ports and releases them before the kernel binds them, and in
+# between, a kernel started in parallel can take one ("Address already in use"). The
+# sockets of a kernel are named after its notebook, in a temporary directory, since
+# their default name, kernel-ipc-N in the current directory, is the same for all.
 jobs=$(nproc)
 [ "$jobs" -gt 4 ] && jobs=4
+sockets=$(mktemp -d)
+trap 'rm -rf "$sockets"' EXIT
 echo "Executing the notebooks with $jobs processes"
-printf '%s\n' docs/user-guide/*.ipynb | xargs -P "$jobs" -n 1 jupyter nbconvert --to markdown --execute
+printf '%s\n' docs/user-guide/*.ipynb | xargs -P "$jobs" -n 1 sh -c '
+    jupyter nbconvert --to markdown --execute --KernelManager.transport=ipc \
+        --KernelManager.ip="$0/$(basename "$1" .ipynb)" "$1"' "$sockets"
 
 zensical build
 
