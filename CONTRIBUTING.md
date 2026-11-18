@@ -109,3 +109,26 @@ Read the Docs also builds the site of each pull request: the link is in its chec
   ending with the number of the pull request, as in `(#54)`.
 - The description links the issue that the pull request closes (`Closes #<number>`), and says
   what was run to check the change, and what was not.
+
+## Releasing
+
+The changes of a release are dated in the changelog before the release is tagged, in a pull
+request `chore: release vX.Y.Z` that only changes `docs/changelog.md`:
+
+- the changes listed under `[Unreleased]` move to a section `## [X.Y.Z] - YYYY-MM-DD`, under an
+  empty `## [Unreleased]` section;
+- at the bottom of the file, the link of `[unreleased]` compares `vX.Y.Z` with `HEAD`, and a new
+  link `[X.Y.Z]` compares the previous tag with `vX.Y.Z`.
+
+Once the pull request is merged, create the release `vX.Y.Z` on GitHub, with a new tag on
+`main`. The `Release to PyPI` workflow publishes the package to PyPI. It fails, and publishes
+nothing, if the changelog of the tag has no section for the version.
+
+If the release is created before the changelog is dated, the workflow fails and publishes
+nothing, but the release and its tag exist. Delete them, date the changelog, then create the
+release again, with the same version:
+
+```bash
+gh release delete vX.Y.Z --cleanup-tag --yes
+git tag -d vX.Y.Z  # if the tag was fetched
+```

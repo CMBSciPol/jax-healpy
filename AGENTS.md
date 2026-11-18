@@ -89,3 +89,15 @@ Always create pull requests using the GitHub CLI `gh`:
 After each push, follow the CI with `gh pr checks <number> --watch` and fix what fails.
 
 A pull request holds a single commit, whose subject is the PR title. Each revision amends it (`git commit --amend`) and is pushed with `git push --force-with-lease`: the message is updated to describe the whole final change, and the PR description is kept in step with it. The merge can then be done from the GitHub interface, which takes that message as it is. Never merge a pull request, unless instructed to do so, and never push to `main`. Once a pull request is merged, remove the local branch and the associated worktree, then switch to main and pull the changes.
+
+
+## Releases
+"Create the release vX.Y.Z" (« créer la release vX.Y.Z ») is the instruction to carry out the steps below, the merge of the release pull request and the publication included. Stop and ask when a check fails.
+
+1. **Check the version.** After a `git fetch --tags`, the tag `vX.Y.Z` does not exist yet, and `X.Y.Z` follows the latest tag. The changes under `[Unreleased]` in `docs/changelog.md` are not empty and match the version, by Semantic Versioning: a patch release holds only fixes, and while the major version is 0, a breaking change bumps the minor version. No file holds the version of the package: hatch-vcs takes it from the tag.
+2. **Date the changelog**, in a pull request `chore: release vX.Y.Z`, from the branch `chore/release-vX.Y.Z`, that only changes `docs/changelog.md`:
+   - the changes under `[Unreleased]` move to a section `## [X.Y.Z] - YYYY-MM-DD`, dated today, under an empty `## [Unreleased]` section;
+   - at the bottom of the file, the link of `[unreleased]` compares `vX.Y.Z` with `HEAD`, and a new link `[X.Y.Z]` compares the previous tag with `vX.Y.Z`.
+3. **Merge it** once the CI passes, as a squash whose subject is that of the commit followed by the PR number, and whose body is that of the commit: `gh pr merge <number> --squash --subject '<subject> (#<number>)' --body-file <body>`.
+4. **Create the release** on the merge commit, given by its full SHA, with the GitHub CLI: `gh release create vX.Y.Z --target <sha> --title 'Jax-healpy vX.Y.Z' --notes-file <notes>`, the notes being the section of the version in the changelog, without its heading. The release creates the tag, and starts the `Release to PyPI` workflow.
+5. **Follow the workflow** until it ends, then check that the version is on PyPI. If it fails, report it, and leave the release and its tag: deleting them is the human's decision. `CONTRIBUTING.md` describes how to recover.
