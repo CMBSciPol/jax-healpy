@@ -958,7 +958,7 @@ def _pix2i_cap_ring(nside: int, pixels: ArrayLike) -> Array:
     ncap = 2 * nside * (nside - 1)
     arg = jnp.where(pixels < ncap, 1 + 2 * pixels, 2 * (npixel - pixels) - 1)
     # cast to float before sqrt so it follows the x64 flag regardless of pixels dtype
-    return (1 + jnp.sqrt(arg.astype(float)).astype(int)) >> 1
+    return (1 + jnp.sqrt(arg.astype(float)).astype(arg.dtype)) >> 1
 
 
 def _pix2i_equatorial_region_ring(nside: int, pixels: ArrayLike) -> Array:
@@ -1566,6 +1566,8 @@ def pix2loc(nside: int, ipix: ArrayLike, nest: bool = False) -> tuple[Array, Arr
 def _pix2loc_ring(nside: int, pixels: ArrayLike) -> tuple[Array, Array, Array]:
     npixel = nside2npix(nside)
     ncap = 2 * nside * (nside - 1)
+    # int32 when nside allows: AVX2 has no vector conversion between int64 and float64
+    pixels = jnp.asarray(pixels).astype(_pixel_dtype_for(nside))
     # in the polar caps, iring is counted from the closest pole
     iring = _pix2i_ring(nside, pixels)
     z, sin_theta = _ring2z(nside, iring, iring, pixels < ncap, pixels >= npixel - ncap)
