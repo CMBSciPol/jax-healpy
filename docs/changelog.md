@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `pix2loc`, `pix2ang` and `pix2vec` in the RING ordering compute on 32-bit pixel indices when `nside` allows it, as in the NESTED ordering: under x64, on a CPU without AVX-512, `pix2loc` runs up to three times faster (#108)
+
 ### Fixed
 
 - The error that `find_kmeans_clusters` raises when `n_regions` exceeds `max_centroids` names the function and gives both values, instead of a `get_clusters` function and a `comp_sep` module that are not in jax-healpy (#102)
